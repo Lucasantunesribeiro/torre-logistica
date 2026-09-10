@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TorreLogistica.Api/TorreLogistica.Api.csproj" />
+    <Project Path="src/TorreLogistica.Application/TorreLogistica.Application.csproj" />
+    <Project Path="src/TorreLogistica.Domain/TorreLogistica.Domain.csproj" />
+    <Project Path="src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj" />
+    <Project Path="src/TorreLogistica.Simulator/TorreLogistica.Simulator.csproj" />
+    <Project Path="src/TorreLogistica.Workers/TorreLogistica.Workers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TorreLogistica.ArchitectureTests/TorreLogistica.ArchitectureTests.csproj" />
+    <Project Path="tests/TorreLogistica.IntegrationTests/TorreLogistica.IntegrationTests.csproj" />
+    <Project Path="tests/TorreLogistica.UnitTests/TorreLogistica.UnitTests.csproj" />
+  </Folder>
+</Solution>

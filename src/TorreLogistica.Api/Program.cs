@@ -1,0 +1,160 @@
+using System.Diagnostics;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Serilog;
+using TorreLogistica.Api.Correlacao;
+using TorreLogistica.Api.Diagnostico;
+using TorreLogistica.Api.Erros;
+using TorreLogistica.Api.Seguranca;
+using TorreLogistica.Application;
+using TorreLogistica.Application.Abstracoes.Correlacao;
+using TorreLogistica.Infrastructure;
+
+// Logger provisório: garante que uma falha durante a própria construção do host
+// ainda apareça em algum lugar, em vez de morrer silenciosamente.
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
+
+try
+{
+    var construtor = WebApplication.CreateBuilder(args);
+
+    construtor.Host.UseSerilog((contexto, provedor, configuracao) => configuracao
+        .ReadFrom.Configuration(contexto.Configuration)
+        .ReadFrom.Services(provedor)
+        .Enrich.FromLogContext());
+
+    construtor.WebHost.ConfigureKestrel(kestrel =>
+    {
+        // Versão e nome do servidor só interessam a quem procura alvo.
+        kestrel.AddServerHeader = false;
+
+        // Limite de corpo deliberadamente baixo: esta API troca JSON. Arquivo de
+        // comprovante sobe direto para o storage por URL assinada (Fase 14).
+        kestrel.Limits.MaxRequestBodySize = 1 * 1024 * 1024;
+    });
+
+    construtor.Services.AddHttpContextAccessor();
+    construtor.Services.AddSingleton<IContextoDeCorrelacao, ContextoDeCorrelacaoHttp>();
+
+    construtor.Services.AddProblemDetails(opcoes =>
+        opcoes.CustomizeProblemDetails = contexto =>
+        {
+            var http = contexto.HttpContext;
+
+            contexto.ProblemDetails.Instance ??= $"{http.Request.Method} {http.Request.Path}";
+            contexto.ProblemDetails.Extensions["traceId"] =
+                Activity.Current?.Id ?? http.TraceIdentifier;
+
+            if (http.Items.TryGetValue(CorrelacaoHttp.ChaveNoContexto, out var correlacao)
+                && correlacao is string idDeCorrelacao)
+            {
+                contexto.ProblemDetails.Extensions["idDeCorrelacao"] = idDeCorrelacao;
+            }
+        });
+
+    // A ordem importa: o manipulador específico decide antes do genérico.
+    construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoDeDominio>();
+    construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoNaoTratada>();
+
+    construtor.Services
+        .AddOptions<OpcoesDeCors>()
+        .Bind(construtor.Configuration.GetSection(OpcoesDeCors.Secao));
+
+    construtor.Services.AddCors();
+
+    // A política é montada a partir das opções resolvidas pela DI, e não de uma
+    // leitura direta da configuração aqui. Ler agora congelaria o valor antes de as
+    // demais fontes de configuração do ambiente entrarem em vigor.
+    construtor.Services
+        .AddOptions<CorsOptions>()
+        .Configure<IOptions<OpcoesDeCors>>((cors, opcoesDaTorre) =>
+            cors.AddPolicy(OpcoesDeCors.NomeDaPolitica, politica =>
+            {
+                var origens = opcoesDaTorre.Value.OrigensPermitidas;
+
+                // Sem origem configurada para o ambiente, nada é liberado. Falha fechada.
+                if (origens.Count == 0)
+                {
+                    return;
+                }
+
+                politica
+                    .WithOrigins([.. origens])
+                    .WithHeaders("Content-Type", "Authorization", CorrelacaoHttp.NomeDoCabecalho)
+                    .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .WithExposedHeaders(CorrelacaoHttp.NomeDoCabecalho)
+                    .AllowCredentials();
+            }));
+
+    construtor.Services.AddOpenApi();
+
+    construtor.Services.AdicionarCamadaDeApplication();
+    construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
+
+    var aplicacao = construtor.Build();
+
+    var migrationsAplicadas = await ConfiguracaoDeServicosDaInfrastructure
+        .AplicarMigrationsSeConfiguradoAsync(aplicacao.Services)
+        .ConfigureAwait(false);
+
+    if (migrationsAplicadas)
+    {
+        Log.Information("Migrations pendentes aplicadas durante a inicialização da API.");
+    }
+
+    aplicacao.UseMiddleware<MiddlewareDeCabecalhosDeSeguranca>();
+    aplicacao.UseMiddleware<MiddlewareDeCorrelacao>();
+
+    if (!aplicacao.Environment.IsDevelopment())
+    {
+        aplicacao.UseHsts();
+    }
+
+    aplicacao.UseSerilogRequestLogging(opcoes =>
+        opcoes.EnrichDiagnosticContext = (diagnostico, http) =>
+        {
+            if (http.Items.TryGetValue(CorrelacaoHttp.ChaveNoContexto, out var correlacao)
+                && correlacao is string idDeCorrelacao)
+            {
+                diagnostico.Set("IdDeCorrelacao", idDeCorrelacao);
+            }
+        });
+
+    // Antes do tratamento de erro: assim a resposta de falha também sai com os
+    // cabeçalhos de CORS e o navegador consegue ler o motivo em vez de um erro opaco.
+    aplicacao.UseCors(OpcoesDeCors.NomeDaPolitica);
+
+    aplicacao.UseExceptionHandler();
+    aplicacao.UseStatusCodePages();
+
+    if (aplicacao.Environment.IsDevelopment())
+    {
+        aplicacao.MapOpenApi();
+    }
+
+    aplicacao.MapearEndpointsDeSaude();
+
+    await aplicacao.RunAsync().ConfigureAwait(false);
+    return 0;
+}
+// O filtro é obrigatório: WebApplicationFactory e as ferramentas do EF Core
+// interrompem o Main de propósito depois que o host é construído. Sem ele, um
+// catch genérico transformaria essa interrupção normal em "falha na inicialização".
+catch (Exception excecao) when (excecao is not HostAbortedException
+                                && excecao.GetType().Name != "StopTheHostException")
+{
+    Log.Fatal(excecao, "A API encerrou por falha durante a inicialização.");
+    return 1;
+}
+finally
+{
+    await Log.CloseAndFlushAsync().ConfigureAwait(false);
+}
+
+/// <summary>
+/// Exposto para que os testes de integração possam hospedar a API real.
+/// </summary>
+public partial class Program;

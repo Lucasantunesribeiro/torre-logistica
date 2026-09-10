@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Torre Logística — arquivos que nunca entram no repositório
+# ---------------------------------------------------------------------------
+
+# Build .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+*.userprefs
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+.eslintcache
+vitest-report/
+playwright-report/
+
+# Ambiente e segredos — nunca versionar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+
+# Sistema operacional
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Ferramentas locais
+*.log
+.docker-data/

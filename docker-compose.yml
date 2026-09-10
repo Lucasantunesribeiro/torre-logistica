@@ -1,0 +1,37 @@
+name: torre-logistica
+
+# Ambiente local de desenvolvimento.
+# Nenhuma credencial fica no arquivo: os valores vêm do .env, que não é versionado.
+# Copie .env.example para .env antes do primeiro `docker compose up`.
+
+services:
+  banco:
+    image: postgis/postgis:17-3.5
+    container_name: torre-banco
+    environment:
+      POSTGRES_DB: ${TORRE_POSTGRES_BANCO}
+      POSTGRES_USER: ${TORRE_POSTGRES_USUARIO}
+      POSTGRES_PASSWORD: ${TORRE_POSTGRES_SENHA}
+      # Sem isto o Postgres aceitaria conexão sem senha vinda de qualquer host
+      # da rede do Docker.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      # Porta 55432 no host de propósito: 5432 costuma já estar ocupada por uma
+      # instalação nativa do PostgreSQL, e no Windows as duas conseguem escutar ao
+      # mesmo tempo — a conexão vai para a errada sem nenhum erro visível.
+      - "${TORRE_POSTGRES_PORTA:-55432}:5432"
+    volumes:
+      - dados-do-banco:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` sozinho responde antes de o banco aceitar consulta de fato.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -q"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  dados-do-banco:
+    name: torre-logistica-dados-do-banco

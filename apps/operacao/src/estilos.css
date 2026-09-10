@@ -1,0 +1,84 @@
+/*
+  Base visual mínima e comum às três aplicações.
+  A identidade do console operacional é assunto da Fase 18; aqui só existe o
+  suficiente para uma tela legível não parecer um rascunho quebrado.
+*/
+:root {
+  --tinta: #10161f;
+  --tinta-fraca: #5b6675;
+  --fundo: #f5f6f8;
+  --superficie: #ffffff;
+  --borda: #d9dde3;
+  --bom: #1c7c45;
+  --atencao: #9a6200;
+  --ruim: #a5201c;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--tinta);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 0.25rem;
+}
+
+.sumario {
+  color: var(--tinta-fraca);
+  margin: 0 0 1.5rem;
+}
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.conexao {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.conexao__marca {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--tinta-fraca);
+  flex: none;
+}
+
+.conexao--pronta .conexao__marca {
+  background: var(--bom);
+}
+
+.conexao--indisponivel .conexao__marca {
+  background: var(--atencao);
+}
+
+.conexao--inalcancavel .conexao__marca {
+  background: var(--ruim);
+}
+
+.fases {
+  margin: 1.5rem 0 0;
+  padding-left: 1.25rem;
+  color: var(--tinta-fraca);
+}

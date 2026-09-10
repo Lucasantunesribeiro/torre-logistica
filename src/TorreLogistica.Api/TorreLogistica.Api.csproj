@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Composition root HTTP: console operacional, PWA e rastreamento público. -->
+
+  <PropertyGroup>
+    <RootNamespace>TorreLogistica.Api</RootNamespace>
+    <UserSecretsId>torre-logistica-api</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TorreLogistica.Application\TorreLogistica.Application.csproj" />
+    <ProjectReference Include="..\TorreLogistica.Infrastructure\TorreLogistica.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TorreLogistica.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

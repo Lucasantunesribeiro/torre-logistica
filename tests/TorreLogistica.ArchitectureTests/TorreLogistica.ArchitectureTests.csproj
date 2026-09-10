@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>TorreLogistica.ArchitectureTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/TorreLogistica.Api/TorreLogistica.Api.csproj" />
+    <ProjectReference Include="../../src/TorreLogistica.Application/TorreLogistica.Application.csproj" />
+    <ProjectReference Include="../../src/TorreLogistica.Domain/TorreLogistica.Domain.csproj" />
+    <ProjectReference Include="../../src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

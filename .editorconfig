@@ -1,0 +1,71 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{cs,csx}]
+indent_size = 4
+
+[*.{csproj,props,targets,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# Organização de usings
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:warning
+
+# Estilo moderno esperado no projeto
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_prefer_primary_constructors = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_readonly_field = true:warning
+
+# Nomenclatura
+dotnet_naming_rule.interfaces_should_start_with_i.severity = warning
+dotnet_naming_rule.interfaces_should_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_should_start_with_i.style = prefixed_with_i
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_style.prefixed_with_i.required_prefix = I
+dotnet_naming_style.prefixed_with_i.capitalization = pascal_case
+
+# Regras que atrapalham mais do que ajudam neste projeto
+# CA1848: uso de LoggerMessage source-generated em todo log — exagero fora de hot path.
+dotnet_diagnostic.CA1848.severity = none
+# CA1031: catch genérico é legítimo em middleware de borda, onde é usado com telemetria.
+dotnet_diagnostic.CA1031.severity = none
+# CA1303: literais de log em português não passam por recurso localizado.
+dotnet_diagnostic.CA1303.severity = none
+# CA1710: exige sufixo 'Exception'/'Collection' em inglês. O domínio deste projeto
+# é escrito em português por decisão registrada no CLAUDE.md; 'ExcecaoDeDominio'
+# é o nome correto aqui. A regra continua valendo para tipos de infraestrutura.
+dotnet_diagnostic.CA1710.severity = none
+
+[*.{ts,tsx,js,jsx,json,yml,yaml}]
+indent_size = 2
+
+# ---------------------------------------------------------------------------
+# Migrations do EF Core são geradas por ferramenta. Aplicar a elas as regras de
+# estilo escritas para código humano só produziria edição manual repetida a cada
+# `dotnet ef migrations add` — e código gerado que alguém edita à mão deixa de
+# ser confiável. O conteúdo continua sendo revisado; o formato, não.
+# ---------------------------------------------------------------------------
+[**/Persistencia/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.IDE0005.severity = none
+dotnet_diagnostic.CA1861.severity = none

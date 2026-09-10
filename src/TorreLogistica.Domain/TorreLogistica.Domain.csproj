@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Núcleo do domínio.
+
+    Este projeto NÃO pode referenciar ASP.NET Core, EF Core, Npgsql, SignalR,
+    AWS SDK ou qualquer outro pacote de infraestrutura. A regra é verificada
+    automaticamente por TorreLogistica.ArchitectureTests.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>TorreLogistica.Domain</RootNamespace>
+  </PropertyGroup>
+
+</Project>

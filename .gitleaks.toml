@@ -1,0 +1,39 @@
+# Configuração da varredura de segredos (gitleaks) usada pela CI.
+#
+# Parte das regras padrão e acrescenta apenas exceções comprovadamente inofensivas.
+# Toda exceção precisa dizer por que o valor não é um segredo — exceção sem
+# justificativa é o começo de uma varredura que ninguém mais lê.
+
+title = "Torre Logística — varredura de segredos"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Exceções justificadas"
+
+paths = [
+  # Arquivo de modelo: documenta nomes de variável, com valores marcados como
+  # substituíveis ("troque_esta_senha_local"). Nenhum valor real.
+  '''^\.env\.example$''',
+
+  # Pacotes restaurados e saída de build não são código do repositório.
+  '''node_modules/''',
+  '''(^|/)(bin|obj|dist)/''',
+]
+
+# Lacuna conhecida: a configuração padrão do gitleaks ignora `package-lock.json`,
+# e por isso ele NÃO é coberto por esta varredura — confirmado comparando os bytes
+# lidos (310 KB) com o total versionado (447 KB), diferença igual ao tamanho do
+# arquivo. Este projeto não usa registry privado (`.npmrc` ausente, todas as
+# resoluções apontam para registry.npmjs.org), então não há credencial a vazar ali.
+# Se um registry autenticado entrar no projeto, esta lacuna precisa ser fechada.
+
+regexes = [
+  # Marcadores de valor a ser preenchido.
+  '''troque_esta_senha_local''',
+
+  # Interpolação de variável de ambiente no docker-compose: o valor vem do `.env`
+  # local, que não é versionado.
+  '''\$\{TORRE_[A-Z_]+\}''',
+]
