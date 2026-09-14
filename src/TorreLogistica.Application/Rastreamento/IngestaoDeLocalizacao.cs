@@ -67,8 +67,9 @@ public sealed record ResultadoDoLote(
 /// aplicativo sabe exatamente o que reenviar e o que descartar.
 /// </para>
 /// <para>
-/// O lote grava numa transação. Se ela falhar, o aplicativo reenvia o lote inteiro — e o que já
-/// tinha sido gravado numa tentativa confirmada volta como duplicata, sem efeito repetido.
+/// O lote grava numa transação, junto com as transições de geofence que ele provocar. Se um comando
+/// do motorista alterar a mesma entrega ao mesmo tempo, a transação é desfeita e refeita inteira
+/// com o estado novo — sem duplicar posição nem transição.
 /// </para>
 /// </remarks>
 public sealed class IngestaoDeLocalizacao(
@@ -76,9 +77,12 @@ public sealed class IngestaoDeLocalizacao(
     IContextoDoUsuario usuarioAtual,
     IGeradorDeIdentificador identificadores,
     IRelogio relogio,
+    AvaliacaoDeGeofence geofence,
     MetricasDeRastreamento metricas,
     ILogger<IngestaoDeLocalizacao> log)
 {
+    private const int TentativasEmConflito = 3;
+
     /// <summary>Recebe as posições enviadas pelo motorista da sessão.</summary>
     public async Task<ResultadoDoLote> ReceberAsync(IReadOnlyList<PosicaoEnviada> enviadas, CancellationToken cancelamento)
     {
@@ -107,44 +111,29 @@ public sealed class IngestaoDeLocalizacao(
             .Select(rota => new JanelaDeExecucaoDaRota(rota.Id, rota.IniciadaEm!.Value, rota.ConcluidaEm))
             .ToList();
 
-        var itens = await contexto.ExecutarEmTransacaoAsync(
-            async cancelamentoDaTentativa =>
+        List<(ResultadoDePosicaoResumo Resumo, DateTimeOffset? CapturadaEm)>? itens = null;
+
+        for (var tentativa = 1; itens is null; tentativa++)
+        {
+            try
             {
-                await contexto.SerializarRastreamentoDoMotoristaAsync(motorista.Id, cancelamentoDaTentativa).ConfigureAwait(false);
-
-                var resultados = new List<(ResultadoDePosicaoResumo Resumo, DateTimeOffset? CapturadaEm)>(enviadas.Count);
-
-                foreach (var enviada in enviadas)
-                {
-                    PosicaoDoMotorista posicao;
-                    try
-                    {
-                        posicao = Avaliar(enviada, motorista.Id, motorista.OrganizacaoId, recebidaEm, janelas);
-                    }
-                    catch (ExcecaoDeDominio recusa)
-                    {
-                        resultados.Add((new ResultadoDePosicaoResumo(
-                            enviada.EventoDeLocalizacaoId, ResultadoDaPosicao.Rejeitada, null, false, false, recusa.Codigo), null));
-                        continue;
-                    }
-
-                    var gravacao = await contexto.RegistrarPosicaoAsync(posicao, cancelamentoDaTentativa).ConfigureAwait(false);
-
-                    resultados.Add(gravacao.Inserida
-                        ? (new ResultadoDePosicaoResumo(
-                            posicao.EventoDeLocalizacaoId,
-                            ResultadoDaPosicao.Aceita,
-                            posicao.Qualidade,
-                            ForaDeOrdem: posicao.Qualidade == QualidadeDaPosicao.Confiavel && !gravacao.AtualizouPosicaoAtual,
-                            gravacao.AtualizouPosicaoAtual,
-                            null), posicao.CapturadaEm)
-                        : (new ResultadoDePosicaoResumo(
-                            posicao.EventoDeLocalizacaoId, ResultadoDaPosicao.Duplicada, null, false, false, null), null));
-                }
-
-                return resultados;
-            },
-            cancelamento).ConfigureAwait(false);
+                itens = await GravarAsync(enviadas, motorista.Id, motorista.OrganizacaoId, recebidaEm, janelas, cancelamento).ConfigureAwait(false);
+            }
+            catch (DbUpdateException excecao) when (EhConflitoConcorrente(excecao) && tentativa < TentativasEmConflito)
+            {
+                // Um comando do motorista alterou a mesma entrega durante o lote. A transação foi
+                // desfeita; refazer com o estado novo não duplica nada.
+                log.LogDebug(excecao, "Lote do motorista {MotoristaId} refeito após conflito, tentativa {Tentativa}.", motorista.Id, tentativa);
+            }
+            catch (DbUpdateException excecao) when (EhConflitoConcorrente(excecao))
+            {
+                throw new ExcecaoDeDominio(
+                    "conflito_de_versao",
+                    "A entrega foi alterada ao mesmo tempo repetidas vezes. Reenvie o lote.",
+                    CategoriaDeErroDeDominio.Conflito,
+                    excecao);
+            }
+        }
 
         // Métricas depois da confirmação: uma tentativa desfeita não conta.
         metricas.Registrar(itens, recebidaEm);
@@ -163,6 +152,70 @@ public sealed class IngestaoDeLocalizacao(
 
         return lote;
     }
+
+    /// <summary>
+    /// Conflito com outra gravação da mesma entrega. Aparece de duas formas: versão da linha
+    /// divergente, ou — quando o evento da timeline é inserido antes da linha da entrega ser
+    /// atualizada — a sequência do evento já ocupada pela gravação vencedora.
+    /// </summary>
+    private bool EhConflitoConcorrente(DbUpdateException excecao) =>
+        excecao is DbUpdateConcurrencyException
+        || contexto.EhViolacaoDeUnicidade(excecao, NomesDeRestricoes.SequenciaDoEventoDaEntrega);
+
+    private Task<List<(ResultadoDePosicaoResumo Resumo, DateTimeOffset? CapturadaEm)>> GravarAsync(
+        IReadOnlyList<PosicaoEnviada> enviadas,
+        Guid motoristaId,
+        Guid organizacaoId,
+        DateTimeOffset recebidaEm,
+        IReadOnlyCollection<JanelaDeExecucaoDaRota> janelas,
+        CancellationToken cancelamento) =>
+        contexto.ExecutarEmTransacaoAsync(
+            async cancelamentoDaTentativa =>
+            {
+                await contexto.SerializarRastreamentoDoMotoristaAsync(motoristaId, cancelamentoDaTentativa).ConfigureAwait(false);
+                var geofences = await geofence.PrepararAsync(motoristaId, cancelamentoDaTentativa).ConfigureAwait(false);
+
+                var resultados = new List<(ResultadoDePosicaoResumo Resumo, DateTimeOffset? CapturadaEm)>(enviadas.Count);
+
+                foreach (var enviada in enviadas)
+                {
+                    PosicaoDoMotorista posicao;
+                    try
+                    {
+                        posicao = Avaliar(enviada, motoristaId, organizacaoId, recebidaEm, janelas);
+                    }
+                    catch (ExcecaoDeDominio recusa)
+                    {
+                        resultados.Add((new ResultadoDePosicaoResumo(
+                            enviada.EventoDeLocalizacaoId, ResultadoDaPosicao.Rejeitada, null, false, false, recusa.Codigo), null));
+                        continue;
+                    }
+
+                    var gravacao = await contexto.RegistrarPosicaoAsync(posicao, cancelamentoDaTentativa).ConfigureAwait(false);
+
+                    // Só a posição que avançou a posição atual chega à geofence: GPS antigo não decide transição.
+                    if (gravacao.AtualizouPosicaoAtual)
+                    {
+                        await geofence.AvaliarAsync(posicao, geofences, cancelamentoDaTentativa).ConfigureAwait(false);
+                    }
+
+                    resultados.Add(gravacao.Inserida
+                        ? (new ResultadoDePosicaoResumo(
+                            posicao.EventoDeLocalizacaoId,
+                            ResultadoDaPosicao.Aceita,
+                            posicao.Qualidade,
+                            ForaDeOrdem: posicao.Qualidade == QualidadeDaPosicao.Confiavel && !gravacao.AtualizouPosicaoAtual,
+                            gravacao.AtualizouPosicaoAtual,
+                            null), posicao.CapturadaEm)
+                        : (new ResultadoDePosicaoResumo(
+                            posicao.EventoDeLocalizacaoId, ResultadoDaPosicao.Duplicada, null, false, false, null), null));
+                }
+
+                // Estados, eventos de geofence e transições de entrega gravam juntos com as posições.
+                await contexto.SaveChangesAsync(cancelamentoDaTentativa).ConfigureAwait(false);
+                return resultados;
+            },
+            cancelamento);
 
     private PosicaoDoMotorista Avaliar(
         PosicaoEnviada enviada,

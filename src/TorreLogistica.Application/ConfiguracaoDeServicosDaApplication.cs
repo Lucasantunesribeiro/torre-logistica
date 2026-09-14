@@ -45,8 +45,11 @@ public static class ConfiguracaoDeServicosDaApplication
 
         // Métricas são instrumentos do processo: uma instância só.
         servicos.AddSingleton<MetricasDeRastreamento>();
+        servicos.AddSingleton<MetricasDeGeofence>();
+        servicos.AddScoped<AvaliacaoDeGeofence>();
         servicos.AddScoped<IngestaoDeLocalizacao>();
         servicos.AddScoped<ConsultaDeLocalizacao>();
+        servicos.AddScoped<ConsultaDeGeofence>();
 
         return servicos;
     }

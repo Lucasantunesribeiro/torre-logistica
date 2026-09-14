@@ -1557,6 +1557,113 @@ Geofencing deve ser comprovado por testes reais, não mockado.
 
 ---
 
+## Fase 7 concluída — 2026-09-14
+
+### Implementação, item por item
+
+| Pedido | Situação | Onde |
+|---|:---:|---|
+| Pontos geográficos | ✅ | destino da entrega e posições em `geography(Point,4326)` |
+| Distância | ✅ | `ST_Distance` sobre `geography`, em metros no elipsoide WGS 84 |
+| Raio | ✅ | `ST_DWithin` a 300 m; margem de saída a 350 m |
+| Geofence de destino | ✅ | `estados_de_geofence`, uma linha por entrega em execução com coordenada |
+| Detecção `fora → dentro` | ✅ | `EstadoDeGeofence.Avaliar` com os resultados do PostGIS |
+| Registro de entrada | ✅ | `eventos_de_geofence` (entrada e saída, com distância, raio e evento de localização), somente-inserção por trigger |
+| Proteção contra evento repetido enquanto permanece dentro | ✅ | o estado lembra "dentro"; histerese impede entra-e-sai na borda |
+| `EmRota → ProximaDoDestino` quando a regra permitir | ✅ | comando novo `RegistrarProximidade` na máquina de estados, na primeira entrada de entrega em rota |
+| GPS antigo não produz transição retroativa | ✅ | só posição que avançou a posição atual é avaliada, e o estado recusa captura mais antiga que a última avaliada |
+
+### Critério de aceite
+
+> Geofencing deve ser comprovado por testes reais, não mockado.
+
+✅ `GeofenceTestes` roda contra PostgreSQL + PostGIS real. Os pontos de teste são calculados pelo
+próprio PostGIS com `ST_Project`, a distâncias exatas do destino — sem aproximação em graus — e a
+distância e o dentro/fora vêm de `ST_Distance` e `ST_DWithin` sobre `geography`. Nenhuma parte da
+geografia é simulada.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| dentro | `ForaDentroEBordaComGeometriaReal` — 299 m entra, entrega vai a `ProximaDoDestino` |
+| fora | idem — 2 km e 301 m sem evento, entrega `EmRota` |
+| borda | 299 m × 301 m no PostGIS; 350 m × 351 m na margem de saída (unidade) |
+| duplicado | `PermanecerDentroEPosicaoDuplicadaNaoRepetemEntrada` — trinta posições dentro e reenvio: uma entrada, uma proximidade |
+| out-of-order | `PosicaoForaDeOrdemNaoProduzTransicaoRetroativa` — leitura antiga dentro do raio, em envio separado e no mesmo lote: nenhuma transição |
+| geofence de outro tenant | `GeofenceDeOutraOrganizacaoNaoEhAfetadaNemVisivel` — destinos no mesmo ponto em duas organizações: só a do motorista muda; consulta cruzada 404 idêntico ao inexistente |
+| reentrada quando aplicável | `SaidaComMargemEReentrada` — entrada, oscilação dentro da margem, saída, reentrada; entrega transiciona uma vez |
+
+Além do pedido: entrega concluída e sem coordenada não avaliadas; chegada manual e entrada simultâneas
+com uma única transição; eventos de geofence recusando `UPDATE`, `DELETE` e `TRUNCATE`.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 469 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 340 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **880** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 7
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Isolamento na consulta geográfica | ✅ | SQL cru com organização explícita e só entregas do motorista responsável; destino de outra organização no mesmo ponto não é tocado |
+| IDOR na leitura | ✅ | geofence de entrega de outra organização: 404 idêntico ao inexistente |
+| Autorização | ✅ | `GET /api/entregas/{id}/geofence` com `operacao:leitura`; mapa de rotas verificado |
+| Dado pessoal | ✅ | eventos de geofence com distância e raio, sem coordenada; log de transição sem coordenada |
+| Integridade do histórico | ✅ | eventos de geofence somente-inserção no banco |
+| Injeção | ✅ | coordenadas, raio e lista de entregas como parâmetros tipados |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 1,93 MB |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada nos 9 projetos; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+1. **Lote de posições respondia 500 quando o motorista registrava chegada ao mesmo tempo.** Pego
+   pelo teste de concorrência `ChegadaManualEEntradaNaGeofenceSimultaneasTransicionamUmaVez`. As duas
+   gravações inseriam evento na timeline da entrega com a mesma sequência. Como o evento é inserido
+   antes da atualização da linha da entrega, quem perde recebe **violação do índice único da
+   sequência**, e não conflito de versão — e a ingestão só refazia o lote no segundo caso. A ingestão
+   passou a tratar as duas formas como o mesmo conflito concorrente: refaz o lote com o estado novo
+   (até três vezes) e só então responde 409.
+
+### Decisões
+
+[ADR 0016](./docs/adr/0016-geofence-de-destino.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Avaliação na ingestão**, na mesma transação, para cada posição que avança a posição atual.
+- **Distância e raio no PostGIS** (`geography`, `ST_Distance`, `ST_DWithin`), sem cálculo geodésico em C#.
+- **Raio 300 m, saída a 350 m** — histerese contra oscilação na borda; raio gravado em estado e evento.
+- **Entradas e saídas em tabela própria**, fora da timeline da entrega.
+- **Proximidade como comando da máquina de estados**, equivalente à chegada manual e idempotente com ela.
+- **Conflito com comando do motorista refaz o lote**, sem duplicar posição nem transição.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Raio por organização ou cliente | decisão de produto; o raio já é gravado em cada estado e evento |
+| Geofence de hub (saída e retorno ao depósito) | mesmo desenho, quando pedido |
+| Custo de uma consulta PostGIS por posição que avança | dezenas de entregas por motorista; medir na Fase 22 |
+| Detecção de salto impossível entre posições | não implementada; `ST_Distance` já está disponível para ela |
+| Log de erro do EF Core em conflito tratado | continua das fases anteriores — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: geofence de destino com PostGIS e transicao para proxima do destino (Fase 7)`
+
+---
+
 # FASE 8 — TEMPO REAL COM SIGNALR
 
 ## Objetivo
@@ -2911,9 +3018,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 6 — Ingestão de Localização** (2026-09-14) |
-| Próxima fase | **Fase 7 — PostGIS e Geofencing** |
-| Testes verdes | 853 — 452 unidade, 22 arquitetura, 330 integração, 49 frontend |
+| Última fase concluída | **Fase 7 — PostGIS e Geofencing** (2026-09-14) |
+| Próxima fase | **Fase 8 — Tempo Real com SignalR** |
+| Testes verdes | 880 — 469 unidade, 22 arquitetura, 340 integração, 49 frontend |
 
 Comando para continuar:
 

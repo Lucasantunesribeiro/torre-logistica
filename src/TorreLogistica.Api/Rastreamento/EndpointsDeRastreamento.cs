@@ -81,6 +81,11 @@ public static class EndpointsDeRastreamento
                         title: "Requisição inválida"))
             .RequireAuthorization(Politicas.GestaoDaOperacao);
 
+        rotas.MapGet("/api/entregas/{id:guid}/geofence", (Guid id, ConsultaDeGeofence consulta, CancellationToken cancelamento) =>
+                consulta.ObterAsync(id, cancelamento))
+            .WithTags("Rastreamento")
+            .RequireAuthorization(Politicas.LeituraDaOperacao);
+
         return rotas;
     }
 }

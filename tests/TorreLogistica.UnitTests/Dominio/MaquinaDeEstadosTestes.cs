@@ -39,6 +39,7 @@ public sealed class MaquinaDeEstadosDaEntregaTestes
         [ComandoDaEntrega.RegistrarTentativaFrustrada] = "·  ·  ·  TF TF ·  ·  ·  ·",
         [ComandoDaEntrega.Reagendar] = "                ·  ·  ·  ·  ·  ·  Re Re ·",
         [ComandoDaEntrega.Cancelar] = "                 Ca Ca Ca ·  ·  ·  Ca Ca ·",
+        [ComandoDaEntrega.RegistrarProximidade] = "     ·  ·  ·  PD ·  ·  ·  ·  ·",
     };
 
     public static TheoryData<ComandoDaEntrega, StatusDaEntrega, StatusDaEntrega?> Transicoes()

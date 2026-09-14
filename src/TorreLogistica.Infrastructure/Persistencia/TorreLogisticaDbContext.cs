@@ -90,6 +90,63 @@ public class TorreLogisticaDbContext(
     /// <inheritdoc />
     public DbSet<PosicaoAtual> PosicoesAtuais => Set<PosicaoAtual>();
 
+    /// <inheritdoc />
+    public DbSet<EstadoDeGeofence> EstadosDeGeofence => Set<EstadoDeGeofence>();
+
+    /// <inheritdoc />
+    public DbSet<EventoDeGeofence> EventosDeGeofence => Set<EventoDeGeofence>();
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DistanciaAoDestino>> CalcularDistanciasAosDestinosAsync(
+        IReadOnlyCollection<Guid> entregaIds,
+        double latitude,
+        double longitude,
+        double raioEmMetros,
+        double raioDeSaidaEmMetros,
+        CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(entregaIds);
+
+        if (entregaIds.Count == 0)
+        {
+            return [];
+        }
+
+        // geography: distância geodésica em metros sobre o elipsoide WGS 84. Consulta crua não passa
+        // pelo filtro global, então a organização vai explícita na condição.
+        await using var comando = Database.GetDbConnection().CreateCommand();
+        comando.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+        comando.CommandText = """
+            WITH ponto AS (
+                SELECT ST_SetSRID(ST_MakePoint(@longitude, @latitude), 4326)::geography AS localizacao
+            )
+            SELECT
+                entregas.id,
+                ST_Distance(entregas.localizacao, ponto.localizacao),
+                ST_DWithin(entregas.localizacao, ponto.localizacao, @raio),
+                ST_DWithin(entregas.localizacao, ponto.localizacao, @raioDeSaida)
+            FROM entregas, ponto
+            WHERE entregas.id = ANY(@entregas)
+              AND entregas.organizacao_id = @organizacao
+              AND entregas.localizacao IS NOT NULL
+            """;
+        comando.Parameters.Add(new NpgsqlParameter("latitude", NpgsqlTypes.NpgsqlDbType.Double) { Value = latitude });
+        comando.Parameters.Add(new NpgsqlParameter("longitude", NpgsqlTypes.NpgsqlDbType.Double) { Value = longitude });
+        comando.Parameters.Add(new NpgsqlParameter("raio", NpgsqlTypes.NpgsqlDbType.Double) { Value = raioEmMetros });
+        comando.Parameters.Add(new NpgsqlParameter("raioDeSaida", NpgsqlTypes.NpgsqlDbType.Double) { Value = raioDeSaidaEmMetros });
+        comando.Parameters.Add(new NpgsqlParameter("entregas", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid) { Value = entregaIds.ToArray() });
+        comando.Parameters.Add(new NpgsqlParameter("organizacao", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = OrganizacaoIdDoFiltro });
+
+        var distancias = new List<DistanciaAoDestino>(entregaIds.Count);
+        await using var leitor = await comando.ExecuteReaderAsync(cancelamento).ConfigureAwait(false);
+        while (await leitor.ReadAsync(cancelamento).ConfigureAwait(false))
+        {
+            distancias.Add(new DistanciaAoDestino(leitor.GetGuid(0), leitor.GetDouble(1), leitor.GetBoolean(2), leitor.GetBoolean(3)));
+        }
+
+        return distancias;
+    }
+
     /// <summary>
     /// Organização usada nos filtros globais. O EF Core lê esta propriedade a cada
     /// consulta, na instância do contexto — por isso ela precisa morar aqui.
@@ -349,6 +406,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(posicao => posicao.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<PosicaoAtual>()
             .HasQueryFilter(posicao => posicao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EstadoDeGeofence>()
+            .HasQueryFilter(estado => estado.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EventoDeGeofence>()
+            .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

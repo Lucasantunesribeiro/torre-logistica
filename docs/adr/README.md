@@ -23,6 +23,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0013](./0013-rotas-e-paradas.md) | Rotas: parada como associação, regras entre rotas por índice parcial, ordem versionada | 4 | aceita |
 | [0014](./0014-maquina-de-estados-e-concorrencia.md) | Máquina de estados em tabela, comandos nomeados, concorrência pela versão da linha | 5 | aceita |
 | [0015](./0015-ingestao-de-localizacao.md) | Ingestão de localização: histórico e posição atual separados, gravação atômica, coleta mínima | 6 | aceita |
+| [0016](./0016-geofence-de-destino.md) | Geofence de destino: avaliada na ingestão, distância no PostGIS, histerese, estado por entrega | 7 | aceita |
 
 ## Regras
 

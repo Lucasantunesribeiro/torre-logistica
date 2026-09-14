@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 6. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 7. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -51,6 +51,7 @@
 | `POST /api/motorista/posicoes` | **401** | **401** | **401** | 200 | 401 | `motorista` + limite por motorista |
 | `GET /api/motoristas/{id}/posicao-atual` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -90,6 +91,8 @@ inverso.
 | Posição fora da execução de uma rota do próprio motorista é recusada | coleta mínima, conferida no servidor |
 | Histórico de localização só para gestão, por período de até 24 h | operador vê só a posição atual |
 | Limite de envio de posições por motorista, não por endereço | operadoras móveis compartilham IP (CGNAT) |
+| Geofence só avalia entregas da organização e do motorista responsável; destino de outra organização no mesmo ponto não é tocado | consulta PostGIS com organização explícita; [ADR 0016](../adr/0016-geofence-de-destino.md) |
+| Eventos de geofence guardam distância e raio, nunca a coordenada | a localização exata fica só no histórico de posições |
 
 ## Como adicionar um endpoint
 

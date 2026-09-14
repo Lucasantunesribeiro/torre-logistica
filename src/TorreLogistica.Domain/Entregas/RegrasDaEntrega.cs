@@ -71,6 +71,9 @@ public enum ComandoDaEntrega
 
     /// <summary>Cancelar.</summary>
     Cancelar = 10,
+
+    /// <summary>O sistema detectou, pela geofence do destino, que o motorista chegou perto.</summary>
+    RegistrarProximidade = 11,
 }
 
 /// <summary>Motivo informado no cancelamento.</summary>
@@ -146,6 +149,9 @@ public enum TipoDeEventoDaEntrega
 
     /// <summary>Nova janela marcada.</summary>
     Reagendada = 12,
+
+    /// <summary>Entrada na geofence do destino detectada pelo GPS.</summary>
+    ProximidadeDetectada = 13,
 }
 
 /// <summary>Nomes dos campos alteráveis, usados nas regras, na timeline e na auditoria.</summary>
@@ -209,6 +215,8 @@ public static class MaquinaDeEstadosDaEntrega
             [ComandoDaEntrega.IniciarRota] = De(
                 (StatusDaEntrega.Atribuida, StatusDaEntrega.EmRota)),
             [ComandoDaEntrega.RegistrarChegada] = De(
+                (StatusDaEntrega.EmRota, StatusDaEntrega.ProximaDoDestino)),
+            [ComandoDaEntrega.RegistrarProximidade] = De(
                 (StatusDaEntrega.EmRota, StatusDaEntrega.ProximaDoDestino)),
             [ComandoDaEntrega.Concluir] = De(
                 (StatusDaEntrega.EmRota, StatusDaEntrega.Entregue),

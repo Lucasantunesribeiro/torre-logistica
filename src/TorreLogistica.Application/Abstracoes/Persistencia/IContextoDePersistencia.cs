@@ -15,6 +15,13 @@ namespace TorreLogistica.Application.Abstracoes.Persistencia;
 /// <param name="AtualizouPosicaoAtual">Avançou a posição atual do motorista.</param>
 public sealed record GravacaoDePosicao(bool Inserida, bool AtualizouPosicaoAtual);
 
+/// <summary>Distância de um ponto ao destino de uma entrega.</summary>
+/// <param name="EntregaId">Entrega.</param>
+/// <param name="DistanciaEmMetros">Distância geodésica.</param>
+/// <param name="DentroDoRaio">A no máximo o raio.</param>
+/// <param name="DentroDaMargemDeSaida">A no máximo o raio mais a histerese.</param>
+public sealed record DistanciaAoDestino(Guid EntregaId, double DistanciaEmMetros, bool DentroDoRaio, bool DentroDaMargemDeSaida);
+
 /// <summary>
 /// Acesso da camada de aplicação ao armazenamento operacional.
 /// </summary>
@@ -83,6 +90,25 @@ public interface IContextoDePersistencia
 
     /// <summary>Posição atual de cada motorista, filtrada pelo tenant. Somente leitura por aqui.</summary>
     DbSet<PosicaoAtual> PosicoesAtuais { get; }
+
+    /// <summary>Estado da geofence do destino por entrega, filtrado pelo tenant.</summary>
+    DbSet<EstadoDeGeofence> EstadosDeGeofence { get; }
+
+    /// <summary>Entradas e saídas das geofences, filtradas pelo tenant. Somente-inserção.</summary>
+    DbSet<EventoDeGeofence> EventosDeGeofence { get; }
+
+    /// <summary>
+    /// Distância geodésica do ponto a cada destino de entrega, e se ele está dentro do raio e da margem
+    /// de saída — calculadas pelo PostGIS (<c>ST_Distance</c>, <c>ST_DWithin</c> sobre <c>geography</c>).
+    /// </summary>
+    /// <remarks>Entregas sem coordenada de destino, ou de outra organização, não aparecem.</remarks>
+    Task<IReadOnlyList<DistanciaAoDestino>> CalcularDistanciasAosDestinosAsync(
+        IReadOnlyCollection<Guid> entregaIds,
+        double latitude,
+        double longitude,
+        double raioEmMetros,
+        double raioDeSaidaEmMetros,
+        CancellationToken cancelamento);
 
     /// <summary>
     /// Grava a posição no histórico e, se ela for confiável e mais recente, avança a posição

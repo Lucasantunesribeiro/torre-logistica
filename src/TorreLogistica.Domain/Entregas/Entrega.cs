@@ -380,6 +380,39 @@ public sealed class Entrega
     }
 
     /// <summary>
+    /// Proximidade detectada pela geofence do destino: <c>EmRota</c> → <c>ProximaDoDestino</c>.
+    /// Mesmo destino da chegada registrada pelo motorista; quem chegar primeiro transiciona, e o
+    /// outro vira repetição sem efeito.
+    /// </summary>
+    /// <returns>O evento, ou <see langword="null"/> se a entrega já estava próxima do destino.</returns>
+    public EventoDaEntrega? RegistrarProximidade(
+        double distanciaEmMetros,
+        double raioEmMetros,
+        Guid idDoEvento,
+        DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(
+            !double.IsFinite(distanciaEmMetros) || distanciaEmMetros < 0 || !double.IsFinite(raioEmMetros) || raioEmMetros <= 0,
+            "distancia_invalida",
+            "Distância ou raio inválidos.");
+
+        if (Status == StatusDaEntrega.ProximaDoDestino)
+        {
+            return null;
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.RegistrarProximidade, "transicao_invalida", agora);
+        ChegadaRegistradaEm ??= instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.ProximidadeDetectada,
+            new { distanciaEmMetros = Math.Round(distanciaEmMetros, 1), raioEmMetros },
+            autorUsuarioId: null,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>
     /// Entrega feita: <c>EmRota</c> ou <c>ProximaDoDestino</c> → <c>Entregue</c>. A chegada não é
     /// pré-requisito: o registro dela pode ter falhado, e a entrega aconteceu.
     /// </summary>

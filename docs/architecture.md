@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 6 concluída (ingestão de localização). Este documento cresce junto com as fases.
+> Estado: Fase 7 concluída (PostGIS e geofencing). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS | 452 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS, estado da geofence (entrada, histerese, reentrada, posição antiga) e proximidade | 469 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), concorrência otimista, geografia, auditoria, limite, logs | 330 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), concorrência otimista, geografia, auditoria, limite, logs | 340 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -412,14 +412,39 @@ Posição atual para qualquer perfil do console; histórico só para gestão, po
 envio por motorista. Métricas `tracking.*` no medidor `TorreLogistica.Rastreamento`. Detalhes em
 [ADR 0015](./adr/0015-ingestao-de-localizacao.md).
 
+## Fase 7 — PostGIS e geofencing
+
+### Caminho de uma posição que avança
+
+```text
+RegistrarPosicaoAsync → avançou a posição atual?
+  └─ sim → entregas em execução do motorista com coordenada de destino
+            → PostGIS: ST_Distance, ST_DWithin(300 m), ST_DWithin(350 m)   (geography)
+            → EstadoDeGeofence.Avaliar
+                 fora → dentro (≤ 300 m)  : EventoDeGeofence Entrada + Entrega.RegistrarProximidade
+                 dentro → fora (> 350 m)  : EventoDeGeofence Saida
+                 posição antiga            : ignorada
+  → SaveChanges no fim do lote, na mesma transação
+```
+
+| Tabela | Conteúdo |
+|---|---|
+| `estados_de_geofence` | uma linha por entrega: dentro/fora, distância, última captura e sequência avaliadas, entradas |
+| `eventos_de_geofence` | entradas e saídas com distância, raio e evento de localização; somente-inserção |
+
+A primeira entrada de uma entrega em rota executa `RegistrarProximidade` (Em rota → Próxima do
+destino), equivalente e idempotente com a chegada manual. Conflito com comando do motorista refaz o
+lote inteiro. Consulta em `GET /api/entregas/{id}/geofence`. Detalhes em
+[ADR 0016](./adr/0016-geofence-de-destino.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma geofence, ETA, SLA ou mapa: chegam a partir da Fase 7. A chegada ainda é registrada pelo
-motorista. Não há detecção de salto impossível entre posições, retenção automática do histórico nem
-particionamento, nem exportação das métricas (Fase 21). Não há prova de entrega (Fase 14), tela de
-execução para o motorista (Fase 11) nem deduplicação por identificador de operação offline (Fases 11
-e 12). Não há fuso horário configurado por organização: datas de rota usam UTC com um dia de
-tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+Nenhum tempo real, ETA, SLA ou mapa: chegam a partir da Fase 8. Não há geofence de hub, raio
+configurável por organização nem detecção de salto impossível entre posições. Não há retenção
+automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de
+entrega (Fase 14), tela de execução para o motorista (Fase 11) nem deduplicação por identificador de
+operação offline (Fases 11 e 12). Não há fuso horário configurado por organização: datas de rota usam
+UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
 e é testado, a interface é da Fase 11.
 
