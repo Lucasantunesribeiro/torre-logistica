@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 4. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 5. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -45,6 +45,9 @@
 | `GET /api/rotas`, `GET /api/rotas/{id}` e `GET .../eventos` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `POST /api/rotas` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
 | `POST .../paradas`, `DELETE .../paradas/{entregaId}`, `PUT .../ordem`, `.../motorista`, `.../veiculo`, `.../saida`, `POST .../planejamento`, `.../cancelamento` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `POST /api/entregas/{id}/reagendamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
+| `POST /api/motorista/rotas/{id}/inicio` e `.../conclusao` | **401** | **401** | **401** | 200 | 401 | `motorista` |
+| `POST /api/motorista/entregas/{id}/chegada`, `.../conclusao` e `.../tentativa-frustrada` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -76,6 +79,10 @@ inverso.
 | Status, código e organização não entram no corpo da entrega | campo desconhecido responde 400; status muda só por operação |
 | Supervisor e administrador montam e atribuem rotas; operador consulta | política `operacao:gestao`; [ADR 0013](../adr/0013-rotas-e-paradas.md) |
 | Entrega, motorista, veículo e hub de outra organização informados na rota respondem 404, idêntico a inexistente | procurados nas consultas filtradas pelo tenant |
+| Motorista comanda só a própria rota e as próprias entregas; as demais respondem 404 idêntico a inexistente | motorista resolvido pela conta da sessão; [ADR 0014](../adr/0014-maquina-de-estados-e-concorrencia.md) |
+| Entrega que foi do motorista e passou a outro responde 409 `entrega_reatribuida`, não 404 | conferido na timeline; não revela entregas que nunca foram dele |
+| Conta de motorista sem cadastro associado responde 404 `motorista_nao_associado` | nada é executado |
+| Não existe endpoint genérico de status | teste lê o roteamento real: sem `PATCH`, sem "status" no caminho, lista exata de comandos |
 
 ## Como adicionar um endpoint
 

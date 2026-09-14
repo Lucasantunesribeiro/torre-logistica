@@ -31,6 +31,11 @@ public sealed record RequisicaoDeAtualizacaoDeEntrega(
     [property: Required(ErrorMessage = "Informe o fim da janela prometida.")] DateTimeOffset? PrometidaAte,
     [property: StringLength(Entrega.TamanhoMaximoDasObservacoes)] string? Observacoes);
 
+/// <summary>Reagendamento: nova janela prometida depois de tentativa sem sucesso.</summary>
+public sealed record RequisicaoDeReagendamento(
+    [property: Required(ErrorMessage = "Informe o início da nova janela.")] DateTimeOffset? PrometidaDe,
+    [property: Required(ErrorMessage = "Informe o fim da nova janela.")] DateTimeOffset? PrometidaAte);
+
 /// <summary>Cancelamento de entrega.</summary>
 public sealed record RequisicaoDeCancelamento(
     [property: Required(ErrorMessage = "Informe o motivo.")] MotivoDeCancelamento? Motivo,
@@ -126,6 +131,11 @@ public static class EndpointsDeEntregas
                 gestao.CancelarAsync(id, requisicao.Motivo!.Value, requisicao.Descricao, cancelamento))
             .RequireAuthorization(Politicas.OperacaoDeEntregas)
             .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeCancelamento>>();
+
+        grupo.MapPost("/{id:guid}/reagendamento", (Guid id, RequisicaoDeReagendamento requisicao, GestaoDeEntregas gestao, CancellationToken cancelamento) =>
+                gestao.ReagendarAsync(id, requisicao.PrometidaDe!.Value, requisicao.PrometidaAte!.Value, cancelamento))
+            .RequireAuthorization(Politicas.OperacaoDeEntregas)
+            .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeReagendamento>>();
 
         return rotas;
     }

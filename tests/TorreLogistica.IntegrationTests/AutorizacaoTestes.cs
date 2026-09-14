@@ -41,6 +41,11 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/entregas", Status(201, 201, 201, 401, 401)),
         ("GET", "/api/rotas", Status(200, 200, 200, 401, 401)),
         ("POST", "/api/rotas", Status(201, 201, 403, 401, 401)),
+
+        // Canal do motorista: token do console não é credencial (401); a conta de motorista desta
+        // matriz não está associada a um cadastro de motorista (404).
+        ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/conclusao", Status(401, 401, 401, 404, 401)),
+        ("POST", "/api/motorista/rotas/0198f0e2-0000-7000-8000-000000000001/inicio", Status(401, 401, 401, 404, 401)),
     ];
 
     public static TheoryData<string, string, string, int> Casos()
@@ -187,6 +192,12 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["PUT /api/rotas/{id:guid}/saida"] = "operacao:gestao",
             ["POST /api/rotas/{id:guid}/planejamento"] = "operacao:gestao",
             ["POST /api/rotas/{id:guid}/cancelamento"] = "operacao:gestao",
+            ["POST /api/entregas/{id:guid}/reagendamento"] = "entregas:operacao",
+            ["POST /api/motorista/rotas/{id:guid}/inicio"] = "motorista",
+            ["POST /api/motorista/rotas/{id:guid}/conclusao"] = "motorista",
+            ["POST /api/motorista/entregas/{id:guid}/chegada"] = "motorista",
+            ["POST /api/motorista/entregas/{id:guid}/conclusao"] = "motorista",
+            ["POST /api/motorista/entregas/{id:guid}/tentativa-frustrada"] = "motorista",
         };
 
         var encontrado = new SortedDictionary<string, string>(StringComparer.Ordinal);

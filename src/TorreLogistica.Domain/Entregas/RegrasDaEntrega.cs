@@ -3,20 +3,18 @@ using System.Collections.Frozen;
 namespace TorreLogistica.Domain.Entregas;
 
 /// <summary>
-/// Estados de uma entrega.
+/// Estados de uma entrega (CLAUDE.md, seção 10).
 /// </summary>
 /// <remarks>
-/// A lista é a do CLAUDE.md (seção 10) desde já, para que as tabelas de regra abaixo sejam
-/// completas. Nesta fase só existem as transições para <see cref="Criada"/> e
-/// <see cref="Cancelada"/>; planejar, atribuir, sair para rota e concluir nascem nas fases
-/// seguintes, cada uma com a sua operação de domínio — nunca por atribuição de status.
+/// O status só muda por um <see cref="ComandoDaEntrega"/>, conforme a
+/// <see cref="MaquinaDeEstadosDaEntrega"/>. Não existe atribuição direta de status.
 /// </remarks>
 public enum StatusDaEntrega
 {
     /// <summary>Recebida, ainda sem planejamento.</summary>
     Criada = 1,
 
-    /// <summary>Incluída em planejamento.</summary>
+    /// <summary>Incluída numa rota.</summary>
     Planejada = 2,
 
     /// <summary>Com motorista definido.</summary>
@@ -25,7 +23,7 @@ public enum StatusDaEntrega
     /// <summary>Motorista saiu para rota.</summary>
     EmRota = 4,
 
-    /// <summary>Motorista próximo do destino.</summary>
+    /// <summary>Motorista chegou ao destino.</summary>
     ProximaDoDestino = 5,
 
     /// <summary>Concluída com sucesso.</summary>
@@ -39,6 +37,40 @@ public enum StatusDaEntrega
 
     /// <summary>Cancelada.</summary>
     Cancelada = 9,
+}
+
+/// <summary>Comandos que mudam o status da entrega — cada um, um caso de uso explícito.</summary>
+public enum ComandoDaEntrega
+{
+    /// <summary>Incluir numa rota.</summary>
+    Planejar = 1,
+
+    /// <summary>Definir o motorista da rota antes da saída.</summary>
+    Atribuir = 2,
+
+    /// <summary>Trocar o motorista com a entrega já em execução.</summary>
+    Reatribuir = 3,
+
+    /// <summary>Retirar de uma rota que ainda não saiu.</summary>
+    RetirarDaRota = 4,
+
+    /// <summary>Saída do motorista para a rota.</summary>
+    IniciarRota = 5,
+
+    /// <summary>Motorista chegou ao destino.</summary>
+    RegistrarChegada = 6,
+
+    /// <summary>Entrega feita.</summary>
+    Concluir = 7,
+
+    /// <summary>Tentativa sem sucesso.</summary>
+    RegistrarTentativaFrustrada = 8,
+
+    /// <summary>Marcar nova janela depois de tentativa sem sucesso.</summary>
+    Reagendar = 9,
+
+    /// <summary>Cancelar.</summary>
+    Cancelar = 10,
 }
 
 /// <summary>Motivo informado no cancelamento.</summary>
@@ -57,6 +89,25 @@ public enum MotivoDeCancelamento
     Outro = 4,
 }
 
+/// <summary>Por que a tentativa de entrega não deu certo.</summary>
+public enum MotivoDeTentativaFrustrada
+{
+    /// <summary>Ninguém para receber.</summary>
+    DestinatarioAusente = 1,
+
+    /// <summary>Endereço não encontrado no local.</summary>
+    EnderecoNaoLocalizado = 2,
+
+    /// <summary>Destinatário recusou.</summary>
+    RecusadaPeloDestinatario = 3,
+
+    /// <summary>Estabelecimento fechado.</summary>
+    LocalFechado = 4,
+
+    /// <summary>Acesso impedido (portaria, área restrita).</summary>
+    AcessoImpedido = 5,
+}
+
 /// <summary>Tipos de evento da timeline da entrega.</summary>
 public enum TipoDeEventoDaEntrega
 {
@@ -72,11 +123,29 @@ public enum TipoDeEventoDaEntrega
     /// <summary>Entrega incluída numa rota.</summary>
     Planejada = 4,
 
-    /// <summary>Motorista da rota definido para a entrega, ou trocado.</summary>
+    /// <summary>Motorista da rota definido para a entrega, ou trocado antes da saída.</summary>
     Atribuida = 5,
 
     /// <summary>Entrega retirada da rota antes da saída.</summary>
     RetiradaDaRota = 6,
+
+    /// <summary>Motorista trocado com a entrega em execução.</summary>
+    Reatribuida = 7,
+
+    /// <summary>Motorista saiu para a rota.</summary>
+    SaiuParaRota = 8,
+
+    /// <summary>Chegada ao destino registrada.</summary>
+    ChegadaRegistrada = 9,
+
+    /// <summary>Entrega concluída.</summary>
+    Entregue = 10,
+
+    /// <summary>Tentativa sem sucesso registrada.</summary>
+    TentativaFrustrada = 11,
+
+    /// <summary>Nova janela marcada.</summary>
+    Reagendada = 12,
 }
 
 /// <summary>Nomes dos campos alteráveis, usados nas regras, na timeline e na auditoria.</summary>
@@ -106,19 +175,74 @@ public static class CamposDaEntrega
 }
 
 /// <summary>
-/// Tabelas de regra da entrega: o que pode mudar e de onde se pode cancelar, por status.
+/// A máquina de estados da entrega: para cada comando, de quais status ele parte e para qual
+/// status leva.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Ficam em tabela, e não espalhadas em <c>if</c> pelos métodos, para que a regra inteira
-/// seja lida num lugar só e testada para todos os status — inclusive os que só passam a ser
-/// alcançáveis em fases futuras.
+/// É a única fonte da regra de transição. Os métodos da <see cref="Entrega"/> consultam esta
+/// tabela; as regras derivadas (<see cref="RegrasDaEntrega"/>) também. Uma transição nova é uma
+/// linha aqui e um teste que a especifica.
 /// </para>
 /// <para>
-/// A ideia central: depois que a entrega sai para rota, o que o motorista está executando
-/// não muda por baixo dele. Cliente congela ainda antes, no planejamento, porque a entrega
-/// passa a compor o compromisso assumido com aquele cliente.
+/// O que não está na tabela é proibido. Em particular: nada sai de <c>Entregue</c> ou de
+/// <c>Cancelada</c> — uma entrega concluída nunca volta para rota (CLAUDE.md, seção 10).
 /// </para>
+/// </remarks>
+public static class MaquinaDeEstadosDaEntrega
+{
+    private static readonly FrozenDictionary<ComandoDaEntrega, FrozenDictionary<StatusDaEntrega, StatusDaEntrega>> Transicoes =
+        new Dictionary<ComandoDaEntrega, FrozenDictionary<StatusDaEntrega, StatusDaEntrega>>
+        {
+            [ComandoDaEntrega.Planejar] = De(
+                (StatusDaEntrega.Criada, StatusDaEntrega.Planejada),
+                (StatusDaEntrega.Reagendada, StatusDaEntrega.Planejada)),
+            [ComandoDaEntrega.Atribuir] = De(
+                (StatusDaEntrega.Planejada, StatusDaEntrega.Atribuida),
+                (StatusDaEntrega.Atribuida, StatusDaEntrega.Atribuida)),
+            [ComandoDaEntrega.Reatribuir] = De(
+                (StatusDaEntrega.EmRota, StatusDaEntrega.EmRota),
+                (StatusDaEntrega.ProximaDoDestino, StatusDaEntrega.ProximaDoDestino)),
+            [ComandoDaEntrega.RetirarDaRota] = De(
+                (StatusDaEntrega.Planejada, StatusDaEntrega.Criada),
+                (StatusDaEntrega.Atribuida, StatusDaEntrega.Criada)),
+            [ComandoDaEntrega.IniciarRota] = De(
+                (StatusDaEntrega.Atribuida, StatusDaEntrega.EmRota)),
+            [ComandoDaEntrega.RegistrarChegada] = De(
+                (StatusDaEntrega.EmRota, StatusDaEntrega.ProximaDoDestino)),
+            [ComandoDaEntrega.Concluir] = De(
+                (StatusDaEntrega.EmRota, StatusDaEntrega.Entregue),
+                (StatusDaEntrega.ProximaDoDestino, StatusDaEntrega.Entregue)),
+            [ComandoDaEntrega.RegistrarTentativaFrustrada] = De(
+                (StatusDaEntrega.EmRota, StatusDaEntrega.TentativaFrustrada),
+                (StatusDaEntrega.ProximaDoDestino, StatusDaEntrega.TentativaFrustrada)),
+            [ComandoDaEntrega.Reagendar] = De(
+                (StatusDaEntrega.TentativaFrustrada, StatusDaEntrega.Reagendada),
+                (StatusDaEntrega.Reagendada, StatusDaEntrega.Reagendada)),
+            [ComandoDaEntrega.Cancelar] = De(
+                (StatusDaEntrega.Criada, StatusDaEntrega.Cancelada),
+                (StatusDaEntrega.Planejada, StatusDaEntrega.Cancelada),
+                (StatusDaEntrega.Atribuida, StatusDaEntrega.Cancelada),
+                (StatusDaEntrega.TentativaFrustrada, StatusDaEntrega.Cancelada),
+                (StatusDaEntrega.Reagendada, StatusDaEntrega.Cancelada)),
+        }.ToFrozenDictionary();
+
+    /// <summary>Status resultante do comando, ou <see langword="null"/> se a transição é proibida.</summary>
+    public static StatusDaEntrega? Destino(ComandoDaEntrega comando, StatusDaEntrega origem) =>
+        Transicoes.TryGetValue(comando, out var transicoes) && transicoes.TryGetValue(origem, out var destino)
+            ? destino
+            : null;
+
+    private static FrozenDictionary<StatusDaEntrega, StatusDaEntrega> De(params (StatusDaEntrega Origem, StatusDaEntrega Destino)[] pares) =>
+        pares.ToFrozenDictionary(par => par.Origem, par => par.Destino);
+}
+
+/// <summary>
+/// Regras derivadas da máquina de estados e tabela de campos editáveis por status.
+/// </summary>
+/// <remarks>
+/// A ideia central da edição: depois que a entrega sai para rota, o que o motorista está
+/// executando não muda por baixo dele. Cliente congela ainda antes, no planejamento.
 /// </remarks>
 public static class RegrasDaEntrega
 {
@@ -130,34 +254,32 @@ public static class RegrasDaEntrega
         StatusDaEntrega.Reagendada,
     }.ToFrozenSet();
 
-    private static readonly FrozenSet<StatusDaEntrega> Cancelaveis = new[]
-    {
-        StatusDaEntrega.Criada,
-        StatusDaEntrega.Planejada,
-        StatusDaEntrega.Atribuida,
-        StatusDaEntrega.TentativaFrustrada,
-        StatusDaEntrega.Reagendada,
-    }.ToFrozenSet();
-
     /// <summary>Status do qual a entrega não sai mais.</summary>
     public static bool EhFinal(StatusDaEntrega status) =>
         status is StatusDaEntrega.Entregue or StatusDaEntrega.Cancelada;
 
-    /// <summary>
-    /// Pode cancelar. Com motorista em rota, não: cancelamento em movimento exige tratar a
-    /// carga que está no veículo, assunto das fases de rota e ocorrência.
-    /// </summary>
-    public static bool PermiteCancelamento(StatusDaEntrega status) => Cancelaveis.Contains(status);
+    /// <summary>Pode cancelar.</summary>
+    public static bool PermiteCancelamento(StatusDaEntrega status) =>
+        MaquinaDeEstadosDaEntrega.Destino(ComandoDaEntrega.Cancelar, status) is not null;
 
-    /// <summary>
-    /// Pode entrar numa rota: recém-criada, ou reagendada depois de tentativa sem sucesso.
-    /// </summary>
+    /// <summary>Pode entrar numa rota: recém-criada ou reagendada.</summary>
     public static bool PodeEntrarEmRota(StatusDaEntrega status) =>
-        status is StatusDaEntrega.Criada or StatusDaEntrega.Reagendada;
+        MaquinaDeEstadosDaEntrega.Destino(ComandoDaEntrega.Planejar, status) is not null;
 
-    /// <summary>Está numa rota que ainda não saiu: planejada ou com motorista definido.</summary>
+    /// <summary>Está numa rota que ainda não saiu.</summary>
     public static bool EstaEmRotaNaoIniciada(StatusDaEntrega status) =>
-        status is StatusDaEntrega.Planejada or StatusDaEntrega.Atribuida;
+        MaquinaDeEstadosDaEntrega.Destino(ComandoDaEntrega.RetirarDaRota, status) is not null;
+
+    /// <summary>Está sendo executada pelo motorista.</summary>
+    public static bool EstaEmExecucao(StatusDaEntrega status) =>
+        status is StatusDaEntrega.EmRota or StatusDaEntrega.ProximaDoDestino;
+
+    /// <summary>
+    /// Já tem resultado para a rota em que está: entregue, tentativa sem sucesso (reagendada ou
+    /// não) ou cancelada. A rota só é concluída quando todas as paradas estão assim.
+    /// </summary>
+    public static bool EstaResolvidaNaRota(StatusDaEntrega status) =>
+        status is StatusDaEntrega.Entregue or StatusDaEntrega.TentativaFrustrada or StatusDaEntrega.Reagendada or StatusDaEntrega.Cancelada;
 
     /// <summary>O campo pode mudar com a entrega neste status.</summary>
     public static bool CampoEditavel(string campo, StatusDaEntrega status) => campo switch

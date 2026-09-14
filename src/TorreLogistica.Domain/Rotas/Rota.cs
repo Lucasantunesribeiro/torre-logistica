@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TorreLogistica.Domain.Abstracoes.Erros;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
+using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 
 namespace TorreLogistica.Domain.Rotas;
@@ -92,6 +93,12 @@ public sealed class Rota
 
     /// <summary>Instante do cancelamento.</summary>
     public DateTimeOffset? CanceladaEm { get; private set; }
+
+    /// <summary>Instante em que o motorista saiu.</summary>
+    public DateTimeOffset? IniciadaEm { get; private set; }
+
+    /// <summary>Instante da conclusão.</summary>
+    public DateTimeOffset? ConcluidaEm { get; private set; }
 
     /// <summary>Sequência do último evento da timeline.</summary>
     public int UltimaSequenciaDeEvento { get; private set; }
@@ -295,7 +302,10 @@ public sealed class Rota
             instante);
     }
 
-    /// <summary>Define ou troca o motorista. Motorista inativo é recusado.</summary>
+    /// <summary>
+    /// Define ou troca o motorista — inclusive com a rota em andamento (reatribuição). Motorista
+    /// inativo é recusado.
+    /// </summary>
     /// <returns>O evento, ou <see langword="null"/> se já era este motorista.</returns>
     public EventoDaRota? AtribuirMotorista(
         Motorista motorista,
@@ -306,7 +316,11 @@ public sealed class Rota
         ArgumentNullException.ThrowIfNull(motorista);
         ArgumentNullException.ThrowIfNull(identificadores);
         GarantirMesmaOrganizacao(motorista.OrganizacaoId, "motorista_nao_encontrado", "Motorista não encontrado.");
-        GarantirAlteracaoEstrutural();
+
+        if (!RegrasDaRota.PermiteTrocaDeMotorista(Status))
+        {
+            throw RotaNaoEditavel();
+        }
         motorista.GarantirAptoParaAtribuicao();
 
         if (MotoristaId == motorista.Id)
@@ -469,6 +483,116 @@ public sealed class Rota
             TipoDeEventoDaRota.Cancelada, new { entregasLiberadas = liberadas }, identificadores, autorUsuarioId, instante);
 
         return new CancelamentoDaRota(evento, liberadas);
+    }
+
+    /// <summary>
+    /// Saída do motorista: <c>Planejada</c> → <c>EmAndamento</c>. Só o motorista da rota inicia, e
+    /// motorista ou veículo inativo não saem.
+    /// </summary>
+    /// <returns>O evento, ou <see langword="null"/> se já estava em andamento.</returns>
+    public EventoDaRota? Iniciar(
+        Motorista motorista,
+        Veiculo? veiculo,
+        IGeradorDeIdentificador identificadores,
+        Guid? autorUsuarioId,
+        DateTimeOffset agora)
+    {
+        ArgumentNullException.ThrowIfNull(motorista);
+        ArgumentNullException.ThrowIfNull(identificadores);
+
+        if (motorista.Id != MotoristaId || motorista.OrganizacaoId != OrganizacaoId)
+        {
+            throw ExcecaoDeDominio.NaoEncontrado("rota_nao_encontrada", "Rota não encontrada.");
+        }
+
+        if (Status == StatusDaRota.EmAndamento)
+        {
+            return null;
+        }
+
+        if (Status != StatusDaRota.Planejada || veiculo is null || veiculo.Id != VeiculoId)
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "transicao_de_rota_invalida",
+                $"Rota no status {Status} não pode ser iniciada: só rota planejada sai.");
+        }
+
+        motorista.GarantirAptoParaAtribuicao();
+        veiculo.GarantirAptoParaIniciarRota();
+
+        var instante = agora.ToUniversalTime();
+        Status = StatusDaRota.EmAndamento;
+        IniciadaEm = instante;
+        AtualizadaEm = instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaRota.Iniciada, new { paradas = ObterParadasAtivas().Count }, identificadores, autorUsuarioId, instante);
+    }
+
+    /// <summary>
+    /// Encerra a rota: <c>EmAndamento</c> → <c>Concluida</c>. Todas as entregas das paradas precisam
+    /// ter resultado; as paradas ficam inativas, e as entregas reagendadas ficam livres para outra rota.
+    /// </summary>
+    /// <param name="statusDasEntregas">Status atual de cada entrega da rota.</param>
+    /// <param name="identificadores">Gerador de identificadores.</param>
+    /// <param name="autorUsuarioId">Quem concluiu.</param>
+    /// <param name="agora">Instante atual.</param>
+    /// <returns>O evento, ou <see langword="null"/> se já estava concluída.</returns>
+    public EventoDaRota? Concluir(
+        IReadOnlyDictionary<Guid, StatusDaEntrega> statusDasEntregas,
+        IGeradorDeIdentificador identificadores,
+        Guid? autorUsuarioId,
+        DateTimeOffset agora)
+    {
+        ArgumentNullException.ThrowIfNull(statusDasEntregas);
+        ArgumentNullException.ThrowIfNull(identificadores);
+
+        if (Status == StatusDaRota.Concluida)
+        {
+            return null;
+        }
+
+        if (Status != StatusDaRota.EmAndamento)
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "transicao_de_rota_invalida",
+                $"Rota no status {Status} não pode ser concluída: só rota em andamento é concluída.");
+        }
+
+        var ativas = ObterParadasAtivas();
+        var pendentes = ativas.Count(parada =>
+            !statusDasEntregas.TryGetValue(parada.EntregaId, out var status) || !RegrasDaEntrega.EstaResolvidaNaRota(status));
+
+        if (pendentes > 0)
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "rota_com_entregas_pendentes",
+                $"{pendentes} entrega(s) da rota ainda sem resultado.");
+        }
+
+        var instante = agora.ToUniversalTime();
+        foreach (var parada in ativas)
+        {
+            parada.Desativar(MotivoDeRemocaoDeParada.RotaConcluida, instante);
+        }
+
+        Status = StatusDaRota.Concluida;
+        ConcluidaEm = instante;
+        AtualizadaEm = instante;
+
+        var resultados = ativas.Select(parada => statusDasEntregas[parada.EntregaId]).ToList();
+
+        return RegistrarEvento(
+            TipoDeEventoDaRota.Concluida,
+            new
+            {
+                entregues = resultados.Count(status => status == StatusDaEntrega.Entregue),
+                semSucesso = resultados.Count(status => status is StatusDaEntrega.TentativaFrustrada or StatusDaEntrega.Reagendada),
+                canceladas = resultados.Count(status => status == StatusDaEntrega.Cancelada),
+            },
+            identificadores,
+            autorUsuarioId,
+            instante);
     }
 
     private static DateTimeOffset TruncarAoSegundo(DateTimeOffset instante)

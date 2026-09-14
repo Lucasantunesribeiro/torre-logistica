@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Domain.Clientes;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 
 namespace TorreLogistica.Infrastructure.Persistencia.Configuracoes;
@@ -50,6 +51,7 @@ internal sealed class EntregaConfiguracao : IEntityTypeConfiguration<Entrega>
         {
             tabela.HasCheckConstraint("ck_entregas_janela_prometida_ordenada", "prometida_ate > prometida_de");
             tabela.HasCheckConstraint("ck_entregas_ultima_sequencia_de_evento_positiva", "ultima_sequencia_de_evento > 0");
+            tabela.HasCheckConstraint("ck_entregas_tentativas_frustradas_nao_negativas", "tentativas_frustradas >= 0");
         });
 
         builder.HasKey(entrega => entrega.Id);
@@ -57,6 +59,7 @@ internal sealed class EntregaConfiguracao : IEntityTypeConfiguration<Entrega>
         builder.Property(entrega => entrega.Codigo).HasMaxLength(CodigoDaEntrega.TamanhoMaximo).IsRequired();
         builder.Property(entrega => entrega.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
         builder.Property(entrega => entrega.MotivoDoCancelamento).HasConversion<string>().HasMaxLength(40);
+        builder.Property(entrega => entrega.MotivoDaUltimaTentativa).HasConversion<string>().HasMaxLength(40);
         builder.Property(entrega => entrega.DescricaoDoCancelamento).HasMaxLength(Entrega.TamanhoMaximoDaDescricaoDoCancelamento);
         builder.Property(entrega => entrega.Observacoes).HasMaxLength(Entrega.TamanhoMaximoDasObservacoes);
         builder.Property(entrega => entrega.Versao).IsRowVersion();
@@ -76,6 +79,7 @@ internal sealed class EntregaConfiguracao : IEntityTypeConfiguration<Entrega>
         builder.HasOne<Organizacao>().WithMany().HasForeignKey(entrega => entrega.OrganizacaoId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Cliente>().WithMany().HasForeignKey(entrega => entrega.ClienteId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Destinatario>().WithMany().HasForeignKey(entrega => entrega.DestinatarioId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Motorista>().WithMany().HasForeignKey(entrega => entrega.MotoristaId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(entrega => new { entrega.OrganizacaoId, entrega.Codigo })
             .IsUnique()

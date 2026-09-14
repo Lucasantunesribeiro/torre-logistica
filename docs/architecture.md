@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 4 concluída (rotas e paradas). Este documento cresce junto com as fases.
+> Estado: Fase 5 concluída (máquina de estados e concorrência). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota | 316 |
-| `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite | 19 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, concorrência otimista, geografia, auditoria, limite, logs | 289 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota | 430 |
+| `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, concorrência otimista, geografia, auditoria, limite, logs | 307 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -340,13 +340,50 @@ organizacoes ──< rotas ──< paradas >── entregas   (uma parada ativa 
 sequência e `GET .../eventos`. Supervisor e administrador montam; operador consulta. Detalhes em
 [ADR 0013](./adr/0013-rotas-e-paradas.md).
 
+## Fase 5 — Máquina de estados e concorrência
+
+### Máquina de estados
+
+`MaquinaDeEstadosDaEntrega` é a tabela comando → (status de origem → status resultante). Dentro da
+`Entrega`, um único método privado muda `Status`, consultando a tabela; o que não está nela responde
+`409`. Nada sai de Entregue ou Cancelada.
+
+```text
+Criada ─Planejar→ Planejada ─Atribuir→ Atribuída ─IniciarRota→ EmRota ─RegistrarChegada→ PróximaDoDestino
+                                                                  │                          │
+                                                                  ├──────── Concluir ────────┴→ Entregue
+                                                                  └─ RegistrarTentativaFrustrada → TentativaFrustrada ─Reagendar→ Reagendada ─Planejar→ …
+Cancelar: de Criada, Planejada, Atribuída, TentativaFrustrada, Reagendada
+```
+
+A rota ganhou `Iniciar` (planejada → em andamento, pelo motorista da rota) e `Concluir` (em
+andamento → concluída, com todas as entregas resolvidas). A troca de motorista é aceita também em
+andamento; as demais mudanças estruturais, não.
+
+### Quem comanda
+
+| Canal | Comandos |
+|---|---|
+| Motorista (`/api/motorista/...`) | iniciar e concluir rota; chegada, conclusão e tentativa sem sucesso da entrega |
+| Console | reagendar entrega; reatribuir motorista da rota |
+
+O motorista é resolvido pela conta da sessão. Entrega que foi dele e passou a outro responde
+`409 entrega_reatribuida`; as demais que não são dele, `404`.
+
+### Concorrência
+
+Todo comando grava com a versão da linha lida. No cenário "operador reatribui enquanto motorista
+conclui", quem grava primeiro prevalece e o outro recebe `409`. Comandos repetidos com o resultado
+já aplicado respondem `200` sem novo evento. Detalhes em
+[ADR 0014](./adr/0014-maquina-de-estados-e-concorrencia.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma execução de rota ou posição: iniciar e concluir rota, saída para rota da entrega e GPS
-chegam nas próximas fases. Os status Em andamento e Concluída da rota, e Em rota, Próxima do
-destino, Entregue, Tentativa frustrada e Reagendada da entrega, existem nas tabelas de regra, mas
-nenhuma operação leva até eles ainda. Não há fuso horário configurado por organização: datas de
-rota usam UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+Nenhuma posição GPS, geofence, ETA ou SLA: chegam a partir da Fase 6. A chegada é registrada pelo
+motorista; a geofence da Fase 7 será outro chamador do mesmo comando. Não há prova de entrega (Fase
+14), nem tela de execução para o motorista (Fase 11), nem deduplicação por identificador de operação
+offline (Fases 11 e 12). Não há fuso horário configurado por organização: datas de rota usam UTC com
+um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
 e é testado, a interface é da Fase 11.
 

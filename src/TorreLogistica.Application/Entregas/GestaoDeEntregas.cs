@@ -57,6 +57,16 @@ public sealed record JanelaResumo(DateTimeOffset De, DateTimeOffset Ate);
 /// <summary>Cancelamento como devolvido pela API.</summary>
 public sealed record CancelamentoResumo(MotivoDeCancelamento Motivo, string? Descricao, DateTimeOffset CanceladaEm);
 
+/// <summary>Execução da entrega pelo motorista.</summary>
+public sealed record ExecucaoResumo(
+    Guid? MotoristaId,
+    DateTimeOffset? SaiuParaRotaEm,
+    DateTimeOffset? ChegadaRegistradaEm,
+    DateTimeOffset? EntregueEm,
+    int TentativasFrustradas,
+    MotivoDeTentativaFrustrada? MotivoDaUltimaTentativa,
+    DateTimeOffset? UltimaTentativaFrustradaEm);
+
 /// <summary>Entrega como devolvida pela API.</summary>
 public sealed record EntregaResumo(
     Guid Id,
@@ -71,6 +81,7 @@ public sealed record EntregaResumo(
     JanelaResumo JanelaPrometida,
     string? Observacoes,
     CancelamentoResumo? Cancelamento,
+    ExecucaoResumo Execucao,
     DateTimeOffset CriadaEm,
     DateTimeOffset AtualizadaEm,
     uint Versao);
@@ -321,6 +332,24 @@ public sealed class GestaoDeEntregas(
         return await ObterAsync(id, cancelamento).ConfigureAwait(false);
     }
 
+    /// <summary>Marca nova janela para entrega com tentativa sem sucesso.</summary>
+    public async Task<EntregaResumo> ReagendarAsync(Guid id, DateTimeOffset prometidaDe, DateTimeOffset prometidaAte, CancellationToken cancelamento)
+    {
+        var entrega = await CarregarAsync(id, cancelamento).ConfigureAwait(false);
+        var janela = JanelaDeEntrega.Criar(prometidaDe, prometidaAte);
+
+        if (entrega.Reagendar(janela, suporte.UsuarioId, identificadores.Novo(), suporte.Agora) is { } evento)
+        {
+            suporte.Contexto.EventosDaEntrega.Add(evento);
+            suporte.Auditar(Recurso, AcoesDeEntrega.Reagendada, entrega.Id, new { tentativas = entrega.TentativasFrustradas });
+            await suporte.SalvarAsync(cancelamento, (NomesDeRestricoes.SequenciaDoEventoDaEntrega, ConflitoDeVersao)).ConfigureAwait(false);
+
+            log.LogInformation("Entrega {EntregaId} reagendada na organização {OrganizacaoId}.", entrega.Id, entrega.OrganizacaoId);
+        }
+
+        return await ObterAsync(id, cancelamento).ConfigureAwait(false);
+    }
+
     private static DadosDaEntrega MontarDados(DadosDeEntrega dados, Destinatario destinatario)
     {
         Endereco endereco;
@@ -434,6 +463,14 @@ public sealed class GestaoDeEntregas(
             entrega is { MotivoDoCancelamento: { } motivo, CanceladaEm: { } canceladaEm }
                 ? new CancelamentoResumo(motivo, entrega.DescricaoDoCancelamento, canceladaEm)
                 : null,
+            new ExecucaoResumo(
+                entrega.MotoristaId,
+                entrega.SaiuParaRotaEm,
+                entrega.ChegadaRegistradaEm,
+                entrega.EntregueEm,
+                entrega.TentativasFrustradas,
+                entrega.MotivoDaUltimaTentativa,
+                entrega.UltimaTentativaFrustradaEm),
             entrega.CriadaEm,
             entrega.AtualizadaEm,
             entrega.Versao);
@@ -473,4 +510,7 @@ public static class AcoesDeEntrega
 
     /// <summary>Cancelamento.</summary>
     public const string Cancelada = "cancelada";
+
+    /// <summary>Nova janela depois de tentativa sem sucesso.</summary>
+    public const string Reagendada = "reagendada";
 }

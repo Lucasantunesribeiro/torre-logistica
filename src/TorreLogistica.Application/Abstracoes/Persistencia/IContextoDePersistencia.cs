@@ -116,6 +116,15 @@ public interface IContextoDePersistencia
     /// </summary>
     void DefinirVersaoEsperada(object entidade, uint versao);
 
+    /// <summary>
+    /// Indica se o motorista já foi atribuído à entrega em algum momento da timeline.
+    /// </summary>
+    /// <remarks>
+    /// Distingue, para o motorista, "esta entrega foi passada a outro motorista" (409, estado
+    /// recuperável no aplicativo) de "esta entrega nunca foi sua" (404, nada a revelar).
+    /// </remarks>
+    Task<bool> MotoristaJaFoiAtribuidoAsync(Guid entregaId, Guid motoristaId, CancellationToken cancelamento);
+
     /// <summary>Indica se a exceção é violação da restrição de unicidade informada.</summary>
     bool EhViolacaoDeUnicidade(Exception excecao, string nomeDaRestricao);
 }

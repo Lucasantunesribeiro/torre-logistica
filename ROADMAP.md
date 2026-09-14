@@ -1185,6 +1185,127 @@ Toda mudança de status deve passar por caso de uso explícito.
 
 ---
 
+## Fase 5 concluída — 2026-09-14
+
+### Estados e comandos
+
+| Pedido | Situação | Onde |
+|---|:---:|---|
+| 9 estados mínimos | ✅ | `StatusDaEntrega`, nomes do roadmap mantidos |
+| Planejar, Atribuir | ✅ | desde a Fase 4, agora consultando a máquina de estados |
+| IniciarRota | ✅ | `POST /api/motorista/rotas/{id}/inicio` — rota em andamento e entregas em rota |
+| RegistrarChegada | ✅ | `POST /api/motorista/entregas/{id}/chegada` |
+| RegistrarTentativaFrustrada | ✅ | `POST /api/motorista/entregas/{id}/tentativa-frustrada` com motivo |
+| Reagendar | ✅ | `POST /api/entregas/{id}/reagendamento` com nova janela |
+| Concluir | ✅ | `POST /api/motorista/entregas/{id}/conclusao`; rota: `POST /api/motorista/rotas/{id}/conclusao` |
+| Cancelar | ✅ | desde a Fase 3, agora consultando a máquina de estados |
+| Reatribuir (cenário obrigatório) | ✅ | `PUT /api/rotas/{id}/motorista` aceito também com a rota em andamento |
+| Tabela única de transições | ✅ | `MaquinaDeEstadosDaEntrega`; um único método privado muda `Status` |
+
+### Concorrência
+
+| Pedido | Resultado | Evidência |
+|---|:---:|---|
+| Controle otimista | ✅ | versão da linha (`xmin`) em entrega e rota em todo comando |
+| Operador reatribui enquanto motorista conclui | ✅ | `OperadorReatribuiEnquantoMotoristaConcluiApenasUmaSequenciaPrevalece` — seis rodadas concorrentes: nunca as duas vencem sobre a mesma entrega; quem perde recebe 409 e a sequência vencedora continua válida |
+| Apenas uma sequência válida prevalece | ✅ | concluída pelo motorista original **sem** reatribuição, ou reatribuída **sem** conclusão do original — nunca as duas |
+| Conflito com 409 ou contrato explícito | ✅ | `409 conflito_de_versao` na corrida; `409 entrega_reatribuida` para o motorista que perdeu a entrega; `CenarioObrigatorioEmCadaOrdemTemContratoExplicito` prova as duas ordens sem depender da sorte |
+
+### Critérios de aceite
+
+> Não deve existir endpoint genérico `PATCH status`.
+
+✅ `NaoExisteEndpointGenericoDeStatus` lê o roteamento real: nenhum `PATCH`, nenhuma rota com
+"status" no caminho, e a lista de comandos de escrita sobre entregas e rotas é exatamente a esperada
+(18 operações, cada uma com nome). `status` no corpo continua recusado com 400.
+
+> Toda mudança de status deve passar por caso de uso explícito.
+
+✅ `ComandosDeStatusTestes` (arquitetura): `Status` sem setter público em entrega e rota, nenhum
+método com "Status" no nome, e os métodos da entrega que produzem evento são exatamente os
+`ComandoDaEntrega` mais criar e alterar dados — um método novo que mude status fora da máquina faz
+o teste falhar.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| todas transições permitidas | `MaquinaDeEstadosDaEntregaTestes` (tabela comando × status, 90 casos, e todo status alcançável); `MotoristaExecutaARotaDoInicioAoFimComTimelineCoerente` pela API |
+| todas transições proibidas importantes | `TransicaoProibidaEhRecusadaComConflitoSemMudarNada` (9 casos, sem mudar status nem timeline); `TransicoesProibidasImportantesRespondem409SemMudarNada` (12 recusas pela API); nada sai de Entregue ou Cancelada |
+| concorrência | cenário obrigatório concorrente e determinístico; toque duplo na conclusão com um único evento |
+| retry frontend | `RepeticaoDeComandoPeloAplicativoNaoDuplicaEfeito` — sair, chegar, concluir e concluir rota repetidos respondem 200 sem novo evento |
+| timeline coerente | `AssertTimelineCoerenteAsync` em todos os fluxos: sequência sem lacuna, último status resultante igual ao status atual, contador da entrega igual ao número de eventos |
+
+"Retry frontend" foi interpretado como o reenvio de comando pelo aplicativo quando a resposta se
+perde — o comportamento que o cliente depende. Ainda não há tela de execução; ela é da Fase 11.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 430 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 307 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **808** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 5
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Canais separados | ✅ | token do console em rota do motorista: 401; token do motorista em reatribuição: 401 |
+| IDOR do motorista | ✅ | rota e entrega de outro motorista da mesma organização e de outra organização: 404 idêntico ao inexistente |
+| Contrato de conflito sem vazamento | ✅ | `409 entrega_reatribuida` só para entrega que já foi daquele motorista, conferido na timeline |
+| Conta sem cadastro | ✅ | motorista sem associação: 404 `motorista_nao_associado`, nada executado |
+| Status sem atalho | ✅ | sem `PATCH`, sem rota de status, `status` no corpo recusado |
+| Isolamento no reagendamento | ✅ | entrega de outra organização: 404 idêntico ao inexistente |
+| Consulta crua com tenant | ✅ | a consulta de "já foi atribuído" usa SQL parametrizado com organização explícita na condição |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 1,55 MB |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada nos 9 projetos; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+Nenhum defeito de comportamento chegou à execução dos testes. Durante a escrita: um enum removido
+por engano ao reescrever as regras, uma colisão de namespace (`Api.Motorista` escondendo a classe
+`Motorista`) e dois defeitos no próprio teste de concorrência (asserção de contagem sem sentido e
+`Assert.All` com lambda assíncrona não aguardada) — todos pegos pela compilação ou por revisão antes
+da primeira execução.
+
+### Decisões
+
+[ADR 0014](./docs/adr/0014-maquina-de-estados-e-concorrencia.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Máquina de estados em tabela**, sem biblioteca; regras derivadas leem a mesma tabela.
+- **Concluir não exige chegada registrada** — a entrega aconteceu mesmo se o registro falhou.
+- **Reatribuição aceita com rota em andamento**; demais mudanças estruturais continuam bloqueadas.
+- **Idempotência pela máquina de estados** nos comandos do motorista; deduplicação por identificador
+  de operação fica para as fases offline.
+- **Rota concluída inativa as paradas**, liberando a entrega reagendada para outra rota.
+- **Entrega guarda o motorista responsável**, que permanece após o resultado.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Tela de execução do motorista | Fase 11; o contrato de API existe e é testado |
+| Leitura "rota do dia" pelo motorista | nesta fase o motorista recebe o identificador da rota; a consulta própria nasce com a PWA |
+| Prova de entrega na conclusão | Fase 14 — vira pré-condição de `Concluir` |
+| Chegada por geofence | Fase 7 — novo chamador de `RegistrarChegada` |
+| Log de erro do EF Core em conflito tratado | agora também nas corridas de execução — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: maquina de estados da entrega e concorrencia na execucao (Fase 5)`
+
+---
+
 # FASE 6 — INGESTÃO DE LOCALIZAÇÃO
 
 ## Objetivo
@@ -2662,9 +2783,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 4 — Rotas e Paradas** (2026-09-14) |
-| Próxima fase | **Fase 5 — Máquina de Estados e Concorrência** |
-| Testes verdes | 673 — 316 unidade, 19 arquitetura, 289 integração, 49 frontend |
+| Última fase concluída | **Fase 5 — Máquina de Estados e Concorrência** (2026-09-14) |
+| Próxima fase | **Fase 6 — Ingestão de Localização** |
+| Testes verdes | 808 — 430 unidade, 22 arquitetura, 307 integração, 49 frontend |
 
 Comando para continuar:
 

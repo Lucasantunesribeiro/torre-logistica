@@ -55,6 +55,12 @@ public enum TipoDeEventoDaRota
 
     /// <summary>Rota cancelada.</summary>
     Cancelada = 10,
+
+    /// <summary>Motorista saiu para a rota.</summary>
+    Iniciada = 11,
+
+    /// <summary>Rota encerrada com todas as entregas resolvidas.</summary>
+    Concluida = 12,
 }
 
 /// <summary>Por que uma parada deixou a rota.</summary>
@@ -68,6 +74,9 @@ public enum MotivoDeRemocaoDeParada
 
     /// <summary>A rota foi cancelada.</summary>
     RotaCancelada = 3,
+
+    /// <summary>A rota foi concluída.</summary>
+    RotaConcluida = 4,
 }
 
 /// <summary>Regras de status da rota, em um lugar só.</summary>
@@ -85,6 +94,13 @@ public static class RegrasDaRota
     /// </summary>
     public static bool PermiteAlteracaoEstrutural(StatusDaRota status) =>
         status is StatusDaRota.EmMontagem or StatusDaRota.Planejada;
+
+    /// <summary>
+    /// Aceita troca de motorista. Além da montagem, também em andamento: é a reatribuição
+    /// operacional — motorista que passou mal, veículo que quebrou com outro motorista assumindo.
+    /// </summary>
+    public static bool PermiteTrocaDeMotorista(StatusDaRota status) =>
+        status is StatusDaRota.EmMontagem or StatusDaRota.Planejada or StatusDaRota.EmAndamento;
 
     /// <summary>Ocupa motorista, veículo e entregas.</summary>
     public static bool EhAtiva(StatusDaRota status) =>

@@ -162,6 +162,30 @@ public class TorreLogisticaDbContext(
     }
 
     /// <inheritdoc />
+    public Task<bool> MotoristaJaFoiAtribuidoAsync(Guid entregaId, Guid motoristaId, CancellationToken cancelamento)
+    {
+        // SQL explícito: contém em jsonb (@>) sobre {"motoristaId": "..."}, gravado nos eventos de
+        // atribuição. Consulta crua não passa pelo filtro global, então a organização vai na condição.
+        var organizacaoId = OrganizacaoIdDoFiltro;
+        var atribuida = nameof(TipoDeEventoDaEntrega.Atribuida);
+        var reatribuida = nameof(TipoDeEventoDaEntrega.Reatribuida);
+        var motorista = motoristaId.ToString();
+
+        return Database
+            .SqlQuery<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM eventos_da_entrega
+                    WHERE entrega_id = {entregaId}
+                      AND organizacao_id = {organizacaoId}
+                      AND tipo IN ({atribuida}, {reatribuida})
+                      AND dados @> jsonb_build_object('motoristaId', {motorista})
+                ) AS "Value"
+                """)
+            .SingleAsync(cancelamento);
+    }
+
+    /// <inheritdoc />
     public void DefinirVersaoEsperada(object entidade, uint versao)
     {
         ArgumentNullException.ThrowIfNull(entidade);

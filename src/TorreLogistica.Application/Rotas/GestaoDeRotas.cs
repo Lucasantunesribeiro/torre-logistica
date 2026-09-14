@@ -57,6 +57,8 @@ public sealed record RotaResumo(
     DateTimeOffset AtualizadaEm,
     DateTimeOffset? PlanejadaEm,
     DateTimeOffset? CanceladaEm,
+    DateTimeOffset? IniciadaEm,
+    DateTimeOffset? ConcluidaEm,
     uint Versao);
 
 /// <summary>Rota na lista.</summary>
@@ -353,11 +355,25 @@ public sealed class GestaoDeRotas(
 
         foreach (var entrega in entregas)
         {
-            contexto.EventosDaEntrega.Add(entrega.Atribuir(rota.Id, motoristaId, suporte.UsuarioId, identificadores.Novo(), agora));
+            // Antes da saída, a entrega passa a atribuída ao novo motorista; em execução, é
+            // reatribuída. Entrega que já tem resultado na rota fica como está.
+            var eventoDaEntrega = entrega.Status switch
+            {
+                StatusDaEntrega.Planejada or StatusDaEntrega.Atribuida =>
+                    entrega.Atribuir(rota.Id, motoristaId, suporte.UsuarioId, identificadores.Novo(), agora),
+                StatusDaEntrega.EmRota or StatusDaEntrega.ProximaDoDestino =>
+                    entrega.Reatribuir(rota.Id, motoristaId, suporte.UsuarioId, identificadores.Novo(), agora),
+                _ => null,
+            };
+
+            if (eventoDaEntrega is not null)
+            {
+                contexto.EventosDaEntrega.Add(eventoDaEntrega);
+            }
         }
 
         contexto.EventosDaRota.Add(evento);
-        suporte.Auditar(Recurso, AcoesDeRota.MotoristaAtribuido, rota.Id, new { motoristaId, entregas = ids.Length });
+        suporte.Auditar(Recurso, AcoesDeRota.MotoristaAtribuido, rota.Id, new { motoristaId, entregas = ids.Length, rotaEmAndamento = rota.Status == StatusDaRota.EmAndamento });
         await SalvarAsync(cancelamento).ConfigureAwait(false);
 
         return await ObterAsync(id, cancelamento).ConfigureAwait(false);
@@ -514,6 +530,8 @@ public sealed class GestaoDeRotas(
             rota.AtualizadaEm,
             rota.PlanejadaEm,
             rota.CanceladaEm,
+            rota.IniciadaEm,
+            rota.ConcluidaEm,
             rota.Versao);
     }
 

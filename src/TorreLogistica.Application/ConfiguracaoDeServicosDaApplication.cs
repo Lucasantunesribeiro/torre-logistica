@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorreLogistica.Application.Cadastros;
 using TorreLogistica.Application.Entregas;
+using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Organizacoes;
 using TorreLogistica.Application.Rotas;
@@ -39,6 +40,7 @@ public static class ConfiguracaoDeServicosDaApplication
 
         servicos.AddScoped<GestaoDeEntregas>();
         servicos.AddScoped<GestaoDeRotas>();
+        servicos.AddScoped<ExecucaoPeloMotorista>();
 
         return servicos;
     }

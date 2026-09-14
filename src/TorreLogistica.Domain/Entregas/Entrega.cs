@@ -59,15 +59,19 @@ public sealed class AlteracaoDaEntrega(IReadOnlyList<string> campos, EventoDaEnt
 /// </summary>
 /// <remarks>
 /// <para>
-/// O status só muda por operação com intenção explícita — <see cref="Criar"/>,
-/// <see cref="Cancelar"/> e, nas fases seguintes, planejar, atribuir, sair para rota e concluir.
-/// Não existe <c>entrega.Status = ...</c>: toda operação confere o status atual, aplica a
-/// regra e devolve o evento que entra na timeline.
+/// O status só muda por comando com intenção explícita, e cada comando consulta a
+/// <see cref="MaquinaDeEstadosDaEntrega"/>. Não existe <c>entrega.Status = ...</c>: toda operação
+/// confere o status atual, aplica a regra e devolve o evento que entra na timeline.
+/// </para>
+/// <para>
+/// Comandos do motorista (sair, chegar, concluir, tentativa sem sucesso) são idempotentes:
+/// repetir um comando cujo resultado já está aplicado devolve <see langword="null"/> — sem
+/// evento, sem erro. É o que torna seguro o aplicativo repetir um envio cuja resposta se perdeu.
 /// </para>
 /// <para>
 /// O endereço é uma <b>cópia</b> tirada na criação, não uma referência ao endereço do
 /// destinatário. Se o cadastro do destinatário mudar amanhã, a entrega de hoje continua
-/// dizendo para onde foi — o histórico não é reescrito por tabela.
+/// dizendo para onde foi.
 /// </para>
 /// </remarks>
 public sealed class Entrega
@@ -117,17 +121,42 @@ public sealed class Entrega
     /// <summary>Status atual.</summary>
     public StatusDaEntrega Status { get; private set; }
 
+    /// <summary>
+    /// Motorista responsável: definido na atribuição, trocado na reatribuição, limpo quando a
+    /// entrega volta a ficar sem rota. Continua após o resultado, para registro e para que o
+    /// motorista possa repetir o próprio comando.
+    /// </summary>
+    public Guid? MotoristaId { get; private set; }
+
     /// <summary>Motivo, se cancelada.</summary>
     public MotivoDeCancelamento? MotivoDoCancelamento { get; private set; }
 
     /// <summary>Descrição do cancelamento, quando informada.</summary>
     public string? DescricaoDoCancelamento { get; private set; }
 
+    /// <summary>Quantas tentativas sem sucesso já houve.</summary>
+    public int TentativasFrustradas { get; private set; }
+
+    /// <summary>Motivo da última tentativa sem sucesso.</summary>
+    public MotivoDeTentativaFrustrada? MotivoDaUltimaTentativa { get; private set; }
+
     /// <summary>Instante da criação.</summary>
     public DateTimeOffset CriadaEm { get; private set; }
 
     /// <summary>Instante da última mudança.</summary>
     public DateTimeOffset AtualizadaEm { get; private set; }
+
+    /// <summary>Instante da última saída para rota.</summary>
+    public DateTimeOffset? SaiuParaRotaEm { get; private set; }
+
+    /// <summary>Instante da última chegada registrada.</summary>
+    public DateTimeOffset? ChegadaRegistradaEm { get; private set; }
+
+    /// <summary>Instante da conclusão.</summary>
+    public DateTimeOffset? EntregueEm { get; private set; }
+
+    /// <summary>Instante da última tentativa sem sucesso.</summary>
+    public DateTimeOffset? UltimaTentativaFrustradaEm { get; private set; }
 
     /// <summary>Instante do cancelamento.</summary>
     public DateTimeOffset? CanceladaEm { get; private set; }
@@ -242,6 +271,187 @@ public sealed class Entrega
         return new AlteracaoDaEntrega(campos, evento);
     }
 
+    /// <summary>Inclui a entrega numa rota: <c>Criada</c> ou <c>Reagendada</c> → <c>Planejada</c>.</summary>
+    public EventoDaEntrega Planejar(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+
+        var anterior = Status;
+        var instante = AplicarTransicao(ComandoDaEntrega.Planejar, "entrega_inelegivel_para_rota", agora);
+        MotoristaId = null;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Planejada,
+            new { rotaId, statusAnterior = anterior.ToString() },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>
+    /// Define o motorista da rota antes da saída: <c>Planejada</c> → <c>Atribuida</c>. Chamado de
+    /// novo quando a rota troca de motorista antes de sair.
+    /// </summary>
+    public EventoDaEntrega Atribuir(Guid rotaId, Guid motoristaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+        ExcecaoDeDominio.LancarSe(motoristaId == Guid.Empty, "motorista_invalido", "Motorista inválido.");
+
+        var instante = AplicarTransicao(ComandoDaEntrega.Atribuir, "entrega_nao_planejada", agora);
+        MotoristaId = motoristaId;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Atribuida, new { rotaId, motoristaId }, autorUsuarioId, idDoEvento, instante);
+    }
+
+    /// <summary>
+    /// Troca o motorista com a entrega já em execução. O status não muda; a troca fica na timeline.
+    /// </summary>
+    /// <returns>O evento, ou <see langword="null"/> se já era este motorista.</returns>
+    public EventoDaEntrega? Reatribuir(Guid rotaId, Guid motoristaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+        ExcecaoDeDominio.LancarSe(motoristaId == Guid.Empty, "motorista_invalido", "Motorista inválido.");
+
+        if (MotoristaId == motoristaId && RegrasDaEntrega.EstaEmExecucao(Status))
+        {
+            return null;
+        }
+
+        var anterior = MotoristaId;
+        var instante = AplicarTransicao(ComandoDaEntrega.Reatribuir, "transicao_invalida", agora);
+        MotoristaId = motoristaId;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Reatribuida,
+            new { rotaId, motoristaId, motoristaAnteriorId = anterior },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>Retira a entrega de uma rota que ainda não saiu: volta a <c>Criada</c>.</summary>
+    public EventoDaEntrega RetirarDaRota(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+
+        var anterior = Status;
+        var instante = AplicarTransicao(ComandoDaEntrega.RetirarDaRota, "entrega_fora_de_rota", agora);
+        MotoristaId = null;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.RetiradaDaRota,
+            new { rotaId, statusAnterior = anterior.ToString() },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>Saída do motorista para a rota: <c>Atribuida</c> → <c>EmRota</c>.</summary>
+    /// <returns>O evento, ou <see langword="null"/> se já estava em rota.</returns>
+    public EventoDaEntrega? IniciarRota(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+
+        if (Status == StatusDaEntrega.EmRota)
+        {
+            return null;
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.IniciarRota, "transicao_invalida", agora);
+        SaiuParaRotaEm = instante;
+
+        return RegistrarEvento(TipoDeEventoDaEntrega.SaiuParaRota, new { rotaId }, autorUsuarioId, idDoEvento, instante);
+    }
+
+    /// <summary>Chegada ao destino: <c>EmRota</c> → <c>ProximaDoDestino</c>.</summary>
+    /// <returns>O evento, ou <see langword="null"/> se a chegada já estava registrada.</returns>
+    public EventoDaEntrega? RegistrarChegada(Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        if (Status == StatusDaEntrega.ProximaDoDestino)
+        {
+            return null;
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.RegistrarChegada, "transicao_invalida", agora);
+        ChegadaRegistradaEm = instante;
+
+        return RegistrarEvento(TipoDeEventoDaEntrega.ChegadaRegistrada, new { }, autorUsuarioId, idDoEvento, instante);
+    }
+
+    /// <summary>
+    /// Entrega feita: <c>EmRota</c> ou <c>ProximaDoDestino</c> → <c>Entregue</c>. A chegada não é
+    /// pré-requisito: o registro dela pode ter falhado, e a entrega aconteceu.
+    /// </summary>
+    /// <returns>O evento, ou <see langword="null"/> se já estava entregue.</returns>
+    public EventoDaEntrega? Concluir(Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        if (Status == StatusDaEntrega.Entregue)
+        {
+            return null;
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.Concluir, "transicao_invalida", agora);
+        EntregueEm = instante;
+
+        return RegistrarEvento(TipoDeEventoDaEntrega.Entregue, new { }, autorUsuarioId, idDoEvento, instante);
+    }
+
+    /// <summary>Tentativa sem sucesso: <c>EmRota</c> ou <c>ProximaDoDestino</c> → <c>TentativaFrustrada</c>.</summary>
+    /// <returns>O evento, ou <see langword="null"/> se a tentativa já estava registrada.</returns>
+    public EventoDaEntrega? RegistrarTentativaFrustrada(
+        MotivoDeTentativaFrustrada motivo,
+        Guid? autorUsuarioId,
+        Guid idDoEvento,
+        DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(!Enum.IsDefined(motivo), "motivo_invalido", "Motivo de tentativa inválido.");
+
+        if (Status == StatusDaEntrega.TentativaFrustrada)
+        {
+            return null;
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.RegistrarTentativaFrustrada, "transicao_invalida", agora);
+        TentativasFrustradas++;
+        MotivoDaUltimaTentativa = motivo;
+        UltimaTentativaFrustradaEm = instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.TentativaFrustrada,
+            new { motivo = motivo.ToString(), tentativa = TentativasFrustradas },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>
+    /// Marca nova janela depois de tentativa sem sucesso: → <c>Reagendada</c>. A entrega reagendada
+    /// pode entrar em outra rota.
+    /// </summary>
+    /// <returns>O evento, ou <see langword="null"/> se já estava reagendada para esta janela.</returns>
+    public EventoDaEntrega? Reagendar(JanelaDeEntrega janela, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ArgumentNullException.ThrowIfNull(janela);
+
+        if (Status == StatusDaEntrega.Reagendada && Janela == janela)
+        {
+            return null;
+        }
+
+        var instanteAtual = agora.ToUniversalTime();
+        if (MaquinaDeEstadosDaEntrega.Destino(ComandoDaEntrega.Reagendar, Status) is not null)
+        {
+            GarantirJanelaFutura(janela, instanteAtual);
+        }
+
+        var instante = AplicarTransicao(ComandoDaEntrega.Reagendar, "transicao_invalida", agora);
+        Janela = janela;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Reagendada, new { tentativas = TentativasFrustradas }, autorUsuarioId, idDoEvento, instante);
+    }
+
     /// <summary>
     /// Cancela. Repetir o cancelamento de entrega já cancelada não tem efeito e não gera
     /// evento — o pedido foi atendido da primeira vez.
@@ -269,99 +479,15 @@ public sealed class Entrega
             return null;
         }
 
-        if (!RegrasDaEntrega.PermiteCancelamento(Status))
-        {
-            throw ExcecaoDeDominio.Conflito(
-                "cancelamento_nao_permitido",
-                $"Entrega no status {Status} não pode ser cancelada.");
-        }
-
         var anterior = Status;
-        var instante = agora.ToUniversalTime();
-
-        Status = StatusDaEntrega.Cancelada;
+        var instante = AplicarTransicao(ComandoDaEntrega.Cancelar, "cancelamento_nao_permitido", agora);
         MotivoDoCancelamento = motivo;
         DescricaoDoCancelamento = descricaoValida;
         CanceladaEm = instante;
-        AtualizadaEm = instante;
 
         return RegistrarEvento(
             TipoDeEventoDaEntrega.Cancelada,
             new { statusAnterior = anterior.ToString(), motivo = motivo.ToString() },
-            autorUsuarioId,
-            idDoEvento,
-            instante);
-    }
-
-    /// <summary>Inclui a entrega numa rota: <c>Criada</c> ou <c>Reagendada</c> → <c>Planejada</c>.</summary>
-    public EventoDaEntrega Planejar(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
-    {
-        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
-
-        if (!RegrasDaEntrega.PodeEntrarEmRota(Status))
-        {
-            throw ExcecaoDeDominio.Conflito(
-                "entrega_inelegivel_para_rota",
-                $"Entrega no status {Status} não pode entrar em rota.");
-        }
-
-        var anterior = Status;
-        var instante = agora.ToUniversalTime();
-        Status = StatusDaEntrega.Planejada;
-        AtualizadaEm = instante;
-
-        return RegistrarEvento(
-            TipoDeEventoDaEntrega.Planejada,
-            new { rotaId, statusAnterior = anterior.ToString() },
-            autorUsuarioId,
-            idDoEvento,
-            instante);
-    }
-
-    /// <summary>
-    /// Define o motorista da rota para a entrega: <c>Planejada</c> → <c>Atribuida</c>. Chamado de
-    /// novo quando a rota troca de motorista — a reatribuição fica registrada na timeline.
-    /// </summary>
-    public EventoDaEntrega Atribuir(Guid rotaId, Guid motoristaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
-    {
-        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
-        ExcecaoDeDominio.LancarSe(motoristaId == Guid.Empty, "motorista_invalido", "Motorista inválido.");
-
-        if (!RegrasDaEntrega.EstaEmRotaNaoIniciada(Status))
-        {
-            throw ExcecaoDeDominio.Conflito(
-                "entrega_nao_planejada",
-                $"Entrega no status {Status} não recebe motorista: ela precisa estar planejada numa rota.");
-        }
-
-        var instante = agora.ToUniversalTime();
-        Status = StatusDaEntrega.Atribuida;
-        AtualizadaEm = instante;
-
-        return RegistrarEvento(
-            TipoDeEventoDaEntrega.Atribuida, new { rotaId, motoristaId }, autorUsuarioId, idDoEvento, instante);
-    }
-
-    /// <summary>Retira a entrega de uma rota que ainda não saiu: volta a <c>Criada</c>.</summary>
-    public EventoDaEntrega RetirarDaRota(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
-    {
-        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
-
-        if (!RegrasDaEntrega.EstaEmRotaNaoIniciada(Status))
-        {
-            throw ExcecaoDeDominio.Conflito(
-                "entrega_fora_de_rota",
-                $"Entrega no status {Status} não está numa rota que possa ser desfeita.");
-        }
-
-        var anterior = Status;
-        var instante = agora.ToUniversalTime();
-        Status = StatusDaEntrega.Criada;
-        AtualizadaEm = instante;
-
-        return RegistrarEvento(
-            TipoDeEventoDaEntrega.RetiradaDaRota,
-            new { rotaId, statusAnterior = anterior.ToString() },
             autorUsuarioId,
             idDoEvento,
             instante);
@@ -390,6 +516,23 @@ public sealed class Entrega
         {
             campos.Add(campo);
         }
+    }
+
+    /// <summary>
+    /// O único lugar em que <see cref="Status"/> muda: consulta a máquina de estados e recusa a
+    /// transição que não está nela.
+    /// </summary>
+    private DateTimeOffset AplicarTransicao(ComandoDaEntrega comando, string codigoDeRecusa, DateTimeOffset agora)
+    {
+        var destino = MaquinaDeEstadosDaEntrega.Destino(comando, Status)
+            ?? throw ExcecaoDeDominio.Conflito(
+                codigoDeRecusa,
+                $"Entrega no status {Status} não aceita o comando {comando}.");
+
+        var instante = agora.ToUniversalTime();
+        Status = destino;
+        AtualizadaEm = instante;
+        return instante;
     }
 
     private EventoDaEntrega RegistrarEvento(
