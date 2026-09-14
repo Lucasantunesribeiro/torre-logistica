@@ -39,6 +39,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/destinatarios", Status(201, 201, 403, 401, 401)),
         ("GET", "/api/entregas", Status(200, 200, 200, 401, 401)),
         ("POST", "/api/entregas", Status(201, 201, 201, 401, 401)),
+        ("GET", "/api/rotas", Status(200, 200, 200, 401, 401)),
+        ("POST", "/api/rotas", Status(201, 201, 403, 401, 401)),
     ];
 
     public static TheoryData<string, string, string, int> Casos()
@@ -84,6 +86,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         object? corpo = (metodo, rota) switch
         {
             ("POST", "/api/entregas") => corpoDeEntrega,
+            ("POST", "/api/rotas") => new { data = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)) },
             ("POST", "/api/usuarios") => new
             {
                 nome = "Conta Nova",
@@ -172,6 +175,18 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/entregas/"] = "entregas:operacao",
             ["PUT /api/entregas/{id:guid}"] = "entregas:operacao",
             ["POST /api/entregas/{id:guid}/cancelamento"] = "entregas:operacao",
+            ["GET /api/rotas/"] = "operacao:leitura",
+            ["GET /api/rotas/{id:guid}"] = "operacao:leitura",
+            ["GET /api/rotas/{id:guid}/eventos"] = "operacao:leitura",
+            ["POST /api/rotas/"] = "operacao:gestao",
+            ["POST /api/rotas/{id:guid}/paradas"] = "operacao:gestao",
+            ["DELETE /api/rotas/{id:guid}/paradas/{entregaId:guid}"] = "operacao:gestao",
+            ["PUT /api/rotas/{id:guid}/ordem"] = "operacao:gestao",
+            ["PUT /api/rotas/{id:guid}/motorista"] = "operacao:gestao",
+            ["PUT /api/rotas/{id:guid}/veiculo"] = "operacao:gestao",
+            ["PUT /api/rotas/{id:guid}/saida"] = "operacao:gestao",
+            ["POST /api/rotas/{id:guid}/planejamento"] = "operacao:gestao",
+            ["POST /api/rotas/{id:guid}/cancelamento"] = "operacao:gestao",
         };
 
         var encontrado = new SortedDictionary<string, string>(StringComparer.Ordinal);

@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 3. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 4. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -42,6 +42,9 @@
 | `GET /api/entregas`, `GET /api/entregas/{id}` e `GET .../eventos` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `POST /api/entregas` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao` |
 | `PUT /api/entregas/{id}` e `POST .../cancelamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
+| `GET /api/rotas`, `GET /api/rotas/{id}` e `GET .../eventos` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/rotas` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `POST .../paradas`, `DELETE .../paradas/{entregaId}`, `PUT .../ordem`, `.../motorista`, `.../veiculo`, `.../saida`, `POST .../planejamento`, `.../cancelamento` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -71,6 +74,8 @@ inverso.
 | Operador cria, altera e cancela entregas; estrutura operacional continua com administrador e supervisor | política `entregas:operacao`; [ADR 0012](../adr/0012-entrega-como-agregado-central.md) |
 | Cliente ou destinatário de outra organização informado na entrega responde 404, idêntico a inexistente | procurados nas consultas filtradas pelo tenant |
 | Status, código e organização não entram no corpo da entrega | campo desconhecido responde 400; status muda só por operação |
+| Supervisor e administrador montam e atribuem rotas; operador consulta | política `operacao:gestao`; [ADR 0013](../adr/0013-rotas-e-paradas.md) |
+| Entrega, motorista, veículo e hub de outra organização informados na rota respondem 404, idêntico a inexistente | procurados nas consultas filtradas pelo tenant |
 
 ## Como adicionar um endpoint
 

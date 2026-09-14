@@ -4,13 +4,13 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 3 — Núcleo de Entregas concluída.**
+> **Estado: Fase 4 — Rotas e Paradas concluída.**
 > Login do console e da PWA do motorista em canais separados, isolamento entre organizações
-> provado contra PostgreSQL real, os cadastros da operação (motoristas, veículos, hubs, clientes e
-> destinatários) e, agora, a **entrega** como agregado central: código humano sequencial por
-> organização, janela prometida, cancelamento com motivo e timeline somente-inserção garantida
-> pelo banco. Rotas, atribuição e GPS vêm nas próximas fases. A ordem está em
-> [`ROADMAP.md`](./ROADMAP.md).
+> provado contra PostgreSQL real, os cadastros da operação, a **entrega** como agregado central
+> com timeline somente-inserção e, agora, a **rota do dia**: paradas ordenadas com versão,
+> motorista e veículo atribuídos, saída planejada, e as regras que atravessam rotas — entrega,
+> motorista e veículo em no máximo uma rota ativa — garantidas pelo banco. Execução da rota e GPS
+> vêm nas próximas fases. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -81,9 +81,9 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 280 |
+| Unidade | 316 |
 | Arquitetura | 19 |
-| Integração (PostgreSQL + PostGIS real) | 255 |
+| Integração (PostgreSQL + PostGIS real) | 289 |
 | Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -110,6 +110,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0010](./docs/adr/0010-multi-tenancy-e-isolamento.md) | Multi-tenancy por discriminador com filtro que falha fechado |
 | [0011](./docs/adr/0011-cadastros-operacionais.md) | Cadastros com tipos de valor próprios, PostGIS atrás de conversão, versão por linha e inativação |
 | [0012](./docs/adr/0012-entrega-como-agregado-central.md) | Entrega com código humano sem lacuna, endereço copiado, timeline numerada e regras em tabela |
+| [0013](./docs/adr/0013-rotas-e-paradas.md) | Rotas com parada como associação, regras entre rotas por índice parcial e ordem versionada |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

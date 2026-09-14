@@ -293,6 +293,80 @@ public sealed class Entrega
             instante);
     }
 
+    /// <summary>Inclui a entrega numa rota: <c>Criada</c> ou <c>Reagendada</c> → <c>Planejada</c>.</summary>
+    public EventoDaEntrega Planejar(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+
+        if (!RegrasDaEntrega.PodeEntrarEmRota(Status))
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "entrega_inelegivel_para_rota",
+                $"Entrega no status {Status} não pode entrar em rota.");
+        }
+
+        var anterior = Status;
+        var instante = agora.ToUniversalTime();
+        Status = StatusDaEntrega.Planejada;
+        AtualizadaEm = instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Planejada,
+            new { rotaId, statusAnterior = anterior.ToString() },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
+    /// <summary>
+    /// Define o motorista da rota para a entrega: <c>Planejada</c> → <c>Atribuida</c>. Chamado de
+    /// novo quando a rota troca de motorista — a reatribuição fica registrada na timeline.
+    /// </summary>
+    public EventoDaEntrega Atribuir(Guid rotaId, Guid motoristaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+        ExcecaoDeDominio.LancarSe(motoristaId == Guid.Empty, "motorista_invalido", "Motorista inválido.");
+
+        if (!RegrasDaEntrega.EstaEmRotaNaoIniciada(Status))
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "entrega_nao_planejada",
+                $"Entrega no status {Status} não recebe motorista: ela precisa estar planejada numa rota.");
+        }
+
+        var instante = agora.ToUniversalTime();
+        Status = StatusDaEntrega.Atribuida;
+        AtualizadaEm = instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.Atribuida, new { rotaId, motoristaId }, autorUsuarioId, idDoEvento, instante);
+    }
+
+    /// <summary>Retira a entrega de uma rota que ainda não saiu: volta a <c>Criada</c>.</summary>
+    public EventoDaEntrega RetirarDaRota(Guid rotaId, Guid? autorUsuarioId, Guid idDoEvento, DateTimeOffset agora)
+    {
+        ExcecaoDeDominio.LancarSe(rotaId == Guid.Empty, "rota_invalida", "Rota inválida.");
+
+        if (!RegrasDaEntrega.EstaEmRotaNaoIniciada(Status))
+        {
+            throw ExcecaoDeDominio.Conflito(
+                "entrega_fora_de_rota",
+                $"Entrega no status {Status} não está numa rota que possa ser desfeita.");
+        }
+
+        var anterior = Status;
+        var instante = agora.ToUniversalTime();
+        Status = StatusDaEntrega.Criada;
+        AtualizadaEm = instante;
+
+        return RegistrarEvento(
+            TipoDeEventoDaEntrega.RetiradaDaRota,
+            new { rotaId, statusAnterior = anterior.ToString() },
+            autorUsuarioId,
+            idDoEvento,
+            instante);
+    }
+
     private static void ValidarReferencias(DadosDaEntrega dados)
     {
         ArgumentNullException.ThrowIfNull(dados.Endereco);

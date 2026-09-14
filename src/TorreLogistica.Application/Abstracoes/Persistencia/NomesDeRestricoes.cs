@@ -36,4 +36,19 @@ public static class NomesDeRestricoes
 
     /// <summary>Posição do evento na timeline única por entrega.</summary>
     public const string SequenciaDoEventoDaEntrega = "ux_eventos_da_entrega_entrega_id_sequencia";
+
+    /// <summary>Código humano da rota único dentro da organização.</summary>
+    public const string CodigoDaRotaPorOrganizacao = "ux_rotas_organizacao_id_codigo";
+
+    /// <summary>Uma entrega em no máximo uma parada ativa.</summary>
+    public const string ParadaAtivaDaEntrega = "ux_paradas_entrega_id_ativa";
+
+    /// <summary>Um motorista em no máximo uma rota ativa por dia.</summary>
+    public const string MotoristaEmRotaAtivaNoDia = "ux_rotas_motorista_por_data_ativa";
+
+    /// <summary>Um veículo em no máximo uma rota ativa por dia.</summary>
+    public const string VeiculoEmRotaAtivaNoDia = "ux_rotas_veiculo_por_data_ativa";
+
+    /// <summary>Posição do evento na timeline única por rota.</summary>
+    public const string SequenciaDoEventoDaRota = "ux_eventos_da_rota_rota_id_sequencia";
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Cadastros;
+using TorreLogistica.Api.Comum;
 using TorreLogistica.Application.Comum;
 using TorreLogistica.Application.Entregas;
 using TorreLogistica.Domain.Entregas;
@@ -151,23 +152,9 @@ public static class EndpointsDeEntregas
             return null;
         }
 
-        var statusAceitos = new List<StatusDaEntrega>();
-        foreach (var valor in status ?? [])
-        {
-            // Só o nome exato: "1" ou "criada" não passam, para o contrato ter uma forma só.
-            if (string.IsNullOrEmpty(valor)
-                || !valor.All(char.IsAsciiLetter)
-                || !Enum.TryParse<StatusDaEntrega>(valor, ignoreCase: false, out var convertido)
-                || !Enum.IsDefined(convertido))
-            {
-                return null;
-            }
-
-            statusAceitos.Add(convertido);
-        }
-
-        return new FiltroDeEntregas(
-            numero, tamanho, statusAceitos.Distinct().ToList(), clienteId, destinatarioId, codigo, janelaAPartirDe, janelaAte);
+        return LeituraDeStatus.Ler<StatusDaEntrega>(status, QuantidadeMaximaDeStatus) is { } statusAceitos
+            ? new FiltroDeEntregas(numero, tamanho, statusAceitos, clienteId, destinatarioId, codigo, janelaAPartirDe, janelaAte)
+            : null;
     }
 
     private static IResult FiltroInvalido() =>

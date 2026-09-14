@@ -9,6 +9,7 @@ using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
 
@@ -72,6 +73,15 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<EventoDaEntrega> EventosDaEntrega => Set<EventoDaEntrega>();
+
+    /// <inheritdoc />
+    public DbSet<Rota> Rotas => Set<Rota>();
+
+    /// <inheritdoc />
+    public DbSet<Parada> Paradas => Set<Parada>();
+
+    /// <inheritdoc />
+    public DbSet<EventoDaRota> EventosDaRota => Set<EventoDaRota>();
 
     /// <summary>
     /// Organização usada nos filtros globais. O EF Core lê esta propriedade a cada
@@ -212,6 +222,12 @@ public class TorreLogisticaDbContext(
         modelBuilder.Entity<Entrega>()
             .HasQueryFilter(entrega => entrega.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<EventoDaEntrega>()
+            .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Rota>()
+            .HasQueryFilter(rota => rota.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Parada>()
+            .HasQueryFilter(parada => parada.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EventoDaRota>()
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 

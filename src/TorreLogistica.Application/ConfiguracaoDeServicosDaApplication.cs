@@ -3,6 +3,7 @@ using TorreLogistica.Application.Cadastros;
 using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Organizacoes;
+using TorreLogistica.Application.Rotas;
 using TorreLogistica.Application.Usuarios;
 
 namespace TorreLogistica.Application;
@@ -37,6 +38,7 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<GestaoDeDestinatarios>();
 
         servicos.AddScoped<GestaoDeEntregas>();
+        servicos.AddScoped<GestaoDeRotas>();
 
         return servicos;
     }

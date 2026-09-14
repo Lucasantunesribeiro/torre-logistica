@@ -68,6 +68,15 @@ public enum TipoDeEventoDaEntrega
 
     /// <summary>Entrega cancelada.</summary>
     Cancelada = 3,
+
+    /// <summary>Entrega incluída numa rota.</summary>
+    Planejada = 4,
+
+    /// <summary>Motorista da rota definido para a entrega, ou trocado.</summary>
+    Atribuida = 5,
+
+    /// <summary>Entrega retirada da rota antes da saída.</summary>
+    RetiradaDaRota = 6,
 }
 
 /// <summary>Nomes dos campos alteráveis, usados nas regras, na timeline e na auditoria.</summary>
@@ -139,6 +148,16 @@ public static class RegrasDaEntrega
     /// carga que está no veículo, assunto das fases de rota e ocorrência.
     /// </summary>
     public static bool PermiteCancelamento(StatusDaEntrega status) => Cancelaveis.Contains(status);
+
+    /// <summary>
+    /// Pode entrar numa rota: recém-criada, ou reagendada depois de tentativa sem sucesso.
+    /// </summary>
+    public static bool PodeEntrarEmRota(StatusDaEntrega status) =>
+        status is StatusDaEntrega.Criada or StatusDaEntrega.Reagendada;
+
+    /// <summary>Está numa rota que ainda não saiu: planejada ou com motorista definido.</summary>
+    public static bool EstaEmRotaNaoIniciada(StatusDaEntrega status) =>
+        status is StatusDaEntrega.Planejada or StatusDaEntrega.Atribuida;
 
     /// <summary>O campo pode mudar com a entrega neste status.</summary>
     public static bool CampoEditavel(string campo, StatusDaEntrega status) => campo switch

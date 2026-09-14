@@ -5,6 +5,7 @@ using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Application.Abstracoes.Persistencia;
 
@@ -61,6 +62,15 @@ public interface IContextoDePersistencia
 
     /// <summary>Timeline das entregas, filtrada pelo tenant. Somente-inserção.</summary>
     DbSet<EventoDaEntrega> EventosDaEntrega { get; }
+
+    /// <summary>Rotas, filtradas pelo tenant.</summary>
+    DbSet<Rota> Rotas { get; }
+
+    /// <summary>Paradas das rotas, filtradas pelo tenant.</summary>
+    DbSet<Parada> Paradas { get; }
+
+    /// <summary>Timeline das rotas, filtrada pelo tenant. Somente-inserção.</summary>
+    DbSet<EventoDaRota> EventosDaRota { get; }
 
     /// <summary>
     /// Reserva o próximo número de uma série de código humano, por organização e ano.

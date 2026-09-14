@@ -5,9 +5,11 @@ using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Cadastros;
 using TorreLogistica.Application.Comum;
 using TorreLogistica.Domain.Abstracoes.Erros;
+using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Clientes;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Application.Entregas;
 
@@ -95,7 +97,10 @@ public sealed record EventoDaEntregaResumo(
 /// identificador de outra organização responde como inexistente.
 /// </para>
 /// </remarks>
-public sealed class GestaoDeEntregas(SuporteDeCadastro suporte, ILogger<GestaoDeEntregas> log)
+public sealed class GestaoDeEntregas(
+    SuporteDeCadastro suporte,
+    IGeradorDeIdentificador identificadores,
+    ILogger<GestaoDeEntregas> log)
 {
     private const string Recurso = "entrega";
 
@@ -270,21 +275,44 @@ public sealed class GestaoDeEntregas(SuporteDeCadastro suporte, ILogger<GestaoDe
         return await ObterAsync(id, cancelamento).ConfigureAwait(false);
     }
 
-    /// <summary>Cancela uma entrega. Repetir não gera novo evento.</summary>
+    /// <summary>
+    /// Cancela uma entrega. Repetir não gera novo evento. Se ela está numa rota que ainda não
+    /// saiu, a parada é retirada na mesma gravação — entrega cancelada não fica ocupando rota.
+    /// </summary>
     public async Task<EntregaResumo> CancelarAsync(
         Guid id,
         MotivoDeCancelamento motivo,
         string? descricao,
         CancellationToken cancelamento)
     {
+        var contexto = suporte.Contexto;
         var entrega = await CarregarAsync(id, cancelamento).ConfigureAwait(false);
-        var evento = entrega.Cancelar(motivo, descricao, suporte.UsuarioId, suporte.NovoIdentificador(), suporte.Agora);
+        var estavaEmRota = RegrasDaEntrega.EstaEmRotaNaoIniciada(entrega.Status);
+        var agora = suporte.Agora;
+        var evento = entrega.Cancelar(motivo, descricao, suporte.UsuarioId, identificadores.Novo(), agora);
 
         if (evento is not null)
         {
-            suporte.Contexto.EventosDaEntrega.Add(evento);
+            if (estavaEmRota)
+            {
+                var rota = await contexto.Rotas
+                    .Include(item => item.Paradas)
+                    .SingleOrDefaultAsync(item => item.Paradas.Any(parada => parada.EntregaId == id && parada.Ativa), cancelamento)
+                    .ConfigureAwait(false);
+
+                if (rota is not null)
+                {
+                    contexto.EventosDaRota.AddRange(rota.RemoverParada(
+                        id, MotivoDeRemocaoDeParada.EntregaCancelada, identificadores, suporte.UsuarioId, agora));
+                }
+            }
+
+            contexto.EventosDaEntrega.Add(evento);
             suporte.Auditar(Recurso, AcoesDeEntrega.Cancelada, entrega.Id, new { motivo = motivo.ToString() });
-            await suporte.SalvarAsync(cancelamento, (NomesDeRestricoes.SequenciaDoEventoDaEntrega, ConflitoDeVersao)).ConfigureAwait(false);
+            await suporte.SalvarAsync(
+                cancelamento,
+                (NomesDeRestricoes.SequenciaDoEventoDaEntrega, ConflitoDeVersao),
+                (NomesDeRestricoes.SequenciaDoEventoDaRota, ConflitoDeVersao)).ConfigureAwait(false);
 
             log.LogInformation(
                 "Entrega {EntregaId} cancelada na organização {OrganizacaoId}.", entrega.Id, entrega.OrganizacaoId);

@@ -1009,6 +1009,119 @@ Supervisor consegue montar rota do dia e atribuí-la.
 
 ---
 
+## Fase 4 concluída — 2026-09-14
+
+### Entidades e funcionalidades
+
+| Pedido | Situação | Onde |
+|---|:---:|---|
+| Rota | ✅ | `Domain/Rotas/Rota.cs` — código `ROT-AAAA-NNNN`, data, hub opcional, motorista, veículo, saída, status |
+| Parada | ✅ | `Domain/Rotas/Parada.cs` — sequência, ativa, instante e motivo da retirada |
+| Associação RotaEntrega | ✅ | a própria parada (uma parada, uma entrega) — decisão no ADR 0013 |
+| Criar rota | ✅ | `POST /api/rotas` |
+| Adicionar e remover entregas elegíveis | ✅ | `POST /api/rotas/{id}/paradas` (várias, tudo ou nada) e `DELETE .../paradas/{entregaId}` |
+| Ordenar paradas | ✅ | `PUT .../ordem` com versão |
+| Atribuir motorista e veículo | ✅ | `PUT .../motorista`, `PUT .../veiculo` |
+| Planejar saída | ✅ | `PUT .../saida` e confirmação em `POST .../planejamento` |
+| Consultar sequência | ✅ | `GET /api/rotas/{id}` com paradas em ordem (código, status, destinatário, endereço, janela); `GET .../eventos`; `GET /api/rotas` com filtros |
+
+### Regras, uma por uma
+
+| Regra | Resultado | Evidência |
+|---|:---:|---|
+| Entrega não pode estar em duas rotas ativas | ✅ | índice único parcial `paradas (entrega_id) WHERE ativa` + conferência prévia; `EntregaNaoFicaEmDuasRotasAtivas`, `InclusoesSimultaneasDaMesmaEntregaEmRotasDiferentesTemUmVencedor` |
+| Rota concluída não aceita alteração estrutural | ✅ | `RegrasDaRota.PermiteAlteracaoEstrutural` testada para os 5 status; `RotaCanceladaNaoAceitaAlteracaoEstruturalEDevolveAsEntregas` prova as 6 operações recusadas numa rota final |
+| Motorista e veículo inativos não podem ser atribuídos | ✅ | regras da Fase 2 agora chamadas pela rota; `MotoristaEVeiculoInativosNaoSaoAtribuidos` (422) |
+| Ordem de paradas versionada e registrada | ✅ | `versao_da_ordem` + evento com ordem anterior, nova e versão; reordenar exige a versão lida da rota |
+
+Além das regras pedidas: motorista e veículo em no máximo uma rota ativa por dia (índice parcial),
+entrega cancelada retirada da rota na mesma gravação, rota planejada que perde a última parada
+volta para montagem, e cancelamento de rota devolvendo as entregas a `Criada`.
+
+### Critério de aceite
+
+> Supervisor consegue montar rota do dia e atribuí-la.
+
+✅ `SupervisorMontaARotaDoDiaEAAtribui`, contra PostgreSQL real, com sessão de **Supervisor**:
+cria a rota para amanhã com hub, inclui três entregas, reordena com a versão lida, atribui
+motorista e veículo, planeja a saída e confirma o planejamento. A rota fica `Planejada`, as três
+entregas ficam `Atribuida` com timeline `Criada → Planejada → Atribuida`, a timeline da rota registra
+as sete etapas em ordem, a auditoria registra criação, atribuições e planejamento, e o Operador
+consulta a mesma sequência, mas recebe 403 ao tentar criar rota.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| duplicidade | `EntregaNaoFicaEmDuasRotasAtivas` — outra rota, mesma rota, lista mista tudo ou nada, liberação por cancelamento, entrega cancelada; `RotaTestes.EntregaRepetidaNaRotaEhRecusadaSemIncluirNada` |
+| concorrência de atribuição | `AtribuicoesSimultaneasDoMesmoMotoristaNoMesmoDiaTemUmVencedor` (4 rotas, 1 vencedora); `InclusoesSimultaneasDaMesmaEntregaEmRotasDiferentesTemUmVencedor` (5 rotas, 1 parada ativa, 1 evento `Planejada`) |
+| remoção | `RemocaoDevolveAEntregaERenumeraAsParadas`; `CancelarEntregaDeRotaPlanejadaRetiraAParadaEAVoltaParaMontagem` |
+| reorder | `ReordenacaoExigePermutacaoExataEVersaoERegistraAsDuasOrdens` — faltando, repetida, estranha, versão velha |
+| tenant isolation | `RotaDeOutraOrganizacaoRespondeComoInexistente` (10 operações, 404 idêntico ao inexistente, rota de B intacta) e `CadastrosDeOutraOrganizacaoNaoEntramNaRota` (entrega, motorista, veículo, hub) |
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 316 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 19 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 289 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **673** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 4
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Isolamento entre tenants e IDOR | ✅ | 404 idêntico ao inexistente em leitura, timeline e nas 8 operações de montagem; entrega, motorista, veículo e hub de outra organização recusados como inexistentes |
+| Autorização | ✅ | leitura A/S/O; montagem A/S; matriz verificada contra o roteamento |
+| Mass assignment | ✅ | `status` e `organizacaoId` no corpo da rota respondem 400; status muda só por operação |
+| Integridade entre agregados | ✅ | índices únicos parciais para entrega, motorista e veículo; versão da linha da rota e da entrega |
+| Integridade do histórico | ✅ | timeline da rota recusa `UPDATE`, `DELETE` e `TRUNCATE`; parada retirada fica inativa, não é apagada |
+| Dado pessoal | ✅ | eventos da rota com identificadores e códigos; log só com identificador e código |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 1,38 MB |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada nos 9 projetos; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+Nenhum defeito de comportamento. Os erros desta fase foram de compilação nos testes (expressão de
+coleção sem tipo de destino e arrays constantes recusados pelo analisador), corrigidos antes da
+primeira execução.
+
+### Decisões
+
+[ADR 0013](./docs/adr/0013-rotas-e-paradas.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Parada é a associação rota–entrega**, 1:1, e fica inativa ao sair — não é apagada.
+- **Regras que atravessam rotas ficam no banco**, em índices únicos parciais; a aplicação confere
+  antes só para dar a mensagem.
+- **A rota coordena as paradas; a aplicação coordena rota e entrega** na mesma gravação.
+- **Só reordenar exige versão**; incluir, retirar e atribuir são comandos.
+- **Data da rota com um dia de tolerância em UTC**, até existir fuso por organização.
+- **Leitura de status compartilhada** (`Api/Comum/LeituraDeStatus`) entre entregas e rotas.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Fuso horário por organização | validações de data e saída usam UTC com tolerância de um dia; exatas quando a configuração existir |
+| Duas inclusões simultâneas de entregas diferentes na mesma rota | a segunda recebe `409 conflito_de_versao` e repete; inclusão em lote reduz a chance |
+| Iniciar e concluir rota | nascem com a execução pelo motorista; as tabelas de regra já cobrem os status |
+| Log de erro do EF Core em violação de unicidade tratada | agora também nas corridas de rota — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: rotas e paradas com atribuicao e ordem versionada (Fase 4)`
+
+---
+
 # FASE 5 — MÁQUINA DE ESTADOS E CONCORRÊNCIA
 
 ## Objetivo
@@ -2549,9 +2662,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 3 — Núcleo de Entregas** (2026-09-14) |
-| Próxima fase | **Fase 4 — Rotas e Paradas** |
-| Testes verdes | 603 — 280 unidade, 19 arquitetura, 255 integração, 49 frontend |
+| Última fase concluída | **Fase 4 — Rotas e Paradas** (2026-09-14) |
+| Próxima fase | **Fase 5 — Máquina de Estados e Concorrência** |
+| Testes verdes | 673 — 316 unidade, 19 arquitetura, 289 integração, 49 frontend |
 
 Comando para continuar:
 

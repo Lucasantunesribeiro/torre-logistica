@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 3 concluída (núcleo de entregas). Este documento cresce junto com as fases.
+> Estado: Fase 4 concluída (rotas e paradas). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status) | 280 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota | 316 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite | 19 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, concorrência otimista, geografia, auditoria, limite, logs | 255 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, concorrência otimista, geografia, auditoria, limite, logs | 289 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -313,13 +313,40 @@ organizacoes ──< sequencias_de_codigo          (contador por organização, 
 altera e cancela (`entregas:operacao`). Detalhes em
 [ADR 0012](./adr/0012-entrega-como-agregado-central.md).
 
+## Fase 4 — Rotas e paradas
+
+### Modelo
+
+```text
+organizacoes ──< rotas ──< paradas >── entregas   (uma parada ativa por entrega)
+                  │  ├──── motoristas / veiculos   (uma rota ativa por dia)
+                  │  └──── hubs                    (saída, opcional)
+                  └──< eventos_da_rota             (somente-inserção, garantido por trigger)
+```
+
+| Conceito | Regra central |
+|---|---|
+| `Rota` | dona das paradas; mudança estrutural só em montagem ou planejada; planejar exige parada, motorista, veículo e saída futura |
+| `Parada` | associação rota–entrega com sequência; retirada fica inativa com motivo |
+| `VersaoDaOrdem` | sobe a cada inclusão, retirada ou reordenação; reordenar exige a versão lida da rota |
+| Regras entre rotas | entrega, motorista e veículo em no máximo uma rota ativa — índices únicos parciais |
+| Entrega em rota | `Planejar`, `Atribuir`, `RetirarDaRota`; cancelar entrega em rota retira a parada |
+
+### Operações
+
+`POST /api/rotas`, `POST .../paradas`, `DELETE .../paradas/{entregaId}`, `PUT .../ordem`,
+`PUT .../motorista`, `PUT .../veiculo`, `PUT .../saida`, `POST .../planejamento`,
+`POST .../cancelamento`, `GET /api/rotas` (data, status, motorista), `GET /api/rotas/{id}` com a
+sequência e `GET .../eventos`. Supervisor e administrador montam; operador consulta. Detalhes em
+[ADR 0013](./adr/0013-rotas-e-paradas.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma rota, atribuição ou posição: chegam a partir da Fase 4. Os status Planejada, Atribuída,
-Em rota, Próxima do destino, Entregue, Tentativa frustrada e Reagendada existem nas tabelas de
-regra, mas nenhuma operação leva a entrega até eles ainda. As regras "motorista inativo não
-recebe atribuição" e "veículo inativo não inicia rota" existem no domínio e passam a ser chamadas
-na Fase 4. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+Nenhuma execução de rota ou posição: iniciar e concluir rota, saída para rota da entrega e GPS
+chegam nas próximas fases. Os status Em andamento e Concluída da rota, e Em rota, Próxima do
+destino, Entregue, Tentativa frustrada e Reagendada da entrega, existem nas tabelas de regra, mas
+nenhuma operação leva até eles ainda. Não há fuso horário configurado por organização: datas de
+rota usam UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
 e é testado, a interface é da Fase 11.
 
