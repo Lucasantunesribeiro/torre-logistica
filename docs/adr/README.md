@@ -22,6 +22,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0012](./0012-entrega-como-agregado-central.md) | Entrega: código humano sem lacuna, endereço copiado, timeline numerada, regras em tabela | 3 | aceita |
 | [0013](./0013-rotas-e-paradas.md) | Rotas: parada como associação, regras entre rotas por índice parcial, ordem versionada | 4 | aceita |
 | [0014](./0014-maquina-de-estados-e-concorrencia.md) | Máquina de estados em tabela, comandos nomeados, concorrência pela versão da linha | 5 | aceita |
+| [0015](./0015-ingestao-de-localizacao.md) | Ingestão de localização: histórico e posição atual separados, gravação atômica, coleta mínima | 6 | aceita |
 
 ## Regras
 

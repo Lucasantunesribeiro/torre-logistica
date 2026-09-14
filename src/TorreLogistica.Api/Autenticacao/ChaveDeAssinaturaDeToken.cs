@@ -35,6 +35,13 @@ public sealed class OpcoesDeLimiteDeRequisicoes
     /// <summary>Renovações de sessão por minuto por endereço.</summary>
     [Range(1, 100_000)]
     public int RenovacoesPorMinuto { get; set; } = 30;
+
+    /// <summary>
+    /// Envios de posição por minuto <b>por motorista</b>. Um envio a cada 15 s é o normal; o limite
+    /// deixa folga para lotes de recuperação e para a rajada ao reconectar.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int EnviosDePosicaoPorMinuto { get; set; } = 60;
 }
 
 /// <summary>

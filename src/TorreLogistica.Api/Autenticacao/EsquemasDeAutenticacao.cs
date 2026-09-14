@@ -89,4 +89,7 @@ public static class PoliticasDeLimite
 
     /// <summary>Renovação de sessão, por endereço de origem.</summary>
     public const string Renovacao = "limite-renovacao";
+
+    /// <summary>Envio de posições, por motorista autenticado.</summary>
+    public const string Telemetria = "limite-telemetria";
 }

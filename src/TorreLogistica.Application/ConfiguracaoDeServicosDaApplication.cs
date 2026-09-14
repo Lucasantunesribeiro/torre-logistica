@@ -4,6 +4,7 @@ using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Organizacoes;
+using TorreLogistica.Application.Rastreamento;
 using TorreLogistica.Application.Rotas;
 using TorreLogistica.Application.Usuarios;
 
@@ -41,6 +42,11 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<GestaoDeEntregas>();
         servicos.AddScoped<GestaoDeRotas>();
         servicos.AddScoped<ExecucaoPeloMotorista>();
+
+        // Métricas são instrumentos do processo: uma instância só.
+        servicos.AddSingleton<MetricasDeRastreamento>();
+        servicos.AddScoped<IngestaoDeLocalizacao>();
+        servicos.AddScoped<ConsultaDeLocalizacao>();
 
         return servicos;
     }

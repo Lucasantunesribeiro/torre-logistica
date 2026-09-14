@@ -52,6 +52,7 @@ public sealed class FabricaDaApi(
                 // "endereço". O teste de limite configura o seu próprio.
                 ["Torre:LimiteDeRequisicoes:TentativasDeLoginPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:RenovacoesPorMinuto"] = "100000",
+                ["Torre:LimiteDeRequisicoes:EnviosDePosicaoPorMinuto"] = "100000",
 
                 // Tudo a partir de Information chega ao sink de teste; o console só mostra
                 // aviso e erro, para a saída do teste continuar legível.

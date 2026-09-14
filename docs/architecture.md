@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 5 concluída (máquina de estados e concorrência). Este documento cresce junto com as fases.
+> Estado: Fase 6 concluída (ingestão de localização). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota | 430 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS | 452 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, concorrência otimista, geografia, auditoria, limite, logs | 307 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), concorrência otimista, geografia, auditoria, limite, logs | 330 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -377,13 +377,49 @@ conclui", quem grava primeiro prevalece e o outro recebe `409`. Comandos repetid
 já aplicado respondem `200` sem novo evento. Detalhes em
 [ADR 0014](./adr/0014-maquina-de-estados-e-concorrencia.md).
 
+## Fase 6 — Ingestão de localização
+
+### Modelo
+
+```text
+motoristas ──< posicoes          (histórico: capturada_em ≠ recebida_em; UPDATE recusado)
+motoristas ─── posicoes_atuais   (uma linha por motorista; só avança, nunca regride)
+rotas ──< posicoes               (a rota em execução na captura)
+```
+
+### Caminho de uma posição
+
+```text
+POST /api/motorista/posicoes (1 a 500)
+  → motorista da sessão + janelas das rotas iniciadas por ele
+  → transação + advisory lock do motorista
+  → para cada item: PoliticaDeLocalizacao (recusa com motivo, ou Confiável/Imprecisa)
+  → um comando SQL:
+       INSERT posicoes ... ON CONFLICT DO NOTHING                       (duplicata)
+       UPSERT posicoes_atuais ... WHERE (captura, sequência) < (nova)   (nunca regride)
+  → commit → métricas → uma linha de log por lote
+  → 200 com resultado por item
+```
+
+| Regra | Onde |
+|---|---|
+| Recusa: coordenada, precisão > 2 km, velocidade, direção, futuro > 2 min, mais de 7 dias, fora de rota | `PoliticaDeLocalizacao`, `PosicaoDoMotorista.Registrar` |
+| Imprecisa (100 m a 2 km): só histórico | idem |
+| Duplicata | índice único organização + motorista + evento |
+| Fora de ordem: só histórico | `WHERE` do `UPSERT`, no banco |
+
+Posição atual para qualquer perfil do console; histórico só para gestão, por até 24 h. Limite de
+envio por motorista. Métricas `tracking.*` no medidor `TorreLogistica.Rastreamento`. Detalhes em
+[ADR 0015](./adr/0015-ingestao-de-localizacao.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma posição GPS, geofence, ETA ou SLA: chegam a partir da Fase 6. A chegada é registrada pelo
-motorista; a geofence da Fase 7 será outro chamador do mesmo comando. Não há prova de entrega (Fase
-14), nem tela de execução para o motorista (Fase 11), nem deduplicação por identificador de operação
-offline (Fases 11 e 12). Não há fuso horário configurado por organização: datas de rota usam UTC com
-um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+Nenhuma geofence, ETA, SLA ou mapa: chegam a partir da Fase 7. A chegada ainda é registrada pelo
+motorista. Não há detecção de salto impossível entre posições, retenção automática do histórico nem
+particionamento, nem exportação das métricas (Fase 21). Não há prova de entrega (Fase 14), tela de
+execução para o motorista (Fase 11) nem deduplicação por identificador de operação offline (Fases 11
+e 12). Não há fuso horário configurado por organização: datas de rota usam UTC com um dia de
+tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
 e é testado, a interface é da Fase 11.
 

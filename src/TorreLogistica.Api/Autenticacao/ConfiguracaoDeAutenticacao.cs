@@ -108,6 +108,10 @@ public static class ConfiguracaoDeAutenticacao
 
             limites.AddPolicy(PoliticasDeLimite.Renovacao, http => JanelaPorEndereco(
                 http, PoliticasDeLimite.Renovacao, opcoes => opcoes.RenovacoesPorMinuto));
+
+            // Telemetria por motorista, não por endereço: aparelhos de operadora móvel saem pelo mesmo
+            // IP público (CGNAT), e um limite por endereço bloquearia motoristas legítimos juntos.
+            limites.AddPolicy(PoliticasDeLimite.Telemetria, JanelaPorMotorista);
         });
 
         return servicos;
@@ -134,6 +138,26 @@ public static class ConfiguracaoDeAutenticacao
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = limite(opcoes),
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+    }
+
+    private static RateLimitPartition<string> JanelaPorMotorista(HttpContext http)
+    {
+        var opcoes = http.RequestServices.GetRequiredService<IOptions<OpcoesDeLimiteDeRequisicoes>>().Value;
+
+        // O limitador roda depois da autorização (Program.cs): aqui a conta já foi validada.
+        var conta = http.User.FindFirstValue(ReivindicacoesDaTorre.Usuario)
+            ?? http.Connection.RemoteIpAddress?.ToString()
+            ?? "desconhecido";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{PoliticasDeLimite.Telemetria}:{conta}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = opcoes.EnviosDePosicaoPorMinuto,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,

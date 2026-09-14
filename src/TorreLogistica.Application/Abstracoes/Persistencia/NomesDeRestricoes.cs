@@ -49,6 +49,9 @@ public static class NomesDeRestricoes
     /// <summary>Um veículo em no máximo uma rota ativa por dia.</summary>
     public const string VeiculoEmRotaAtivaNoDia = "ux_rotas_veiculo_por_data_ativa";
 
+    /// <summary>Um evento de localização por motorista: a mesma posição reenviada não duplica.</summary>
+    public const string EventoDeLocalizacaoDoMotorista = "ux_posicoes_evento_de_localizacao";
+
     /// <summary>Posição do evento na timeline única por rota.</summary>
     public const string SequenciaDoEventoDaRota = "ux_eventos_da_rota_rota_id_sequencia";
 }

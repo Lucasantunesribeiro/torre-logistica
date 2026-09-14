@@ -9,6 +9,7 @@ using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
@@ -82,6 +83,12 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<EventoDaRota> EventosDaRota => Set<EventoDaRota>();
+
+    /// <inheritdoc />
+    public DbSet<PosicaoDoMotorista> Posicoes => Set<PosicaoDoMotorista>();
+
+    /// <inheritdoc />
+    public DbSet<PosicaoAtual> PosicoesAtuais => Set<PosicaoAtual>();
 
     /// <summary>
     /// Organização usada nos filtros globais. O EF Core lê esta propriedade a cada
@@ -159,6 +166,91 @@ public class TorreLogisticaDbContext(
 
         var resultado = await comando.ExecuteScalarAsync(cancelamento).ConfigureAwait(false);
         return Convert.ToInt64(resultado, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc />
+    public Task SerializarRastreamentoDoMotoristaAsync(Guid motoristaId, CancellationToken cancelamento) =>
+        Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({motoristaId.ToString()}, 0))",
+            cancelamento);
+
+    /// <inheritdoc />
+    public async Task<GravacaoDePosicao> RegistrarPosicaoAsync(PosicaoDoMotorista posicao, CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(posicao);
+
+        var transacao = Database.CurrentTransaction
+            ?? throw new InvalidOperationException("A gravação de posição exige transação aberta.");
+
+        // Um comando só, atômico:
+        // 1. histórico: a duplicata (mesmo evento do mesmo motorista) é descartada pelo índice único;
+        // 2. posição atual: só se a posição entrou, é confiável e é mais recente por (captura, sequência).
+        //    A comparação fica no WHERE do ON CONFLICT — dois lotes simultâneos não regridem a posição.
+        await using var comando = Database.GetDbConnection().CreateCommand();
+        comando.Transaction = transacao.GetDbTransaction();
+        comando.CommandText = """
+            WITH nova AS (
+                INSERT INTO posicoes (
+                    id, organizacao_id, motorista_id, rota_id, evento_de_localizacao_id, sequencia, localizacao,
+                    precisao_em_metros, velocidade_em_metros_por_segundo, direcao_em_graus,
+                    capturada_em, recebida_em, qualidade)
+                VALUES (
+                    @id, @organizacao, @motorista, @rota, @evento, @sequencia,
+                    ST_SetSRID(ST_MakePoint(@longitude, @latitude), 4326)::geography,
+                    @precisao, @velocidade, @direcao, @capturada, @recebida, @qualidade)
+                ON CONFLICT (organizacao_id, motorista_id, evento_de_localizacao_id) DO NOTHING
+                RETURNING 1
+            ),
+            atual AS (
+                INSERT INTO posicoes_atuais (
+                    motorista_id, organizacao_id, rota_id, evento_de_localizacao_id, sequencia, localizacao,
+                    precisao_em_metros, velocidade_em_metros_por_segundo, direcao_em_graus,
+                    capturada_em, recebida_em, atualizada_em)
+                SELECT
+                    @motorista, @organizacao, @rota, @evento, @sequencia,
+                    ST_SetSRID(ST_MakePoint(@longitude, @latitude), 4326)::geography,
+                    @precisao, @velocidade, @direcao, @capturada, @recebida, @recebida
+                WHERE @confiavel AND EXISTS (SELECT 1 FROM nova)
+                ON CONFLICT (motorista_id) DO UPDATE SET
+                    organizacao_id = EXCLUDED.organizacao_id,
+                    rota_id = EXCLUDED.rota_id,
+                    evento_de_localizacao_id = EXCLUDED.evento_de_localizacao_id,
+                    sequencia = EXCLUDED.sequencia,
+                    localizacao = EXCLUDED.localizacao,
+                    precisao_em_metros = EXCLUDED.precisao_em_metros,
+                    velocidade_em_metros_por_segundo = EXCLUDED.velocidade_em_metros_por_segundo,
+                    direcao_em_graus = EXCLUDED.direcao_em_graus,
+                    capturada_em = EXCLUDED.capturada_em,
+                    recebida_em = EXCLUDED.recebida_em,
+                    atualizada_em = EXCLUDED.atualizada_em
+                WHERE (posicoes_atuais.capturada_em, posicoes_atuais.sequencia) < (EXCLUDED.capturada_em, EXCLUDED.sequencia)
+                RETURNING 1
+            )
+            SELECT EXISTS (SELECT 1 FROM nova), EXISTS (SELECT 1 FROM atual)
+            """;
+
+        Parametro(comando, "id", NpgsqlTypes.NpgsqlDbType.Uuid, posicao.Id);
+        Parametro(comando, "organizacao", NpgsqlTypes.NpgsqlDbType.Uuid, posicao.OrganizacaoId);
+        Parametro(comando, "motorista", NpgsqlTypes.NpgsqlDbType.Uuid, posicao.MotoristaId);
+        Parametro(comando, "rota", NpgsqlTypes.NpgsqlDbType.Uuid, posicao.RotaId);
+        Parametro(comando, "evento", NpgsqlTypes.NpgsqlDbType.Uuid, posicao.EventoDeLocalizacaoId);
+        Parametro(comando, "sequencia", NpgsqlTypes.NpgsqlDbType.Bigint, posicao.Sequencia);
+        Parametro(comando, "latitude", NpgsqlTypes.NpgsqlDbType.Double, posicao.Localizacao.Latitude);
+        Parametro(comando, "longitude", NpgsqlTypes.NpgsqlDbType.Double, posicao.Localizacao.Longitude);
+        Parametro(comando, "precisao", NpgsqlTypes.NpgsqlDbType.Double, posicao.PrecisaoEmMetros);
+        Parametro(comando, "velocidade", NpgsqlTypes.NpgsqlDbType.Double, posicao.VelocidadeEmMetrosPorSegundo);
+        Parametro(comando, "direcao", NpgsqlTypes.NpgsqlDbType.Double, posicao.DirecaoEmGraus);
+        Parametro(comando, "capturada", NpgsqlTypes.NpgsqlDbType.TimestampTz, posicao.CapturadaEm);
+        Parametro(comando, "recebida", NpgsqlTypes.NpgsqlDbType.TimestampTz, posicao.RecebidaEm);
+        Parametro(comando, "qualidade", NpgsqlTypes.NpgsqlDbType.Text, posicao.Qualidade.ToString());
+        Parametro(comando, "confiavel", NpgsqlTypes.NpgsqlDbType.Boolean, posicao.Qualidade == QualidadeDaPosicao.Confiavel);
+
+        await using var leitor = await comando.ExecuteReaderAsync(cancelamento).ConfigureAwait(false);
+        await leitor.ReadAsync(cancelamento).ConfigureAwait(false);
+        return new GravacaoDePosicao(leitor.GetBoolean(0), leitor.GetBoolean(1));
+
+        static void Parametro(System.Data.Common.DbCommand comando, string nome, NpgsqlTypes.NpgsqlDbType tipo, object? valor) =>
+            comando.Parameters.Add(new NpgsqlParameter(nome, tipo) { Value = valor ?? DBNull.Value });
     }
 
     /// <inheritdoc />
@@ -253,6 +345,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(parada => parada.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<EventoDaRota>()
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<PosicaoDoMotorista>()
+            .HasQueryFilter(posicao => posicao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<PosicaoAtual>()
+            .HasQueryFilter(posicao => posicao.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

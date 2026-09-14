@@ -4,13 +4,13 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 5 — Máquina de Estados e Concorrência concluída.**
-> Login em canais separados, isolamento entre organizações provado contra PostgreSQL real,
-> cadastros, entrega com timeline somente-inserção, rota do dia com regras entre rotas no banco e,
-> agora, a **execução**: o motorista sai, chega, conclui ou registra tentativa sem sucesso; a
-> operação reagenda e reatribui — tudo por comandos nomeados sobre uma máquina de estados em tabela,
-> com conflitos decididos pela versão da linha (409) e nenhum endpoint genérico de status. GPS vem
-> na próxima fase. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> **Estado: Fase 6 — Ingestão de Localização concluída.**
+> Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
+> somente-inserção, rota do dia, execução por máquina de estados com conflitos em 409 e, agora, a
+> **telemetria GPS**: envio único ou em lote de recuperação offline, histórico e posição atual
+> separados, duplicata sem efeito, evento atrasado que nunca regride a posição atual — decidido no
+> banco, num único comando — e coleta só durante a execução de rota. Geofence vem na próxima fase.
+> A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -81,9 +81,9 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 430 |
+| Unidade | 452 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 307 |
+| Integração (PostgreSQL + PostGIS real) | 330 |
 | Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -112,6 +112,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0012](./docs/adr/0012-entrega-como-agregado-central.md) | Entrega com código humano sem lacuna, endereço copiado, timeline numerada e regras em tabela |
 | [0013](./docs/adr/0013-rotas-e-paradas.md) | Rotas com parada como associação, regras entre rotas por índice parcial e ordem versionada |
 | [0014](./docs/adr/0014-maquina-de-estados-e-concorrencia.md) | Máquina de estados em tabela, comandos nomeados e concorrência decidida pela versão da linha |
+| [0015](./docs/adr/0015-ingestao-de-localizacao.md) | Ingestão de localização: histórico e posição atual separados, gravação atômica e coleta mínima |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

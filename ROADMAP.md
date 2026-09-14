@@ -1377,6 +1377,134 @@ O sistema deve receber telemetria realista sem ainda depender de mapa.
 
 ---
 
+## Fase 6 concluída — 2026-09-14
+
+### Contrato e persistência
+
+| Pedido | Situação | Onde |
+|---|:---:|---|
+| `LocationEventId` | ✅ | `eventoDeLocalizacaoId`, gerado pelo aplicativo |
+| Motorista | ✅ | da sessão — nunca do corpo (`motoristaId` no item responde 400) |
+| Latitude, longitude | ✅ | `geography(Point,4326)` |
+| Precisão | ✅ | `precisaoEmMetros` |
+| `CapturedAt` | ✅ | `capturadaEm`, relógio do aparelho |
+| `Sequence` | ✅ | `sequencia` |
+| Velocidade e direção | ✅ | opcionais, com faixa validada |
+| `ReceivedAt` pelo servidor | ✅ | `recebidaEm`, separado da captura |
+| `posicoes` histórico append-only | ✅ | `UPDATE` recusado por trigger; `DELETE` reservado à retenção |
+| `posicoes_atuais` estado atual | ✅ | uma linha por motorista, índice GiST |
+| Batch para recuperação offline | ✅ | `POST /api/motorista/posicoes` com 1 a 500 posições e resultado por item |
+
+### Invariantes, um por um
+
+| Invariante | Resultado | Evidência |
+|---|:---:|---|
+| Duplicata não duplica histórico | ✅ | índice único organização + motorista + evento, `ON CONFLICT DO NOTHING`; `DuplicataNaoDuplicaHistorico` (reenvio isolado, repetição no lote e reenvio do lote inteiro) |
+| Evento antigo entra no histórico, mas não regressa posição atual | ✅ | `UPSERT` condicional `(capturada_em, sequencia) <` no banco; `EventoForaDeOrdemEntraNoHistoricoMasNaoRegressaAPosicaoAtual`, `PosicaoAntigaNaoRegridePosicaoAtual...`, seis lotes simultâneos |
+| Coordenadas inválidas são rejeitadas | ✅ | fora da faixa e `(0,0)` com motivo `coordenada_invalida` |
+| Precisão fora de limite não atualiza estado confiável | ✅ | até 100 m move a posição atual; até 2 km só histórico (`Imprecisa`); acima, recusada |
+| Motorista só envia para seu próprio contexto | ✅ | motorista resolvido pela sessão, só dentro da execução da própria rota; `MotoristaSoEnviaParaOProprioContexto` |
+
+### Critério de aceite
+
+> O sistema deve receber telemetria realista sem ainda depender de mapa.
+
+✅ `RecebeTelemetriaRealistaComRecuperacaoOfflineEMetricas`, contra PostgreSQL + PostGIS real:
+motorista em rota envia uma posição a cada 15 segundos, perde sinal por 10 minutos e, ao
+reconectar, manda um lote de 45 posições embaralhadas com cinco reenvios e quatro leituras
+imprecisas. Resultado: 40 aceitas, 5 duplicadas, 0 recusadas; histórico com as 52 posições em ordem
+de captura; posição atual na última leitura, associada à rota; métricas de recebidas, duplicadas,
+imprecisas, fora de ordem e atraso de ingestão batendo com a resposta; nenhuma coordenada no log.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| 101, 103, 102 → histórico 101, 102, 103 e atual 103 | `EventoForaDeOrdemEntraNoHistoricoMasNaoRegressaAPosicaoAtual` (envios separados) e `MesmoCenarioNumLoteUnicoTemOMesmoResultado` (um lote) |
+| duplicata | `DuplicataNaoDuplicaHistorico` |
+| batch parcial | `LoteParcialGravaOsValidosERelataCadaRecusa` — 12 itens, 2 gravados, 10 recusas com motivo na ordem |
+| timestamps futuros | `TimestampFuturoSoEhAceitoDentroDaToleranciaDoRelogio`; bordas no teste de unidade |
+| posição antiga | `PosicaoAntigaNaoRegridePosicaoAtualEACapturaDecideMesmoComSequenciaReiniciada` |
+| tenant/motorista indevido | `MotoristaSoEnviaParaOProprioContexto` — corpo, rota não iniciada, outro motorista, conta sem cadastro, canais, outra organização |
+
+Além do pedido: seis lotes simultâneos do mesmo motorista com sobreposição (100 aceitas, 20
+duplicadas, atual na sequência 100), limites do histórico, tamanho de lote, histórico recusando
+`UPDATE` e limite de envio por motorista.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 452 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 330 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **853** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 6
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Contexto do motorista | ✅ | motorista e organização só da sessão; `motoristaId` no corpo: 400 |
+| Coleta mínima de localização | ✅ | posição fora da execução de rota do próprio motorista é recusada no servidor |
+| IDOR na leitura | ✅ | posição de motorista de outra organização: 404 idêntico ao inexistente |
+| Autorização | ✅ | envio só pelo canal do motorista; posição atual A/S/O; histórico só A/S e por até 24 h |
+| Rate limiting de telemetria | ✅ | limite por motorista (60/min); não bloqueia outro motorista no mesmo endereço (CGNAT) |
+| Logs | ✅ | uma linha por lote, sem coordenada; teste procura coordenada no log |
+| Integridade do histórico | ✅ | `UPDATE` recusado pelo banco |
+| Métricas sem dado pessoal | ✅ | nenhuma dimensão por motorista ou organização |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 1,75 MB |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada nos 9 projetos; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+Nenhum defeito chegou à execução dos testes. Dois problemas de desenho foram pegos antes de
+escrever a gravação:
+
+1. **O limitador de requisições rodava antes da autenticação**, então não conseguia limitar por
+   motorista — e limite por endereço bloquearia motoristas atrás do mesmo IP de operadora. Passou a
+   rodar depois da autorização; os limites de login e renovação seguem por endereço e antes do endpoint
+   (os testes da Fase 1 continuam verdes).
+2. **Impasse entre lotes simultâneos do mesmo motorista** com posições em comum. Um *advisory lock*
+   por motorista no início da transação enfileira os lotes daquele aparelho.
+
+### Decisões
+
+[ADR 0015](./docs/adr/0015-ingestao-de-localizacao.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Gravação atômica em um comando**: histórico com `ON CONFLICT DO NOTHING` e posição atual com
+  `UPSERT` condicional — a regra absoluta fica no banco, sem janela entre ler e gravar.
+- **Ordem por captura, sequência desempata**, porque a sequência recomeça quando o aplicativo é reinstalado.
+- **Política de aceitação no domínio**, com motivo para cada recusa e nada descartado em silêncio.
+- **Coleta só durante a execução de rota**, conferida no servidor.
+- **Ingestão síncrona**, sem fila: a escala de referência não pede, e o CLAUDE.md desaconselha
+  cascata de mensagens para GPS comum.
+- **Histórico permite `DELETE`** para a retenção futura; particionamento deixado possível.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Detecção de salto impossível entre posições | cálculo geodésico no PostGIS — Fase 7 |
+| Retenção e limpeza do histórico | Fase 20; `DELETE` já permitido |
+| Particionamento temporal | não ativo; caminho descrito no ADR 0015 |
+| Exportação das métricas | OpenTelemetry na Fase 21; os instrumentos já existem |
+| Carga de referência (500 motoristas) | medida na Fase 22 |
+| Log de erro do EF Core em conflito tratado | continua das fases anteriores — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: ingestao de localizacao com historico e posicao atual que nao regride (Fase 6)`
+
+---
+
 # FASE 7 — POSTGIS E GEOFENCING
 
 ## Objetivo
@@ -2783,9 +2911,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 5 — Máquina de Estados e Concorrência** (2026-09-14) |
-| Próxima fase | **Fase 6 — Ingestão de Localização** |
-| Testes verdes | 808 — 430 unidade, 22 arquitetura, 307 integração, 49 frontend |
+| Última fase concluída | **Fase 6 — Ingestão de Localização** (2026-09-14) |
+| Próxima fase | **Fase 7 — PostGIS e Geofencing** |
+| Testes verdes | 853 — 452 unidade, 22 arquitetura, 330 integração, 49 frontend |
 
 Comando para continuar:
 

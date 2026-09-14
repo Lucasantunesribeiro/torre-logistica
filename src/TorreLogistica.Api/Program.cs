@@ -11,6 +11,7 @@ using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Entregas;
 using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Execucao;
+using TorreLogistica.Api.Rastreamento;
 using TorreLogistica.Api.Rotas;
 using TorreLogistica.Api.Seguranca;
 using TorreLogistica.Api.Usuarios;
@@ -168,9 +169,13 @@ try
 
     // Limite antes da autenticação: rajada contra o login é descartada antes de
     // gastar hash de senha ou consulta de sessão.
-    aplicacao.UseRateLimiter();
     aplicacao.UseAuthentication();
     aplicacao.UseAuthorization();
+
+    // Depois da autorização: o limite de telemetria particiona pela conta autenticada. Os limites de
+    // login e renovação continuam por endereço e continuam antes de qualquer conferência de senha,
+    // porque o limitador roda antes do endpoint.
+    aplicacao.UseRateLimiter();
 
     if (aplicacao.Environment.IsDevelopment())
     {
@@ -184,6 +189,7 @@ try
     aplicacao.MapearEndpointsDeEntregas();
     aplicacao.MapearEndpointsDeRotas();
     aplicacao.MapearEndpointsDeExecucao();
+    aplicacao.MapearEndpointsDeRastreamento();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
     return 0;

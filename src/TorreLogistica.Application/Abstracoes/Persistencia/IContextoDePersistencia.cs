@@ -5,9 +5,15 @@ using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Application.Abstracoes.Persistencia;
+
+/// <summary>Resultado da gravação de uma posição.</summary>
+/// <param name="Inserida">Entrou no histórico; <see langword="false"/> quando era duplicata.</param>
+/// <param name="AtualizouPosicaoAtual">Avançou a posição atual do motorista.</param>
+public sealed record GravacaoDePosicao(bool Inserida, bool AtualizouPosicaoAtual);
 
 /// <summary>
 /// Acesso da camada de aplicação ao armazenamento operacional.
@@ -71,6 +77,33 @@ public interface IContextoDePersistencia
 
     /// <summary>Timeline das rotas, filtrada pelo tenant. Somente-inserção.</summary>
     DbSet<EventoDaRota> EventosDaRota { get; }
+
+    /// <summary>Histórico de posições GPS, filtrado pelo tenant. Somente leitura por aqui.</summary>
+    DbSet<PosicaoDoMotorista> Posicoes { get; }
+
+    /// <summary>Posição atual de cada motorista, filtrada pelo tenant. Somente leitura por aqui.</summary>
+    DbSet<PosicaoAtual> PosicoesAtuais { get; }
+
+    /// <summary>
+    /// Grava a posição no histórico e, se ela for confiável e mais recente, avança a posição
+    /// atual — num único comando atômico.
+    /// </summary>
+    /// <remarks>
+    /// Exige transação aberta. A duplicata (mesmo evento do mesmo motorista) é descartada pelo
+    /// índice único, e a posição atual só avança por (captura, sequência) maior que a vigente:
+    /// dois lotes simultâneos do mesmo motorista não conseguem regredi-la.
+    /// </remarks>
+    Task<GravacaoDePosicao> RegistrarPosicaoAsync(PosicaoDoMotorista posicao, CancellationToken cancelamento);
+
+    /// <summary>
+    /// Serializa, até o fim da transação, a gravação de posições do mesmo motorista.
+    /// </summary>
+    /// <remarks>
+    /// Dois lotes do mesmo motorista com posições em comum se travariam um ao outro: cada um
+    /// esperando a posição inserida pelo outro e a linha da posição atual já travada. Telemetria de
+    /// um aparelho é sequencial por natureza; enfileirar os lotes dele elimina o impasse.
+    /// </remarks>
+    Task SerializarRastreamentoDoMotoristaAsync(Guid motoristaId, CancellationToken cancelamento);
 
     /// <summary>
     /// Reserva o próximo número de uma série de código humano, por organização e ano.

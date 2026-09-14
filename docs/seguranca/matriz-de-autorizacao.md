@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 5. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 6. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -48,6 +48,9 @@
 | `POST /api/entregas/{id}/reagendamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
 | `POST /api/motorista/rotas/{id}/inicio` e `.../conclusao` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/entregas/{id}/chegada`, `.../conclusao` e `.../tentativa-frustrada` | **401** | **401** | **401** | 200 | 401 | `motorista` |
+| `POST /api/motorista/posicoes` | **401** | **401** | **401** | 200 | 401 | `motorista` + limite por motorista |
+| `GET /api/motoristas/{id}/posicao-atual` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -83,6 +86,10 @@ inverso.
 | Entrega que foi do motorista e passou a outro responde 409 `entrega_reatribuida`, não 404 | conferido na timeline; não revela entregas que nunca foram dele |
 | Conta de motorista sem cadastro associado responde 404 `motorista_nao_associado` | nada é executado |
 | Não existe endpoint genérico de status | teste lê o roteamento real: sem `PATCH`, sem "status" no caminho, lista exata de comandos |
+| Posição é sempre do motorista da sessão; `motoristaId` no corpo responde 400 | [ADR 0015](../adr/0015-ingestao-de-localizacao.md) |
+| Posição fora da execução de uma rota do próprio motorista é recusada | coleta mínima, conferida no servidor |
+| Histórico de localização só para gestão, por período de até 24 h | operador vê só a posição atual |
+| Limite de envio de posições por motorista, não por endereço | operadoras móveis compartilham IP (CGNAT) |
 
 ## Como adicionar um endpoint
 

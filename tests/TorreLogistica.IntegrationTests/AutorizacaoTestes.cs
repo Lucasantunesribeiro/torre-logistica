@@ -46,6 +46,10 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         // matriz não está associada a um cadastro de motorista (404).
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/conclusao", Status(401, 401, 401, 404, 401)),
         ("POST", "/api/motorista/rotas/0198f0e2-0000-7000-8000-000000000001/inicio", Status(401, 401, 401, 404, 401)),
+        ("POST", "/api/motorista/posicoes", Status(401, 401, 401, 404, 401)),
+
+        // O alvo é uma conta, não um motorista: quem pode ler recebe 404, igual a inexistente.
+        ("GET", "/api/motoristas/{alvo}/posicao-atual", Status(404, 404, 404, 401, 401)),
     ];
 
     public static TheoryData<string, string, string, int> Casos()
@@ -92,6 +96,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         {
             ("POST", "/api/entregas") => corpoDeEntrega,
             ("POST", "/api/rotas") => new { data = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)) },
+            ("POST", "/api/motorista/posicoes") => PosicoesTestes.Corpo(PosicoesTestes.Posicao(1, DateTimeOffset.UtcNow)),
             ("POST", "/api/usuarios") => new
             {
                 nome = "Conta Nova",
@@ -198,6 +203,9 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/motorista/entregas/{id:guid}/chegada"] = "motorista",
             ["POST /api/motorista/entregas/{id:guid}/conclusao"] = "motorista",
             ["POST /api/motorista/entregas/{id:guid}/tentativa-frustrada"] = "motorista",
+            ["POST /api/motorista/posicoes"] = "motorista",
+            ["GET /api/motoristas/{id:guid}/posicao-atual"] = "operacao:leitura",
+            ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
         };
 
         var encontrado = new SortedDictionary<string, string>(StringComparer.Ordinal);
