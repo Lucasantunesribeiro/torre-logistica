@@ -68,6 +68,12 @@ public static class Politicas
     /// <summary>Criar, alterar perfil e desativar contas: só administrador.</summary>
     public const string GestaoDeUsuarios = "usuarios:gestao";
 
+    /// <summary>Consultar a estrutura operacional: administrador, supervisor e operador.</summary>
+    public const string LeituraDaOperacao = "operacao:leitura";
+
+    /// <summary>Cadastrar e alterar a estrutura operacional: administrador e supervisor.</summary>
+    public const string GestaoDaOperacao = "operacao:gestao";
+
     /// <summary>Conta de motorista autenticada pela PWA.</summary>
     public const string Motorista = "motorista";
 }

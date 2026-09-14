@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using TorreLogistica.Api.Autenticacao;
+using TorreLogistica.Api.Cadastros;
 using TorreLogistica.Api.Correlacao;
 using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Erros;
@@ -176,6 +177,7 @@ try
     aplicacao.MapearEndpointsDeSaude();
     aplicacao.MapearEndpointsDeAutenticacao();
     aplicacao.MapearEndpointsDeUsuarios();
+    aplicacao.MapearEndpointsDeCadastros();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
     return 0;

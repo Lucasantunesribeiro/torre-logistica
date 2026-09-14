@@ -16,6 +16,17 @@ public static class TiposDeEventoDeAuditoria
 
     /// <summary>Token de renovação reapresentado; família de sessão revogada.</summary>
     public const string ReusoDeTokenDetectado = "reuso_de_token_detectado";
+
+    /// <summary>
+    /// Tipo de evento de cadastro operacional, no formato <c>recurso_acao</c> —
+    /// por exemplo <c>veiculo_alterado</c> ou <c>motorista_inativado</c>.
+    /// </summary>
+    public static string DeCadastro(string recurso, string acao)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recurso);
+        ArgumentException.ThrowIfNullOrWhiteSpace(acao);
+        return $"{recurso}_{acao}";
+    }
 }
 
 /// <summary>

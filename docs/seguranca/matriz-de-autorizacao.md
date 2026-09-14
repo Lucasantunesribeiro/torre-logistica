@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 1. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 2. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -23,6 +23,22 @@
 | `POST /api/usuarios` | 201 | 403 | 403 | **401** | 401 | `usuarios:gestao` |
 | `PUT /api/usuarios/{id}/perfil` | 200 | 403 | 403 | **401** | 401 | `usuarios:gestao` |
 | `POST /api/usuarios/{id}/desativacao` | 200 | 403 | 403 | **401** | 401 | `usuarios:gestao` |
+| `GET /api/motoristas` e `GET /api/motoristas/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/motoristas` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT /api/motoristas/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/veiculos` e `GET /api/veiculos/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/veiculos` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT /api/veiculos/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/hubs` e `GET /api/hubs/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/hubs` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT /api/hubs/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/clientes` e `GET /api/clientes/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/clientes` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT /api/clientes/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/destinatarios` e `GET /api/destinatarios/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/destinatarios` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT /api/destinatarios/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `PUT` e `DELETE /api/motoristas/{id}/conta` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -46,6 +62,9 @@ inverso.
 | A organização mantém ao menos um administrador ativo | regra `ultimo_administrador`, serializada por trava de linha |
 | Ninguém desativa a própria conta | regra `nao_pode_desativar_a_propria_conta` |
 | Troca de perfil e desativação encerram as sessões da conta afetada | na mesma transação |
+| Supervisor prepara a estrutura operacional; operador consulta e não altera | políticas `operacao:gestao` e `operacao:leitura` |
+| Alteração de cadastro exige a `versao` lida | `409 conflito_de_versao`; [ADR 0011](../adr/0011-cadastros-operacionais.md) |
+| Conta de outra organização informada na associação de motorista responde 404 | a conta é procurada na consulta filtrada pelo tenant |
 
 ## Como adicionar um endpoint
 

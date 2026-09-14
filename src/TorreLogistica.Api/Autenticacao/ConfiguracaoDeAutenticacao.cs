@@ -67,6 +67,13 @@ public static class ConfiguracaoDeAutenticacao
             .AddPolicy(Politicas.GestaoDeUsuarios, PoliticaDoConsole()
                 .RequireRole(nameof(Perfil.Administrador))
                 .Build())
+            .AddPolicy(Politicas.LeituraDaOperacao, PoliticaDoConsole()
+                .RequireRole(nameof(Perfil.Administrador), nameof(Perfil.Supervisor), nameof(Perfil.Operador))
+                .Build())
+            // Supervisor prepara a operação (critério de aceite da Fase 2); operador opera sobre ela.
+            .AddPolicy(Politicas.GestaoDaOperacao, PoliticaDoConsole()
+                .RequireRole(nameof(Perfil.Administrador), nameof(Perfil.Supervisor))
+                .Build())
             .AddPolicy(Politicas.Motorista, new AuthorizationPolicyBuilder(EsquemasDeAutenticacao.Motorista)
                 .RequireAuthenticatedUser()
                 .RequireClaim(ReivindicacoesDaTorre.Canal, nameof(CanalDeAcesso.Motorista))

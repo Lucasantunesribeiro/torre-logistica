@@ -3,7 +3,10 @@ using Npgsql;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Domain.Auditoria;
+using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Operacao;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
 
@@ -46,6 +49,21 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<EventoDeAuditoria> EventosDeAuditoria => Set<EventoDeAuditoria>();
+
+    /// <inheritdoc />
+    public DbSet<Motorista> Motoristas => Set<Motorista>();
+
+    /// <inheritdoc />
+    public DbSet<Veiculo> Veiculos => Set<Veiculo>();
+
+    /// <inheritdoc />
+    public DbSet<Hub> Hubs => Set<Hub>();
+
+    /// <inheritdoc />
+    public DbSet<Cliente> Clientes => Set<Cliente>();
+
+    /// <inheritdoc />
+    public DbSet<Destinatario> Destinatarios => Set<Destinatario>();
 
     /// <summary>
     /// Organização usada nos filtros globais. O EF Core lê esta propriedade a cada
@@ -95,6 +113,13 @@ public class TorreLogisticaDbContext(
             cancelamento);
 
     /// <inheritdoc />
+    public void DefinirVersaoEsperada(object entidade, uint versao)
+    {
+        ArgumentNullException.ThrowIfNull(entidade);
+        Entry(entidade).Property("Versao").OriginalValue = versao;
+    }
+
+    /// <inheritdoc />
     public bool EhViolacaoDeUnicidade(Exception excecao, string nomeDaRestricao)
     {
         for (var atual = excecao; atual is not null; atual = atual.InnerException)
@@ -135,6 +160,16 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(token => token.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<EventoDeAuditoria>()
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Motorista>()
+            .HasQueryFilter(motorista => motorista.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Veiculo>()
+            .HasQueryFilter(veiculo => veiculo.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Hub>()
+            .HasQueryFilter(hub => hub.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Cliente>()
+            .HasQueryFilter(cliente => cliente.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Destinatario>()
+            .HasQueryFilter(destinatario => destinatario.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

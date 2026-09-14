@@ -45,7 +45,7 @@ public sealed class ContainerPostgis : IAsyncLifetime
     public TorreLogisticaDbContext CriarContexto(IContextoDoTenant tenant) =>
         new(
             new DbContextOptionsBuilder<TorreLogisticaDbContext>()
-                .UseNpgsql(CadeiaDeConexao)
+                .UseNpgsql(CadeiaDeConexao, npgsql => npgsql.UseNetTopologySuite())
                 .UseSnakeCaseNamingConvention()
                 .Options,
             tenant);

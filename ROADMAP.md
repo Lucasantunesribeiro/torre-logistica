@@ -664,6 +664,123 @@ Supervisor consegue preparar uma organização operacional sem criar entrega ain
 
 ---
 
+## Fase 2 concluída — 2026-09-14
+
+### Entregáveis
+
+| Entregável | Situação | Onde |
+|---|:---:|---|
+| Motorista: cadastrar, ativar/inativar, dados mínimos | ✅ | `Domain/Frota/Motorista.cs`, `/api/motoristas` |
+| Motorista: associar identidade | ✅ | `PUT` e `DELETE /api/motoristas/{id}/conta` — só conta ativa, perfil Motorista, mesma organização |
+| Veículo: placa, identificação, tipo, capacidade, ativo/inativo | ✅ | `Domain/Frota/Veiculo.cs`, `/api/veiculos` |
+| Hub: nome, endereço, coordenada geográfica | ✅ | `Domain/Operacao/Hub.cs`, coluna `geography(Point,4326)` com índice GiST |
+| Cliente: contratante, sem CRM | ✅ | `Domain/Clientes/Cliente.cs` — nome e CNPJ opcional, nada além |
+| Destinatário: endereço, contato mínimo | ✅ | `Domain/Clientes/Destinatario.cs` — telefone opcional, instruções, coordenada opcional |
+| Migration | ✅ | `EstruturaOperacional` — 5 tabelas, 4 índices únicos, 2 GiST, 1 check |
+
+### Regras, uma por uma
+
+| Regra | Resultado | Evidência |
+|---|:---:|---|
+| Motorista inativo não recebe nova atribuição | ✅ no domínio | `MotoristaInativoNaoRecebeAtribuicao`; chamada pela atribuição da Fase 4 |
+| Veículo inativo não inicia nova rota | ✅ no domínio | `VeiculoInativoNaoIniciaRota`; chamada pelo início de rota da Fase 4 |
+| Dados sensíveis minimizados | ✅ | destinatário sem CPF nem e-mail; auditoria só com nomes de campos (`AuditoriaDeDestinatarioNaoGuardaDadoPessoal`, que também confere o log) |
+| Exclusão lógica onde histórico impede deleção física | ✅ | nenhum `DELETE` de cadastro; ativar/inativar idempotentes e auditados só quando mudam |
+
+### Critério de aceite
+
+> Supervisor consegue preparar uma organização operacional sem criar entrega ainda.
+
+✅ `SupervisorPreparaAOrganizacaoOperacionalSemCriarEntrega`, contra PostgreSQL real, com sessão de
+**Supervisor**: cria hub, cliente, destinatário, veículo e motorista e associa a conta do motorista. O Operador
+da mesma organização lista os cinco cadastros preparados e recebe 403 ao tentar criar. A trilha
+de auditoria de cada cadastro é conferida em `CicloCompletoDeCadastroComVersaoEAuditoria`.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| tenant isolation | `CadastroDeOutraOrganizacaoRespondeComoInexistente` — nos 5 cadastros: leitura, alteração, ativação e inativação respondem 404 idêntico ao inexistente, e o registro de B segue intacto (mesma versão) |
+| regras de ativo/inativo | `CicloCompletoDeCadastroComVersaoEAuditoria` (5 cadastros), `AtivarEInativarSaoIdempotentes`, regras de inativo no domínio |
+| unicidades por organização | placa sem diferença de formato, hub sem diferença de acento ou caixa, CNPJ quando informado, conta do motorista — cada uma com a mesma chave aceita em outra organização |
+| endereços inválidos | `DadoForaDaRegraDevolve422ComCodigo` pela API (CEP, UF, coordenada fora da faixa, `(0,0)`, meia coordenada, telefone, placa, CNPJ, capacidade) e testes de unidade de `Endereco` (inclusive endereço incompleto) |
+| autorização | `AutorizacaoTestes` — linhas novas da matriz e mapa de rotas conferido contra o roteamento real |
+
+Além do pedido: seis `PUT` simultâneos com a mesma versão (um vencedor, cinco `409`), associações
+simultâneas da mesma conta (um vencedor), busca sem acento com `%` tratado como texto, campo
+desconhecido e `organizacaoId` no corpo recusados com 400, e a coordenada lida do PostGIS por
+`GeometryType`, `ST_SRID`, `ST_X`, `ST_Y` e `ST_Distance` — prova de que longitude e latitude não
+foram invertidas.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 184 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 19 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 213 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **465** | **✅** |
+
+Solução compila com 0 aviso e 0 erro (analisadores tratados como erro). Lint, tipos e builds do
+frontend verdes — sem alteração de frontend nesta fase.
+
+### Security Gate 2
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Isolamento entre tenants e IDOR | ✅ | 404 cross-tenant nos 5 cadastros e em todas as operações; conta de outra organização na associação responde 404 |
+| Mass assignment | ✅ | `organizacaoId`, campo desconhecido e tipo errado recusados com 400; `ativo` e `usuarioId` só mudam por comando próprio |
+| Autorização | ✅ | leitura A/S/O, gestão A/S; matriz verificada contra o roteamento |
+| Conflito não revela outro tenant | ✅ | unicidades por organização; mesma placa, nome e CNPJ aceitos em outra organização |
+| Dado pessoal | ✅ | auditoria sem valores; log de cadastro só com identificadores; `AuditoriaDeDestinatarioNaoGuardaDadoPessoal` procura o dado pessoal do destinatário na trilha e no log capturado |
+| Injeção por texto | ✅ | busca parametrizada com curinga escapado; caractere de controle recusado em nomes (quebra de linha forjada em log) |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 927 KB |
+| Dependências | ✅ | `dotnet list package --vulnerable --include-transitive`: nada; `--deprecated`: nada; `npm audit`: 0. Pacote novo: `Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite` 10.0.3, restrito à Infrastructure |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+1. **Busca e unicidade sem acento não funcionavam.** A solução roda com `InvariantGlobalization`,
+   e nesse modo `Normalize(FormD)` não separa o acento da letra: "Hub São José" e "hub sao jose"
+   seriam hubs diferentes. Encontrado por teste de unidade e por dois testes de integração;
+   corrigido com tabela explícita de letras, que também torna a forma gravada idêntica em qualquer
+   sistema operacional — importante, porque ela sustenta índice único.
+2. **Quebra de linha escapava da recusa de caractere de controle.** A checagem rodava depois de
+   aparar o texto, que já tinha convertido `\n` em espaço. Passou a olhar o texto recebido.
+   Tabulação continua aceita e vira espaço (chega de planilha colada); o teste antigo misturava os
+   dois casos numa teoria com desvio por `if` e foi separado em dois.
+
+### Decisões
+
+[ADR 0011](./docs/adr/0011-cadastros-operacionais.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Coordenada como tipo próprio do domínio**, convertida para `Point` só na Infrastructure; teste
+  de arquitetura proíbe NetTopologySuite no domínio.
+- **Concorrência otimista por `xmin`** com `versao` obrigatória no `PUT`; comandos de estado sem versão.
+- **Endereço e telefone brasileiros na v1.** Operação fora do Brasil pede ADR novo.
+- **CNPJ alfanumérico aceito desde já**, com o exemplo oficial da Receita em teste.
+- **Motorista e conta são coisas separadas**; trocar a conta exige desassociar antes.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Log de erro do EF Core em violação de unicidade tratada | continua da Fase 1, agora também em placa, hub, CNPJ e conta — Fase 21 |
+| Regras de inativo ainda sem chamador | por desenho: atribuição e início de rota nascem na Fase 4 |
+| Destinatário sem política de retenção | anonimização é da Fase 20 (ADR 0011) |
+| Busca por `ILIKE` sem índice de trigrama | suficiente na escala de cadastros; medir na Fase 22 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: frota e estrutura operacional com PostGIS e concorrencia otimista (Fase 2)`
+
+---
+
 # FASE 3 — NÚCLEO DE ENTREGAS
 
 ## Objetivo
@@ -2304,9 +2421,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 1 — Identidade e Multi-tenancy** (2026-09-14) |
-| Próxima fase | **Fase 2 — Frota e Estrutura Operacional** |
-| Testes verdes | 317 — 121 unidade, 19 arquitetura, 128 integração, 49 frontend |
+| Última fase concluída | **Fase 2 — Frota e Estrutura Operacional** (2026-09-14) |
+| Próxima fase | **Fase 3 — Núcleo de Entregas** |
+| Testes verdes | 465 — 184 unidade, 19 arquitetura, 213 integração, 49 frontend |
 
 Comando para continuar:
 

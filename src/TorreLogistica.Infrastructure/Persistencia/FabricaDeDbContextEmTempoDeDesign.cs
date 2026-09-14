@@ -31,8 +31,9 @@ public sealed class FabricaDeDbContextEmTempoDeDesign
         }
 
         var opcoes = new DbContextOptionsBuilder<TorreLogisticaDbContext>()
-            .UseNpgsql(cadeia, npgsql => npgsql.MigrationsAssembly(
-                typeof(TorreLogisticaDbContext).Assembly.FullName))
+            .UseNpgsql(cadeia, npgsql => npgsql
+                .MigrationsAssembly(typeof(TorreLogisticaDbContext).Assembly.FullName)
+                .UseNetTopologySuite())
             .UseSnakeCaseNamingConvention()
             .Options;
 

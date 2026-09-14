@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using TorreLogistica.Domain.Auditoria;
+using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Operacao;
 
 namespace TorreLogistica.Application.Abstracoes.Persistencia;
 
@@ -37,6 +40,21 @@ public interface IContextoDePersistencia
     /// <summary>Trilha de auditoria, filtrada pelo tenant.</summary>
     DbSet<EventoDeAuditoria> EventosDeAuditoria { get; }
 
+    /// <summary>Motoristas, filtrados pelo tenant.</summary>
+    DbSet<Motorista> Motoristas { get; }
+
+    /// <summary>Veículos, filtrados pelo tenant.</summary>
+    DbSet<Veiculo> Veiculos { get; }
+
+    /// <summary>Hubs, filtrados pelo tenant.</summary>
+    DbSet<Hub> Hubs { get; }
+
+    /// <summary>Clientes, filtrados pelo tenant.</summary>
+    DbSet<Cliente> Clientes { get; }
+
+    /// <summary>Destinatários, filtrados pelo tenant.</summary>
+    DbSet<Destinatario> Destinatarios { get; }
+
     /// <summary>Grava as alterações pendentes.</summary>
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
@@ -64,6 +82,12 @@ public interface IContextoDePersistencia
     /// dependem do conjunto de administradores.
     /// </summary>
     Task BloquearOrganizacaoAsync(Guid organizacaoId, CancellationToken cancelamento);
+
+    /// <summary>
+    /// Declara a versão que o cliente leu. Se a linha mudou desde então, a gravação falha
+    /// com conflito de concorrência em vez de sobrescrever.
+    /// </summary>
+    void DefinirVersaoEsperada(object entidade, uint versao);
 
     /// <summary>Indica se a exceção é violação da restrição de unicidade informada.</summary>
     bool EhViolacaoDeUnicidade(Exception excecao, string nomeDaRestricao);

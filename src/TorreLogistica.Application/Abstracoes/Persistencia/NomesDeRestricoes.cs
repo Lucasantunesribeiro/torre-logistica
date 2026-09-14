@@ -18,4 +18,16 @@ public static class NomesDeRestricoes
 
     /// <summary>Hash do token de renovação.</summary>
     public const string HashDoTokenDeRenovacao = "ux_tokens_de_renovacao_hash_do_token";
+
+    /// <summary>Placa única dentro da organização.</summary>
+    public const string PlacaDoVeiculoPorOrganizacao = "ux_veiculos_organizacao_id_placa";
+
+    /// <summary>Nome de hub único dentro da organização.</summary>
+    public const string NomeDoHubPorOrganizacao = "ux_hubs_organizacao_id_nome_normalizado";
+
+    /// <summary>CNPJ de cliente único dentro da organização, quando informado.</summary>
+    public const string CnpjDoClientePorOrganizacao = "ux_clientes_organizacao_id_cnpj";
+
+    /// <summary>Uma conta de acesso associada a no máximo um motorista.</summary>
+    public const string ContaDoMotorista = "ux_motoristas_usuario_id";
 }

@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 1 concluída (identidade e multi-tenancy). Este documento cresce junto com as fases.
+> Estado: Fase 2 concluída (frota e estrutura operacional). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha | 121 |
-| `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql | 19 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, auditoria, limite, logs | 128 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros | 184 |
+| `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite | 19 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, concorrência otimista, geografia, auditoria, limite, logs | 213 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -242,10 +242,55 @@ fica atrás de `IContextoDePersistencia` na Infrastructure. Ver
 [`docs/seguranca/matriz-de-autorizacao.md`](./seguranca/matriz-de-autorizacao.md), verificada
 por teste contra o roteamento real.
 
+## Fase 2 — Frota e estrutura operacional
+
+### Modelo
+
+```text
+organizacoes ──< motoristas >── usuarios   (conta opcional; uma conta, um motorista)
+             ──< veiculos
+             ──< hubs            (localizacao geography(Point,4326), índice GiST)
+             ──< clientes
+             ──< destinatarios   (localizacao opcional, índice GiST)
+```
+
+| Conceito | Regra central |
+|---|---|
+| `Motorista` | recurso operacional, separado da conta que autentica; inativo não recebe nova atribuição |
+| `Veiculo` | placa única na organização (antiga ou Mercosul); inativo não inicia nova rota |
+| `Hub` | nome único na organização, sem diferença de acento ou caixa; endereço e coordenada obrigatórios |
+| `Cliente` | contratante; CNPJ opcional (numérico ou alfanumérico), único na organização |
+| `Destinatario` | endereço, contato mínimo e instruções; coordenada opcional |
+
+### Tipos de valor
+
+`Endereco` (Brasil: CEP, UF), `Telefone` (E.164), `PlacaDeVeiculo`, `Cnpj`,
+`CoordenadaGeografica` e `TextoNormalizado` vivem no domínio, sem biblioteca externa. A
+Infrastructure converte a coordenada no `Point` do NetTopologySuite — (longitude, latitude) — e o
+endereço vira colunas da própria tabela.
+
+### Alteração e concorrência
+
+Todo cadastro expõe `versao` (coluna de sistema `xmin`). `PUT` exige a versão lida; divergência
+ou gravação simultânea respondem `409 conflito_de_versao`. Ativar, inativar e associar conta são
+comandos idempotentes. Não há `DELETE`: inativação preserva o que entregas futuras referenciarem.
+
+### Auditoria e dado pessoal
+
+Cada criação, alteração, ativação, inativação e associação de conta gera evento de auditoria
+com **nomes** dos campos alterados, nunca valores — a trilha é somente-inserção e dado pessoal
+gravado ali não poderia ser apagado.
+
+### Quem acessa
+
+Leitura: Administrador, Supervisor e Operador (`operacao:leitura`). Gestão: Administrador e
+Supervisor (`operacao:gestao`). Detalhes em [ADR 0011](./adr/0011-cadastros-operacionais.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhum dado operacional: frota, hubs, clientes, entregas, rotas e posições chegam a partir da
-Fase 2. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+Nenhuma entrega, rota ou posição: chegam a partir da Fase 3. As regras "motorista inativo não
+recebe atribuição" e "veículo inativo não inicia rota" existem no domínio e passam a ser chamadas
+na Fase 4. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
 e é testado, a interface é da Fase 11.
 

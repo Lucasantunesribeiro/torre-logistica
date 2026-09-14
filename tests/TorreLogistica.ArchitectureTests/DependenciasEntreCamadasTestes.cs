@@ -26,6 +26,7 @@ public sealed class DependenciasEntreCamadasTestes
         "AWSSDK",
         "Serilog",
         "EFCore.NamingConventions",
+        "NetTopologySuite",
     ];
 
     [Fact]

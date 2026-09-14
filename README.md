@@ -4,10 +4,11 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 1 — Identidade e Multi-tenancy concluída.**
-> Login do console e da PWA do motorista em canais separados, sessão com renovação rotativa e
-> detecção de reuso, autorização por perfil e isolamento entre organizações provado contra
-> PostgreSQL real. Ainda não há dado operacional — frota, entregas e rotas vêm nas próximas
+> **Estado: Fase 2 — Frota e Estrutura Operacional concluída.**
+> Login do console e da PWA do motorista em canais separados, sessão com renovação rotativa,
+> isolamento entre organizações provado contra PostgreSQL real e, agora, os cadastros que a
+> operação usa: motoristas, veículos, hubs, clientes e destinatários, com coordenada em PostGIS,
+> concorrência otimista e inativação no lugar de exclusão. Entregas e rotas vêm nas próximas
 > fases. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
@@ -79,9 +80,9 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 121 |
+| Unidade | 184 |
 | Arquitetura | 19 |
-| Integração (PostgreSQL + PostGIS real) | 128 |
+| Integração (PostgreSQL + PostGIS real) | 213 |
 | Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -106,6 +107,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0008](./docs/adr/0008-application-usa-ef-core-sem-repositorio.md) | Application usa o núcleo do EF Core, sem repositório |
 | [0009](./docs/adr/0009-autenticacao-e-sessao.md) | Token curto, renovação rotativa em cookie, sessão conferida por requisição |
 | [0010](./docs/adr/0010-multi-tenancy-e-isolamento.md) | Multi-tenancy por discriminador com filtro que falha fechado |
+| [0011](./docs/adr/0011-cadastros-operacionais.md) | Cadastros com tipos de valor próprios, PostGIS atrás de conversão, versão por linha e inativação |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

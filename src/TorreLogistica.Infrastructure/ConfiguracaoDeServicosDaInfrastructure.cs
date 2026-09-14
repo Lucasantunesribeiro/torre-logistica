@@ -70,6 +70,7 @@ public static class ConfiguracaoDeServicosDaInfrastructure
                 {
                     npgsql.MigrationsAssembly(typeof(TorreLogisticaDbContext).Assembly.FullName);
                     npgsql.CommandTimeout(opcoes.TimeoutDeComandoEmSegundos);
+                    npgsql.UseNetTopologySuite();
 
                     if (opcoes.TentativasEmFalhaTransitoria > 0)
                     {
