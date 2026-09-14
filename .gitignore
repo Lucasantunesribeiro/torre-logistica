@@ -49,3 +49,6 @@ Desktop.ini
 # Ferramentas locais
 *.log
 .docker-data/
+
+# agent skills config (local, seeded from ~/.agents/mattpocock-config)
+docs/agents/
