@@ -838,6 +838,134 @@ A API deve permitir criar e consultar uma entrega com histórico consistente sem
 
 ---
 
+## Fase 3 concluída — 2026-09-14
+
+### Modelo, item por item
+
+| Pedido | Situação | Onde |
+|---|:---:|---|
+| UUIDv7 | ✅ | `Entrega.Id`, gerado pelo `IGeradorDeIdentificador` |
+| Código humano | ✅ | `CodigoDaEntrega` — `ENT-AAAA-NNNNNN`, contador `sequencias_de_codigo` |
+| Organização | ✅ | filtro global de tenant, como nos cadastros |
+| Cliente e destinatário | ✅ | chaves estrangeiras; referência nova precisa existir no tenant e estar ativa |
+| Endereço | ✅ | cópia na criação (do destinatário, se não informado) |
+| Coordenada de destino quando disponível | ✅ | `geography(Point,4326)` opcional, índice GiST |
+| Janela prometida | ✅ | `JanelaDeEntrega` — `prometida_de`, `prometida_ate` |
+| Status | ✅ | `StatusDaEntrega` com os 9 status do CLAUDE.md; nesta fase só Criada e Cancelada são alcançáveis |
+| Timestamps operacionais | ✅ | `criada_em`, `atualizada_em`, `cancelada_em`; os de rota e conclusão entram com as operações deles |
+| Versão de concorrência | ✅ | `xmin`, `versao` obrigatória no `PUT` |
+| Timeline `EventoDaEntrega` append-only | ✅ | sequência por entrega, status resultante, trigger recusando `UPDATE`/`DELETE`/`TRUNCATE` |
+
+### Ações e regras
+
+| Ação ou regra | Resultado | Evidência |
+|---|:---:|---|
+| Criar | ✅ | `POST /api/entregas` — entrega, evento e auditoria no mesmo commit |
+| Editar dados permitidos antes do início | ✅ | `PUT /api/entregas/{id}`; tabela campo × status |
+| Cancelar dentro das regras | ✅ | `POST .../cancelamento` com motivo; permitido antes da rota e após tentativa frustrada; idempotente |
+| Consultar, listar, filtrar | ✅ | `GET /api/entregas/{id}`, `GET /api/entregas` (status, cliente, destinatário, código, período), `GET .../eventos` |
+| Histórico não reescrito silenciosamente | ✅ | timeline somente-inserção no banco; endereço copiado — alterar o destinatário não muda a entrega |
+| Campos imutáveis após o início explicitamente protegidos | ✅ | `RegrasDaEntrega.CampoEditavel`, testada para os 6 campos × 9 status; alteração é tudo ou nada (`409 campo_nao_editavel`) |
+
+### Critério de aceite
+
+> A API deve permitir criar e consultar uma entrega com histórico consistente sem depender ainda
+> de rota ou GPS.
+
+✅ `ApiCriaEConsultaEntregaComHistoricoConsistente`, contra PostgreSQL real, com sessão de
+**Operador**: cria a entrega, confere código, status, endereço copiado do destinatário, janela e
+`Location`; a leitura devolve exatamente o que a criação devolveu; a lista traz a entrega; a timeline
+tem um evento `Criada`, sequência 1, status resultante `Criada` e autor correto; a auditoria registra
+`entrega_criada`. Consistência ao longo de mudanças concorrentes em
+`AlteracaoECancelamentoSimultaneosMantemAHistoriaCoerente`: sequência sem lacuna, último status
+resultante igual ao status atual, e cancelamento nunca seguido de alteração.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| criação | `ApiCriaEConsultaEntregaComHistoricoConsistente`; `EntregaTestes.CriarGeraEntregaCriadaEOPrimeiroEventoDaTimeline` |
+| código humano único por tenant | `CodigoHumanoEhSequencialSemRepeticaoEPorOrganizacao` — 12 criações simultâneas numeradas de 1 a 12, outra organização começando em 1; `CadastroDeOutraOrganizacaoNaoServeParaEntrega` prova que tentativa recusada não consome número |
+| atualização permitida | `AlteracaoPermitidaRegistraOsCamposNaTimelineEExigeVersao` |
+| atualização proibida | `CancelamentoEncerraAEntregaEBloqueiaAlteracao` (409 `entrega_nao_editavel`), `RegrasDaEntregaTestes.EdicaoPorCampoEStatus` (54 casos), versão velha (409 `conflito_de_versao`) |
+| cancelamento | `CancelamentoEncerraAEntregaEBloqueiaAlteracao`, `MotivoOutroSemDescricaoEhRecusadoSemCancelar`, `CancelamentosSimultaneosGeramUmUnicoEvento`, `RegrasDaEntregaTestes.CancelamentoPorStatus` |
+| timeline | `TimelineRecusaAlteracaoEExclusaoNoBanco` (3 comandos), `EnderecoDaEntregaNaoMudaQuandoODestinatarioMuda`, eventos conferidos em todos os fluxos |
+| isolamento | `EntregaDeOutraOrganizacaoRespondeComoInexistente` (leitura, timeline, alteração, cancelamento — 404 idêntico ao inexistente, entrega de B intacta) e `CadastroDeOutraOrganizacaoNaoServeParaEntrega` |
+
+Além do pedido: cliente ou destinatário inativo recusado em entrega nova sem travar a existente,
+seis regras de negócio com código próprio (422), seis corpos malformados ou com `status`, `codigo`
+e `organizacaoId` (400, nada criado), filtros com status inválido e período invertido (400), e
+ausência de dado pessoal na timeline, na auditoria e no log.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 280 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 19 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 255 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **603** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 3
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Isolamento entre tenants e IDOR | ✅ | 404 idêntico ao inexistente em leitura, timeline, alteração e cancelamento; cliente e destinatário de outra organização recusados como inexistentes |
+| Mass assignment | ✅ | `status`, `codigo` e `organizacaoId` no corpo respondem 400; status muda só por operação de domínio |
+| Autorização | ✅ | leitura A/S/O, operação de entregas A/S/O; matriz verificada contra o roteamento |
+| Integridade do histórico | ✅ | trigger recusa `UPDATE`, `DELETE` e `TRUNCATE` na timeline; sequência única por entrega |
+| Concorrência | ✅ | código humano sem repetição sob 12 criações simultâneas; cancelamentos simultâneos com um único evento; alteração × cancelamento sem história incoerente |
+| Dado pessoal | ✅ | timeline e auditoria com nomes de campos e códigos de motivo; log com identificador e código; teste procura endereço, nome e observação nos três |
+| Injeção por texto | ✅ | caractere de controle recusado em observações; filtro de status só aceita nome exato; código de busca limitado a 30 caracteres |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados em 1,14 MB |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada nos 9 projetos; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+1. **Código com quebra de linha no fim passava como válido.** A expressão regular terminava em `$`,
+   que no .NET casa também antes de um `\n` final. Encontrado por teste de unidade; trocado por `\z`.
+2. **Tipos de dados do domínio expunham `init` público.** `DadosDaEntrega` e `AlteracaoDaEntrega`
+   nasceram como `record` posicional. O teste de arquitetura da Fase 1 recusou; viraram classes com
+   propriedades somente-leitura.
+
+### Decisões
+
+[ADR 0012](./docs/adr/0012-entrega-como-agregado-central.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Contador por organização e ano na transação do insert**, e não `SEQUENCE`: sequence não volta
+  atrás no rollback e deixaria lacuna.
+- **Endereço copiado**, não referenciado.
+- **Timeline com sequência e status resultante**, para a consistência ser verificável.
+- **Regras em tabela** cobrindo todos os status desde já; cliente congela no planejamento; demais
+  dados de destino congelam na saída para rota; cancelamento em rota fica para as fases de rota e
+  ocorrência.
+- **Operador opera entregas**; estrutura operacional segue com administrador e supervisor.
+- **Ano do código em UTC**, independente do fuso da organização.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Criação de entregas serializada por organização | pela linha do contador, só durante o insert; medir na Fase 22 |
+| Plano de consulta da lista não medido | índice `(organizacao_id, status, prometida_ate)` criado; `EXPLAIN` com volume na Fase 22 |
+| Timeline devolvida inteira, sem paginação | limitada a uma entrega; reavaliar quando GPS e geofence gerarem eventos (Fases 6 e 7) |
+| Cancelamento com motorista em rota | recusado nesta fase; decisão nas fases de rota e ocorrência |
+| Log de erro do EF Core em violação de unicidade tratada | continua das fases anteriores — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: entrega como agregado central com timeline e codigo humano (Fase 3)`
+
+---
+
 # FASE 4 — ROTAS E PARADAS
 
 ## Objetivo
@@ -2421,9 +2549,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 2 — Frota e Estrutura Operacional** (2026-09-14) |
-| Próxima fase | **Fase 3 — Núcleo de Entregas** |
-| Testes verdes | 465 — 184 unidade, 19 arquitetura, 213 integração, 49 frontend |
+| Última fase concluída | **Fase 3 — Núcleo de Entregas** (2026-09-14) |
+| Próxima fase | **Fase 4 — Rotas e Paradas** |
+| Testes verdes | 603 — 280 unidade, 19 arquitetura, 255 integração, 49 frontend |
 
 Comando para continuar:
 

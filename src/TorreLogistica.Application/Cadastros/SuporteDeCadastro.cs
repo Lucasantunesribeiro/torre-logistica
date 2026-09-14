@@ -83,6 +83,9 @@ public sealed class SuporteDeCadastro(
     /// <summary>Organização da sessão.</summary>
     public Guid OrganizacaoId => usuarioAtual.OrganizacaoIdAutenticada;
 
+    /// <summary>Conta autenticada que executa a ação.</summary>
+    public Guid UsuarioId => usuarioAtual.UsuarioId;
+
     /// <summary>Instante atual.</summary>
     public DateTimeOffset Agora => relogio.AgoraUtc;
 
@@ -149,7 +152,7 @@ public sealed class SuporteDeCadastro(
         {
             throw new ExcecaoDeDominio(
                 "conflito_de_versao",
-                "O cadastro foi alterado por outra pessoa. Recarregue e tente de novo.",
+                "O registro foi alterado por outra pessoa. Recarregue e tente de novo.",
                 CategoriaDeErroDeDominio.Conflito,
                 excecao);
         }

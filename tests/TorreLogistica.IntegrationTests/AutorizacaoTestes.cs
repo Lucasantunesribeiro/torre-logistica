@@ -37,6 +37,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/clientes", Status(201, 201, 403, 401, 401)),
         ("GET", "/api/destinatarios", Status(200, 200, 200, 401, 401)),
         ("POST", "/api/destinatarios", Status(201, 201, 403, 401, 401)),
+        ("GET", "/api/entregas", Status(200, 200, 200, 401, 401)),
+        ("POST", "/api/entregas", Status(201, 201, 201, 401, 401)),
     ];
 
     public static TheoryData<string, string, string, int> Casos()
@@ -70,8 +72,18 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ? null
             : (await EntrarAsync(cliente, organizacao.Com(Enum.Parse<Perfil>(principal)))).TokenDeAcesso;
 
+        // Entrega exige cliente e destinatário da própria organização, criados por quem pode.
+        object? corpoDeEntrega = null;
+        if ((metodo, rota) == ("POST", "/api/entregas"))
+        {
+            var administrador = (await EntrarAsync(cliente, organizacao.Com(Perfil.Administrador))).TokenDeAcesso;
+            var (clienteId, destinatarioId) = await CriarClienteEDestinatarioAsync(cliente, administrador);
+            corpoDeEntrega = RoteirosDeEntrega.Corpo(clienteId, destinatarioId);
+        }
+
         object? corpo = (metodo, rota) switch
         {
+            ("POST", "/api/entregas") => corpoDeEntrega,
             ("POST", "/api/usuarios") => new
             {
                 nome = "Conta Nova",
@@ -154,6 +166,12 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/destinatarios/{id:guid}/inativacao"] = "operacao:gestao",
             ["PUT /api/motoristas/{id:guid}/conta"] = "operacao:gestao",
             ["DELETE /api/motoristas/{id:guid}/conta"] = "operacao:gestao",
+            ["GET /api/entregas/"] = "operacao:leitura",
+            ["GET /api/entregas/{id:guid}"] = "operacao:leitura",
+            ["GET /api/entregas/{id:guid}/eventos"] = "operacao:leitura",
+            ["POST /api/entregas/"] = "entregas:operacao",
+            ["PUT /api/entregas/{id:guid}"] = "entregas:operacao",
+            ["POST /api/entregas/{id:guid}/cancelamento"] = "entregas:operacao",
         };
 
         var encontrado = new SortedDictionary<string, string>(StringComparer.Ordinal);

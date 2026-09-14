@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorreLogistica.Application.Cadastros;
+using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Organizacoes;
 using TorreLogistica.Application.Usuarios;
@@ -34,6 +35,8 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<GestaoDeHubs>();
         servicos.AddScoped<GestaoDeClientes>();
         servicos.AddScoped<GestaoDeDestinatarios>();
+
+        servicos.AddScoped<GestaoDeEntregas>();
 
         return servicos;
     }

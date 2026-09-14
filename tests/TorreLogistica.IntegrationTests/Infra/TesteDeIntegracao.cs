@@ -160,6 +160,21 @@ public abstract class TesteDeIntegracao(ContainerPostgis banco) : IAsyncLifetime
     protected static async Task<string?> CodigoDoErroAsync(HttpResponseMessage resposta) =>
         (await JsonAsync(resposta)).TryGetProperty("codigo", out var codigo) ? codigo.GetString() : null;
 
+    /// <summary>Cria um cliente e um destinatário válidos na organização do token de gestão.</summary>
+    protected static async Task<(Guid ClienteId, Guid DestinatarioId)> CriarClienteEDestinatarioAsync(
+        HttpClient cliente,
+        string tokenDeGestao)
+    {
+        using var clienteCriado = await EnviarAsync(
+            cliente, HttpMethod.Post, "/api/clientes", tokenDeGestao, RoteirosDeCadastro.Obter("cliente").Corpo());
+        using var destinatarioCriado = await EnviarAsync(
+            cliente, HttpMethod.Post, "/api/destinatarios", tokenDeGestao, RoteirosDeCadastro.Obter("destinatario").Corpo());
+
+        return (
+            (await JsonAsync(clienteCriado)).GetProperty("id").GetGuid(),
+            (await JsonAsync(destinatarioCriado)).GetProperty("id").GetGuid());
+    }
+
     private static string Caminho(CanalDeAcesso canal) =>
         canal == CanalDeAcesso.Operacao ? "/api/autenticacao" : "/api/motorista/autenticacao";
 

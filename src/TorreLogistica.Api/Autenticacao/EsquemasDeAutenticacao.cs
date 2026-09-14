@@ -74,6 +74,9 @@ public static class Politicas
     /// <summary>Cadastrar e alterar a estrutura operacional: administrador e supervisor.</summary>
     public const string GestaoDaOperacao = "operacao:gestao";
 
+    /// <summary>Criar, alterar e cancelar entregas: administrador, supervisor e operador.</summary>
+    public const string OperacaoDeEntregas = "entregas:operacao";
+
     /// <summary>Conta de motorista autenticada pela PWA.</summary>
     public const string Motorista = "motorista";
 }

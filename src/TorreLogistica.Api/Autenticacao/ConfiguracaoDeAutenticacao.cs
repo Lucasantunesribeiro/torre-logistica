@@ -74,6 +74,10 @@ public static class ConfiguracaoDeAutenticacao
             .AddPolicy(Politicas.GestaoDaOperacao, PoliticaDoConsole()
                 .RequireRole(nameof(Perfil.Administrador), nameof(Perfil.Supervisor))
                 .Build())
+            // Entrega é o trabalho do dia: o operador cria, corrige e cancela.
+            .AddPolicy(Politicas.OperacaoDeEntregas, PoliticaDoConsole()
+                .RequireRole(nameof(Perfil.Administrador), nameof(Perfil.Supervisor), nameof(Perfil.Operador))
+                .Build())
             .AddPolicy(Politicas.Motorista, new AuthorizationPolicyBuilder(EsquemasDeAutenticacao.Motorista)
                 .RequireAuthenticatedUser()
                 .RequireClaim(ReivindicacoesDaTorre.Canal, nameof(CanalDeAcesso.Motorista))

@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 2. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 3. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -39,6 +39,9 @@
 | `POST /api/destinatarios` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
 | `PUT /api/destinatarios/{id}` e `POST .../ativacao`, `.../inativacao` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `PUT` e `DELETE /api/motoristas/{id}/conta` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
+| `GET /api/entregas`, `GET /api/entregas/{id}` e `GET .../eventos` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/entregas` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao` |
+| `PUT /api/entregas/{id}` e `POST .../cancelamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -65,6 +68,9 @@ inverso.
 | Supervisor prepara a estrutura operacional; operador consulta e não altera | políticas `operacao:gestao` e `operacao:leitura` |
 | Alteração de cadastro exige a `versao` lida | `409 conflito_de_versao`; [ADR 0011](../adr/0011-cadastros-operacionais.md) |
 | Conta de outra organização informada na associação de motorista responde 404 | a conta é procurada na consulta filtrada pelo tenant |
+| Operador cria, altera e cancela entregas; estrutura operacional continua com administrador e supervisor | política `entregas:operacao`; [ADR 0012](../adr/0012-entrega-como-agregado-central.md) |
+| Cliente ou destinatário de outra organização informado na entrega responde 404, idêntico a inexistente | procurados nas consultas filtradas pelo tenant |
+| Status, código e organização não entram no corpo da entrega | campo desconhecido responde 400; status muda só por operação |
 
 ## Como adicionar um endpoint
 

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
@@ -54,6 +55,22 @@ public interface IContextoDePersistencia
 
     /// <summary>Destinatários, filtrados pelo tenant.</summary>
     DbSet<Destinatario> Destinatarios { get; }
+
+    /// <summary>Entregas, filtradas pelo tenant.</summary>
+    DbSet<Entrega> Entregas { get; }
+
+    /// <summary>Timeline das entregas, filtrada pelo tenant. Somente-inserção.</summary>
+    DbSet<EventoDaEntrega> EventosDaEntrega { get; }
+
+    /// <summary>
+    /// Reserva o próximo número de uma série de código humano, por organização e ano.
+    /// </summary>
+    /// <remarks>
+    /// Exige transação aberta: a reserva e a gravação do registro que usa o número precisam
+    /// confirmar juntas. Se a gravação falhar, a reserva volta atrás e o número não se perde.
+    /// Criações simultâneas na mesma organização se enfileiram na linha do contador.
+    /// </remarks>
+    Task<long> ReservarNumeroSequencialAsync(Guid organizacaoId, string serie, int ano, CancellationToken cancelamento);
 
     /// <summary>Grava as alterações pendentes.</summary>
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

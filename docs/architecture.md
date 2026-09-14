@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 2 concluída (frota e estrutura operacional). Este documento cresce junto com as fases.
+> Estado: Fase 3 concluída (núcleo de entregas). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros | 184 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status) | 280 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite | 19 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, concorrência otimista, geografia, auditoria, limite, logs | 213 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, concorrência otimista, geografia, auditoria, limite, logs | 255 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -286,9 +286,38 @@ gravado ali não poderia ser apagado.
 Leitura: Administrador, Supervisor e Operador (`operacao:leitura`). Gestão: Administrador e
 Supervisor (`operacao:gestao`). Detalhes em [ADR 0011](./adr/0011-cadastros-operacionais.md).
 
+## Fase 3 — Núcleo de entregas
+
+### Modelo
+
+```text
+organizacoes ──< entregas >── clientes
+                    │    └──── destinatarios   (endereço e coordenada copiados na criação)
+                    └──< eventos_da_entrega    (somente-inserção, garantido por trigger)
+organizacoes ──< sequencias_de_codigo          (contador por organização, série e ano)
+```
+
+| Conceito | Regra central |
+|---|---|
+| `Entrega` | status muda só por operação (`Criar`, `Cancelar`); alteração exige versão e é tudo ou nada |
+| `CodigoDaEntrega` | `ENT-AAAA-NNNNNN`, sequencial por organização e ano UTC, reservado na transação do insert |
+| `JanelaDeEntrega` | início e fim em UTC, truncados ao segundo, no máximo 7 dias, fim no futuro |
+| `EventoDaEntrega` | sequência sem lacuna por entrega e status resultante; nunca carrega dado pessoal |
+| `RegrasDaEntrega` | tabelas "campo × status" e "cancelável por status", cobrindo os 9 status |
+
+### Operações
+
+`POST /api/entregas`, `PUT /api/entregas/{id}` (com `versao`), `POST /api/entregas/{id}/cancelamento`,
+`GET /api/entregas` com filtros (status, cliente, destinatário, código, período da janela) e
+`GET /api/entregas/{id}/eventos`. Não há rota que receba status nem `DELETE`. Operador cria,
+altera e cancela (`entregas:operacao`). Detalhes em
+[ADR 0012](./adr/0012-entrega-como-agregado-central.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma entrega, rota ou posição: chegam a partir da Fase 3. As regras "motorista inativo não
+Nenhuma rota, atribuição ou posição: chegam a partir da Fase 4. Os status Planejada, Atribuída,
+Em rota, Próxima do destino, Entregue, Tentativa frustrada e Reagendada existem nas tabelas de
+regra, mas nenhuma operação leva a entrega até eles ainda. As regras "motorista inativo não
 recebe atribuição" e "veículo inativo não inicia rota" existem no domínio e passam a ser chamadas
 na Fase 4. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe

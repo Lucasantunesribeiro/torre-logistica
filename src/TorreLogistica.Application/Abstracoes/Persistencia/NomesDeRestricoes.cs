@@ -30,4 +30,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Uma conta de acesso associada a no máximo um motorista.</summary>
     public const string ContaDoMotorista = "ux_motoristas_usuario_id";
+
+    /// <summary>Código humano da entrega único dentro da organização.</summary>
+    public const string CodigoDaEntregaPorOrganizacao = "ux_entregas_organizacao_id_codigo";
+
+    /// <summary>Posição do evento na timeline única por entrega.</summary>
+    public const string SequenciaDoEventoDaEntrega = "ux_eventos_da_entrega_entrega_id_sequencia";
 }

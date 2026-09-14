@@ -19,6 +19,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0009](./0009-autenticacao-e-sessao.md) | Token curto, renovação rotativa em cookie, sessão conferida por requisição | 1 | aceita |
 | [0010](./0010-multi-tenancy-e-isolamento.md) | Multi-tenancy por discriminador com filtro que falha fechado | 1 | aceita |
 | [0011](./0011-cadastros-operacionais.md) | Cadastros operacionais: tipos próprios, PostGIS por conversão, versão por linha, inativação | 2 | aceita |
+| [0012](./0012-entrega-como-agregado-central.md) | Entrega: código humano sem lacuna, endereço copiado, timeline numerada, regras em tabela | 3 | aceita |
 
 ## Regras
 

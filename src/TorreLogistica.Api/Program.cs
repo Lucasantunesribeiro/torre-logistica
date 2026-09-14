@@ -8,6 +8,7 @@ using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Cadastros;
 using TorreLogistica.Api.Correlacao;
 using TorreLogistica.Api.Diagnostico;
+using TorreLogistica.Api.Entregas;
 using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Seguranca;
 using TorreLogistica.Api.Usuarios;
@@ -178,6 +179,7 @@ try
     aplicacao.MapearEndpointsDeAutenticacao();
     aplicacao.MapearEndpointsDeUsuarios();
     aplicacao.MapearEndpointsDeCadastros();
+    aplicacao.MapearEndpointsDeEntregas();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
     return 0;

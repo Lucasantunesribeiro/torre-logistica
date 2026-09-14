@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
@@ -65,6 +67,12 @@ public class TorreLogisticaDbContext(
     /// <inheritdoc />
     public DbSet<Destinatario> Destinatarios => Set<Destinatario>();
 
+    /// <inheritdoc />
+    public DbSet<Entrega> Entregas => Set<Entrega>();
+
+    /// <inheritdoc />
+    public DbSet<EventoDaEntrega> EventosDaEntrega => Set<EventoDaEntrega>();
+
     /// <summary>
     /// Organização usada nos filtros globais. O EF Core lê esta propriedade a cada
     /// consulta, na instância do contexto — por isso ela precisa morar aqui.
@@ -111,6 +119,37 @@ public class TorreLogisticaDbContext(
         Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM organizacoes WHERE id = {organizacaoId} FOR UPDATE",
             cancelamento);
+
+    /// <inheritdoc />
+    public async Task<long> ReservarNumeroSequencialAsync(
+        Guid organizacaoId,
+        string serie,
+        int ano,
+        CancellationToken cancelamento)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serie);
+
+        var transacao = Database.CurrentTransaction
+            ?? throw new InvalidOperationException("A reserva de número sequencial exige transação aberta.");
+
+        // INSERT ... ON CONFLICT trava a linha do contador até o fim da transação: a segunda
+        // criação simultânea espera a primeira confirmar e recebe o número seguinte.
+        await using var comando = Database.GetDbConnection().CreateCommand();
+        comando.Transaction = transacao.GetDbTransaction();
+        comando.CommandText = """
+            INSERT INTO sequencias_de_codigo (organizacao_id, serie, ano, ultimo_numero)
+            VALUES (@organizacao, @serie, @ano, 1)
+            ON CONFLICT (organizacao_id, serie, ano)
+            DO UPDATE SET ultimo_numero = sequencias_de_codigo.ultimo_numero + 1
+            RETURNING ultimo_numero
+            """;
+        comando.Parameters.Add(new NpgsqlParameter("organizacao", organizacaoId));
+        comando.Parameters.Add(new NpgsqlParameter("serie", serie));
+        comando.Parameters.Add(new NpgsqlParameter("ano", ano));
+
+        var resultado = await comando.ExecuteScalarAsync(cancelamento).ConfigureAwait(false);
+        return Convert.ToInt64(resultado, System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     /// <inheritdoc />
     public void DefinirVersaoEsperada(object entidade, uint versao)
@@ -170,6 +209,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(cliente => cliente.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<Destinatario>()
             .HasQueryFilter(destinatario => destinatario.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Entrega>()
+            .HasQueryFilter(entrega => entrega.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EventoDaEntrega>()
+            .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />
