@@ -29,6 +29,8 @@ O que pode ser versionado é o **nome** da variável e um valor obviamente falso
 | `TORRE_POSTGRES_PORTA` | porta publicada pelo contêiner (55432) | não |
 | `Torre__BancoDeDados__CadeiaDeConexao` | cadeia de conexão da API e dos workers | **sim** |
 | `TORRE_BANCO_CADEIA_DE_CONEXAO` | cadeia usada pelas ferramentas do EF Core | **sim** |
+| `Torre__TokenDeAcesso__ChaveDeAssinatura` | chave HMAC (Base64, ≥ 32 bytes) que assina os tokens de acesso; obrigatória fora de Development/Testing | **sim** |
+| `Torre__Desenvolvimento__Semeadura__SenhaInicial` | senha comum das contas semeadas localmente | **sim** (local) |
 | `Torre__Simulador__UrlBaseDaApi` | endereço da API para o simulador | não |
 | `VITE_URL_DA_API` | endereço da API para as aplicações web | não |
 
@@ -51,7 +53,9 @@ Não existe "esconder" valor no frontend: o que chega ao navegador é público.
 | `docker-compose.yml` | `${TORRE_POSTGRES_SENHA}` | interpolação; o valor vem do `.env`, não versionado |
 | `appsettings.json` | `"CadeiaDeConexao": ""` | vazio de propósito; a aplicação **falha na subida** sem o valor real |
 | `FabricaDeDbContextEmTempoDeDesign` | `Host=localhost;…;Username=torre` | sem credencial; gerar migration não abre conexão |
-| `FabricaDaApi` (teste) | senha gerada por `Guid.CreateVersion7()` | descartável, vive o tempo do contêiner |
+| `ContainerPostgis` (teste) | senha gerada por `Guid.CreateVersion7()` | descartável, vive o tempo do contêiner |
+| `appsettings.json` | `"ChaveDeAssinatura": ""` | vazio de propósito; fora de Development/Testing a API **não sobe** sem a chave real |
+| `Cenario` (teste) | `senha-de-teste-bem-comprida` | só existe no banco efêmero do Testcontainers |
 
 ## Verificações automáticas
 
@@ -83,6 +87,22 @@ Lição prática para quem escrever sobre segurança aqui: **não reproduza no t
 formato de uma credencial**, nem o de exemplo. Descreva em palavras. O hook local de
 `git commit` acusa o padrão e bloqueia — corretamente, porque ele não tem como saber
 que aquele valor específico é inofensivo.
+
+### Liberações do hook local (`.varredura-permitido`)
+
+O hook local de commit procura o padrão "palavra de senha seguida de `=` ou `:`". Na Fase 1 ele
+acusou 11 linhas; todas foram conferidas uma a uma antes de qualquer liberação.
+
+| Arquivo | O que casou | Tratamento |
+|---|---|---|
+| `AutenticarUsuario.cs` | variável local recebendo o valor do comando | **reescrito** — o arquivo continua sob varredura completa |
+| `SegredosDeRenovacao.cs` | comentário explicando hash de senha | **reescrito** |
+| `Usuario.cs` | inicialização do hash com texto vazio no construtor usado pelo EF Core | liberado |
+| migration `Identidade` | definição da coluna `hash_da_senha`, código gerado | liberado |
+| 7 arquivos de teste (backend e console) | senhas fictícias usadas contra `fetch` simulado ou contra o banco efêmero do Testcontainers | liberado |
+
+A liberação é por arquivo e por tipo de achado. Por isso só entram arquivos em que reescrever
+seria contorcer o código; e a varredura da CI (gitleaks) continua cobrindo todos eles.
 
 ## Se um segredo for exposto
 

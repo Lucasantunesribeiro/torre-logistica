@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 0 concluída (fundação técnica). Este documento cresce junto com as fases.
+> Estado: Fase 1 concluída (identidade e multi-tenancy). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,22 +186,70 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, validação de correlação | 43 |
-| `ArchitectureTests` | direção das dependências, isolamento do simulador, uso do relógio, ancoragem do content root | 16 |
-| `IntegrationTests` | API real contra PostGIS real: saúde, migration, geoespacial, erros, cabeçalhos, CORS, correlação | 32 |
-| Frontend (3 aplicações) | casca, roteamento, estados de conexão, validação de ambiente | 40 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha | 121 |
+| `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql | 19 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, auditoria, limite, logs | 128 |
+| Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
 Provedor em memória não prova transação, constraint, índice nem geografia — que é
 justamente o que este projeto precisa demonstrar.
 
+## Fase 1 — Identidade e multi-tenancy
+
+### Modelo
+
+```text
+organizacoes ──< usuarios ──< sessoes ──< tokens_de_renovacao
+      └──────────────< eventos_de_auditoria   (somente-inserção, garantido por trigger)
+```
+
+| Conceito | Regra central |
+|---|---|
+| `Organizacao` | fronteira de isolamento; `slug` público identifica no login, mas não autoriza |
+| `Usuario` | e-mail único **por organização**; perfil nunca atravessa canal (console ↔ motorista) |
+| `Sessao` | a família de tokens de um login; prazo absoluto; revogada por logout, reuso, desativação ou troca de perfil |
+| `TokenDeRenovacao` | só o hash SHA-256 é guardado; trocado a cada renovação |
+| `EventoDeAuditoria` | trilha administrativa; `UPDATE`, `DELETE` e `TRUNCATE` recusados pelo banco |
+
+### Autenticação
+
+Token de acesso JWT de 15 minutos em memória no cliente; token de renovação opaco em cookie
+`HttpOnly; Secure; SameSite=Strict` com `Path` restrito ao canal. Cada requisição autenticada
+confere a sessão no banco — logout e revogação valem na hora. Renovação com detecção de reuso,
+janela de tolerância para retry e trava de linha na sessão. Detalhes em
+[ADR 0009](./adr/0009-autenticacao-e-sessao.md).
+
+Console e PWA do motorista são **esquemas de autenticação diferentes**, com audiências
+diferentes. Um token de um canal não autentica no outro.
+
+### Tenant
+
+O tenant vem exclusivamente da sessão. O contexto de persistência aplica filtro global por
+organização em toda entidade de tenant, e sem sessão o filtro não enxerga nada. Recurso de outra
+organização responde `404` idêntico ao de identificador inexistente. Campo desconhecido no JSON
+é recusado. Detalhes em [ADR 0010](./adr/0010-multi-tenancy-e-isolamento.md).
+
+### Acesso a dados
+
+A Application usa o núcleo do EF Core diretamente, sem repositório. SQL específico do
+PostgreSQL — trava de linha, detecção de violação de unicidade, transação com nova tentativa —
+fica atrás de `IContextoDePersistencia` na Infrastructure. Ver
+[ADR 0008](./adr/0008-application-usa-ef-core-sem-repositorio.md).
+
+### Quem acessa o quê
+
+[`docs/seguranca/matriz-de-autorizacao.md`](./seguranca/matriz-de-autorizacao.md), verificada
+por teste contra o roteamento real.
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma entidade de negócio, nenhum caso de uso, nenhuma autenticação, nenhum endpoint
-além dos de saúde. A camada `Application` está registrada e vazia: caso de uso nasce
-junto com a regra que o justifica.
+Nenhum dado operacional: frota, hubs, clientes, entregas, rotas e posições chegam a partir da
+Fase 2. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
+e é testado, a interface é da Fase 11.
 
 `Workers` sobe, confere que o banco está alcançável e encerra se não estiver — sem job
-registrado. `Simulator` exercita o único contrato que a API publica hoje.
+registrado. `Simulator` exercita só o endpoint de prontidão.
 
 Isso é intencional. A ordem das fases está em [`ROADMAP.md`](../ROADMAP.md).

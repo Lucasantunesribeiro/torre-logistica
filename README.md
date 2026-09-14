@@ -4,11 +4,11 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 0 — Fundação Técnica concluída.**
-> Ainda não há funcionalidade de negócio. O que existe é a base sobre a qual ela será
-> construída: camadas com fronteira verificada por teste, PostgreSQL com PostGIS real,
-> contrato de erros, correlação, endpoints de saúde e três aplicações web compilando.
-> A ordem das próximas fases está em [`ROADMAP.md`](./ROADMAP.md).
+> **Estado: Fase 1 — Identidade e Multi-tenancy concluída.**
+> Login do console e da PWA do motorista em canais separados, sessão com renovação rotativa e
+> detecção de reuso, autorização por perfil e isolamento entre organizações provado contra
+> PostgreSQL real. Ainda não há dado operacional — frota, entregas e rotas vêm nas próximas
+> fases. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -79,10 +79,10 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 43 |
-| Arquitetura | 16 |
-| Integração (PostGIS real) | 32 |
-| Frontend (3 aplicações) | 40 |
+| Unidade | 121 |
+| Arquitetura | 19 |
+| Integração (PostgreSQL + PostGIS real) | 128 |
+| Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
@@ -103,6 +103,9 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0005](./docs/adr/0005-signalr-como-direcao-de-realtime.md) | SignalR como direção de tempo real |
 | [0006](./docs/adr/0006-simulador-externo.md) | Simulador como cliente externo |
 | [0007](./docs/adr/0007-storage-de-comprovantes-fora-do-banco.md) | Comprovantes em storage de objeto |
+| [0008](./docs/adr/0008-application-usa-ef-core-sem-repositorio.md) | Application usa o núcleo do EF Core, sem repositório |
+| [0009](./docs/adr/0009-autenticacao-e-sessao.md) | Token curto, renovação rotativa em cookie, sessão conferida por requisição |
+| [0010](./docs/adr/0010-multi-tenancy-e-isolamento.md) | Multi-tenancy por discriminador com filtro que falha fechado |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -114,6 +117,7 @@ a ser desfeita por acidente.
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
+- [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 
 ## Segurança
 

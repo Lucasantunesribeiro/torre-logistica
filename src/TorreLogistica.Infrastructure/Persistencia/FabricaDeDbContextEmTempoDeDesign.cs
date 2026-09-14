@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using TorreLogistica.Application.Abstracoes.Identidade;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
 
@@ -35,6 +36,19 @@ public sealed class FabricaDeDbContextEmTempoDeDesign
             .UseSnakeCaseNamingConvention()
             .Options;
 
-        return new TorreLogisticaDbContext(opcoes);
+        return new TorreLogisticaDbContext(opcoes, new ContextoDeTenantAusente());
     }
+}
+
+/// <summary>
+/// Contexto sem tenant: usado por processos que não atendem requisição autenticada.
+/// </summary>
+/// <remarks>
+/// Com ele, os filtros de tenant não enxergam dado algum. Um worker que precise operar
+/// sobre uma organização terá de receber essa autoridade de forma explícita.
+/// </remarks>
+public sealed class ContextoDeTenantAusente : IContextoDoTenant
+{
+    /// <inheritdoc />
+    public Guid? OrganizacaoId => null;
 }

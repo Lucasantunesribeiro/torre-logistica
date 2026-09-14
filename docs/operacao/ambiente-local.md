@@ -47,6 +47,32 @@ dotnet run --project src/TorreLogistica.Workers
 dotnet run --project src/TorreLogistica.Simulator
 ```
 
+### Contas locais para login
+
+A semeadura de desenvolvimento cria duas organizações fictícias, só em `Development` e só se
+habilitada. A senha comum das contas vem do ambiente, nunca do repositório:
+
+```bash
+export Torre__Desenvolvimento__Semeadura__Habilitada=true
+export Torre__Desenvolvimento__Semeadura__SenhaInicial="<uma senha local com 12+ caracteres>"
+```
+
+| Organização (slug) | Conta | Perfil |
+|---|---|---|
+| `transportadora-aurora` | `helena.duarte@aurora.test` | Administrador |
+| `transportadora-aurora` | `marcos.vieira@aurora.test` | Supervisor |
+| `transportadora-aurora` | `paula.siqueira@aurora.test` | Operador |
+| `transportadora-aurora` | `rafael.mendes@aurora.test` | Motorista (só entra pela PWA) |
+| `logistica-boreal` | `tiago.fontes@boreal.test` | Administrador |
+
+A operação é idempotente: organização que já existe não é recriada. Sem chave de assinatura
+configurada, a API gera uma chave efêmera em `Development` — as sessões não sobrevivem a
+reinício da API.
+
+O login do console exige a organização, o e-mail e a senha. O cookie de renovação é `Secure` e
+`SameSite=Strict`: funciona em `http://localhost` porque navegadores tratam `localhost` como
+contexto seguro, e porque `localhost:5173` e `localhost:5080` são o mesmo site.
+
 A API lê `Torre__BancoDeDados__CadeiaDeConexao` do ambiente. Em um terminal que não
 carregou o `.env`, exporte a variável antes de rodar — a aplicação **falha na subida**
 se a cadeia de conexão estiver ausente, de propósito.
@@ -73,8 +99,8 @@ npm run verificar
 
 Os projetos de teste usam xunit.v3 sobre o Microsoft.Testing.Platform. No SDK 10.0.400
 com xunit.v3 4.0.0, o wrapper `dotnet test` encerra com **"Zero testes executados"**
-(código 5), enquanto o mesmo executável descobre e roda as 43 / 14 / 32 provas quando
-invocado direto.
+(código 5), enquanto o mesmo executável descobre e roda todas as provas quando invocado
+direto.
 
 `scripts/testar.ps1` roda os executáveis. Isso é caminho suportado pela plataforma de
 teste e não esconde falha: o código de saída continua reprovando a execução.

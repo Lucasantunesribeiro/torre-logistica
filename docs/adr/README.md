@@ -15,6 +15,9 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0005](./0005-signalr-como-direcao-de-realtime.md) | SignalR como direção de tempo real | 0 / 8 | aceita |
 | [0006](./0006-simulador-externo.md) | Simulador como cliente externo | 0 / 23 | aceita |
 | [0007](./0007-storage-de-comprovantes-fora-do-banco.md) | Comprovantes em storage de objeto | 0 / 14 | aceita |
+| [0008](./0008-application-usa-ef-core-sem-repositorio.md) | Application usa o núcleo do EF Core, sem repositório | 1 | aceita |
+| [0009](./0009-autenticacao-e-sessao.md) | Token curto, renovação rotativa em cookie, sessão conferida por requisição | 1 | aceita |
+| [0010](./0010-multi-tenancy-e-isolamento.md) | Multi-tenancy por discriminador com filtro que falha fechado | 1 | aceita |
 
 ## Regras
 

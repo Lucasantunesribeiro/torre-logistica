@@ -1,12 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using TorreLogistica.Application.Abstracoes.Identidade;
+using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Application.Abstracoes.Seguranca;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Infrastructure.Configuracao;
+using TorreLogistica.Infrastructure.Desenvolvimento;
 using TorreLogistica.Infrastructure.Identificadores;
 using TorreLogistica.Infrastructure.Persistencia;
+using TorreLogistica.Infrastructure.Seguranca;
 using TorreLogistica.Infrastructure.Tempo;
 
 namespace TorreLogistica.Infrastructure;
@@ -23,8 +29,13 @@ public static class ConfiguracaoDeServicosDaInfrastructure
     public const string EtiquetaDePronto = "pronto";
 
     /// <summary>
-    /// Registra persistência, relógio, geração de identificador e health check de banco.
+    /// Registra persistência, relógio, geração de identificador, hash de senha e health check.
     /// </summary>
+    /// <remarks>
+    /// O contexto de tenant é registrado com <c>TryAdd</c>: a API registra antes o dela,
+    /// derivado da sessão; processos sem requisição autenticada ficam com o contexto
+    /// ausente, que não enxerga dado de organização alguma.
+    /// </remarks>
     public static IServiceCollection AdicionarCamadaDeInfrastructure(
         this IServiceCollection servicos,
         IConfiguration configuracao)
@@ -40,9 +51,15 @@ public static class ConfiguracaoDeServicosDaInfrastructure
             // erro de implantação e precisa aparecer enquanto ainda há quem observe.
             .ValidateOnStart();
 
+        servicos
+            .AddOptions<OpcoesDeSemeaduraDeDesenvolvimento>()
+            .Bind(configuracao.GetSection(OpcoesDeSemeaduraDeDesenvolvimento.Secao));
+
         servicos.TryAddTimeProvider();
         servicos.AddSingleton<IRelogio, RelogioDoSistema>();
         servicos.AddSingleton<IGeradorDeIdentificador, GeradorDeIdentificadorUuidV7>();
+        servicos.AddSingleton<IHasherDeSenha, HasherDeSenha>();
+        servicos.TryAddScoped<IContextoDoTenant, ContextoDeTenantAusente>();
 
         servicos.AddDbContext<TorreLogisticaDbContext>((provedor, construtor) =>
         {
@@ -61,6 +78,9 @@ public static class ConfiguracaoDeServicosDaInfrastructure
                 })
                 .UseSnakeCaseNamingConvention();
         });
+
+        servicos.AddScoped<IContextoDePersistencia>(provedor =>
+            provedor.GetRequiredService<TorreLogisticaDbContext>());
 
         servicos
             .AddHealthChecks()

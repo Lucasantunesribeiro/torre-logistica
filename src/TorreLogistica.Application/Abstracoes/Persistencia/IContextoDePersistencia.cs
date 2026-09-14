@@ -1,0 +1,70 @@
+using Microsoft.EntityFrameworkCore;
+using TorreLogistica.Domain.Auditoria;
+using TorreLogistica.Domain.Identidade;
+
+namespace TorreLogistica.Application.Abstracoes.Persistencia;
+
+/// <summary>
+/// Acesso da camada de aplicação ao armazenamento operacional.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Expõe os <see cref="DbSet{TEntity}"/> diretamente, sem repositório genérico por cima:
+/// um repositório que só repassa chamadas ao EF Core não isola nada e esconde LINQ,
+/// projeção e <c>ExecuteUpdate</c>. Ver <c>docs/adr/0008-application-usa-ef-core-sem-repositorio.md</c>.
+/// </para>
+/// <para>
+/// Os conjuntos de entidades pertencentes a um tenant chegam aqui já filtrados pela
+/// organização da sessão autenticada. Consultar outro tenant exige
+/// <c>IgnoreQueryFilters()</c> explícito — e só os fluxos que ainda não têm sessão
+/// (login, renovação, validação de sessão) fazem isso.
+/// </para>
+/// </remarks>
+public interface IContextoDePersistencia
+{
+    /// <summary>Organizações. Não é filtrado: é o próprio tenant.</summary>
+    DbSet<Organizacao> Organizacoes { get; }
+
+    /// <summary>Contas, filtradas pelo tenant.</summary>
+    DbSet<Usuario> Usuarios { get; }
+
+    /// <summary>Sessões, filtradas pelo tenant.</summary>
+    DbSet<Sessao> Sessoes { get; }
+
+    /// <summary>Tokens de renovação, filtrados pelo tenant.</summary>
+    DbSet<TokenDeRenovacao> TokensDeRenovacao { get; }
+
+    /// <summary>Trilha de auditoria, filtrada pelo tenant.</summary>
+    DbSet<EventoDeAuditoria> EventosDeAuditoria { get; }
+
+    /// <summary>Grava as alterações pendentes.</summary>
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executa a operação dentro de uma transação, com a estratégia de nova tentativa
+    /// do provedor.
+    /// </summary>
+    /// <remarks>
+    /// A operação pode rodar mais de uma vez quando a conexão falha de forma transitória.
+    /// Por isso ela precisa recarregar o que usa, e as alterações pendentes são
+    /// descartadas antes de cada tentativa.
+    /// </remarks>
+    Task<T> ExecutarEmTransacaoAsync<T>(
+        Func<CancellationToken, Task<T>> operacao,
+        CancellationToken cancelamento);
+
+    /// <summary>
+    /// Trava a linha da sessão até o fim da transação (<c>SELECT … FOR UPDATE</c>),
+    /// serializando renovações e encerramentos da mesma família.
+    /// </summary>
+    Task BloquearSessaoAsync(Guid sessaoId, CancellationToken cancelamento);
+
+    /// <summary>
+    /// Trava a linha da organização até o fim da transação, serializando alterações que
+    /// dependem do conjunto de administradores.
+    /// </summary>
+    Task BloquearOrganizacaoAsync(Guid organizacaoId, CancellationToken cancelamento);
+
+    /// <summary>Indica se a exceção é violação da restrição de unicidade informada.</summary>
+    bool EhViolacaoDeUnicidade(Exception excecao, string nomeDaRestricao);
+}

@@ -1,19 +1,55 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router';
+
+import { useSessao } from '../sessao/ProvedorDeSessao';
+
 /**
  * Painel inicial do console.
  *
- * O conteúdo operacional chega nas fases seguintes; esta página existe para que a
- * casca tenha uma rota real e o roteamento seja exercitado por teste desde já.
+ * O conteúdo operacional chega nas fases seguintes. Nesta fase o painel mostra quem está
+ * na sessão e em qual organização — a prova visível de que a identidade veio da API.
  */
 export function Painel() {
+  const { estado, sair } = useSessao();
+  const navegar = useNavigate();
+  const [saindo, setSaindo] = useState(false);
+
+  if (estado.situacao !== 'autenticada') {
+    return null;
+  }
+
+  const { usuario } = estado;
+
+  async function encerrar() {
+    setSaindo(true);
+    try {
+      await sair();
+    } finally {
+      void navegar('/entrar', { replace: true });
+    }
+  }
+
   return (
     <section>
-      <h2>Fundação técnica</h2>
-      <p>
-        A base do console está de pé: roteamento, estado de servidor, validação de
-        configuração e ligação com a API.
-      </p>
+      <div className="sessao">
+        <div>
+          <h2>{usuario.nome}</h2>
+          <p className="sumario">
+            {usuario.perfil} · {usuario.organizacaoNome}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={saindo}
+          onClick={() => {
+            void encerrar();
+          }}
+        >
+          {saindo ? 'Saindo…' : 'Sair'}
+        </button>
+      </div>
+
       <ul className="fases">
-        <li>Identidade e multi-tenancy — Fase 1</li>
         <li>Frota e estrutura operacional — Fase 2</li>
         <li>Núcleo de entregas — Fase 3</li>
         <li>Mapa da operação — Fase 18</li>

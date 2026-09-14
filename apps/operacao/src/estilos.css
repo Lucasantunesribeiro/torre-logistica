@@ -82,3 +82,60 @@ h1 {
   padding-left: 1.25rem;
   color: var(--tinta-fraca);
 }
+
+.formulario {
+  max-width: 24rem;
+  margin-top: 1.5rem;
+}
+
+.formulario form {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.formulario label {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.formulario input {
+  font: inherit;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+}
+
+.formulario input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--tinta);
+  outline-offset: 2px;
+}
+
+.formulario__erro {
+  color: var(--ruim);
+  margin: 0.5rem 0 0;
+}
+
+button {
+  font: inherit;
+  margin-top: 0.75rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--tinta);
+  border-radius: 6px;
+  background: var(--tinta);
+  color: var(--superficie);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.sessao {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}

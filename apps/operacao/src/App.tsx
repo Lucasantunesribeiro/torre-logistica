@@ -1,15 +1,17 @@
 import { Route, Routes } from 'react-router';
 
 import { IndicadorDeConexao } from './componentes/IndicadorDeConexao';
+import { Entrar } from './paginas/Entrar';
 import { Painel } from './paginas/Painel';
 import { RotaDesconhecida } from './paginas/RotaDesconhecida';
+import { RotaProtegida } from './sessao/RotaProtegida';
 
 /**
  * Casca do Console Operacional.
  *
- * Na Fase 0 existe apenas a estrutura: roteamento, estado de servidor e a ligação
- * real com a API. As telas operacionais — mapa, entregas, rotas, alertas — nascem
- * nas fases que definem o comportamento por trás delas.
+ * A sessão é recuperada pelo cookie de renovação ao abrir; sem ela, toda rota operacional
+ * leva ao login. As telas operacionais — mapa, entregas, rotas, alertas — nascem nas fases
+ * que definem o comportamento por trás delas.
  */
 export function App() {
   return (
@@ -22,7 +24,10 @@ export function App() {
       </div>
 
       <Routes>
-        <Route path="/" element={<Painel />} />
+        <Route path="/entrar" element={<Entrar />} />
+        <Route element={<RotaProtegida />}>
+          <Route path="/" element={<Painel />} />
+        </Route>
         <Route path="*" element={<RotaDesconhecida />} />
       </Routes>
     </main>

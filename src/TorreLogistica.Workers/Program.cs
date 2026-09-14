@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using TorreLogistica.Application;
 using TorreLogistica.Infrastructure;
 using TorreLogistica.Workers;
 
@@ -29,7 +28,6 @@ try
         .ReadFrom.Services(provedor)
         .Enrich.FromLogContext());
 
-    construtor.Services.AdicionarCamadaDeApplication();
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
     construtor.Services.AddHostedService<ServicoDeVerificacaoDeInfraestrutura>();
 

@@ -5,17 +5,15 @@ using TorreLogistica.IntegrationTests.Infra;
 namespace TorreLogistica.IntegrationTests;
 
 [Collection(ColecaoDeIntegracao.Nome)]
-public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
+public sealed class SaudeEBancoTestes(ContainerPostgis banco) : TesteDeIntegracao(banco)
 {
-    private readonly FabricaDaApi _fabrica = fabrica;
-
     [Fact]
     public async Task VivacidadeRespondeSaudavelSemConsultarDependencia()
     {
-        using var cliente = _fabrica.CreateClient();
+        using var cliente = Cliente();
 
-        using var resposta = await cliente.GetAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
-        var corpo = await resposta.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var resposta = await cliente.GetAsync(new Uri("/health/live", UriKind.Relative), Cancelamento);
+        var corpo = await resposta.Content.ReadAsStringAsync(Cancelamento);
 
         Assert.Equal(HttpStatusCode.OK, resposta.StatusCode);
 
@@ -30,10 +28,10 @@ public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
     [Fact]
     public async Task ProntidaoVerificaOBancoDeDados()
     {
-        using var cliente = _fabrica.CreateClient();
+        using var cliente = Cliente();
 
-        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);
-        var corpo = await resposta.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), Cancelamento);
+        var corpo = await resposta.Content.ReadAsStringAsync(Cancelamento);
 
         Assert.Equal(HttpStatusCode.OK, resposta.StatusCode);
 
@@ -55,10 +53,10 @@ public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
     [Fact]
     public async Task ProntidaoNaoExpoeDetalheDaCadeiaDeConexao()
     {
-        using var cliente = _fabrica.CreateClient();
+        using var cliente = Cliente();
 
-        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);
-        var corpo = await resposta.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), Cancelamento);
+        var corpo = await resposta.Content.ReadAsStringAsync(Cancelamento);
 
         Assert.DoesNotContain("Host=", corpo, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Username", corpo, StringComparison.OrdinalIgnoreCase);
@@ -69,20 +67,21 @@ public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
     [Fact]
     public async Task SaudeNaoEhArmazenadaEmCache()
     {
-        using var cliente = _fabrica.CreateClient();
+        using var cliente = Cliente();
 
-        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var resposta = await cliente.GetAsync(new Uri("/health/ready", UriKind.Relative), Cancelamento);
 
         Assert.NotNull(resposta.Headers.CacheControl);
         Assert.True(resposta.Headers.CacheControl!.NoStore);
     }
 
     [Fact]
-    public async Task MigrationDeFundacaoFoiAplicadaNoBancoReal()
+    public async Task MigrationsDeFundacaoEIdentidadeForamAplicadasNoBancoReal()
     {
-        var aplicadas = await _fabrica.MigrationsAplicadasAsync();
+        var aplicadas = await Banco.MigrationsAplicadasAsync();
 
         Assert.Contains(aplicadas, migration => migration.EndsWith("Fundacao", StringComparison.Ordinal));
+        Assert.Contains(aplicadas, migration => migration.EndsWith("Identidade", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -92,7 +91,7 @@ public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
     [Fact]
     public async Task ExtensaoPostGisFicaDisponivelDepoisDaMigration()
     {
-        var versao = await _fabrica.ConsultarEscalarAsync("select postgis_version();");
+        var versao = await Banco.ConsultarEscalarAsync("select postgis_version();");
 
         Assert.False(string.IsNullOrWhiteSpace(versao));
     }
@@ -107,20 +106,20 @@ public sealed class SaudeEBancoTestes(FabricaDaApi fabrica)
                 st_setsrid(st_makepoint(-46.6570, -23.5874), 4326)::geography)::numeric, 0);
             """;
 
-        var distancia = await _fabrica.ConsultarEscalarAsync(sql);
+        var distancia = await Banco.ConsultarEscalarAsync(sql);
 
-        Assert.True(double.TryParse(distancia, out var metros));
+        Assert.True(double.TryParse(distancia, System.Globalization.CultureInfo.InvariantCulture, out var metros));
         Assert.InRange(metros, 4_000, 6_000);
     }
 
     [Fact]
     public async Task NomesFisicosDoBancoUsamSnakeCase()
     {
-        var coluna = await _fabrica.ConsultarEscalarAsync("""
+        var coluna = await Banco.ConsultarEscalarAsync("""
             select column_name from information_schema.columns
-            where table_name = '__EFMigrationsHistory' and column_name = 'migration_id';
+            where table_name = 'usuarios' and column_name = 'email_normalizado';
             """);
 
-        Assert.Equal("migration_id", coluna);
+        Assert.Equal("email_normalizado", coluna);
     }
 }

@@ -45,6 +45,9 @@ dotnet_naming_style.prefixed_with_i.capitalization = pascal_case
 # Regras que atrapalham mais do que ajudam neste projeto
 # CA1848: uso de LoggerMessage source-generated em todo log — exagero fora de hot path.
 dotnet_diagnostic.CA1848.severity = none
+# CA1873: mesma família da CA1848 (custo de argumento de log). Os logs deste projeto
+# ficam fora de hot path; o de GPS, quando existir, será tratado com LoggerMessage.
+dotnet_diagnostic.CA1873.severity = none
 # CA1031: catch genérico é legítimo em middleware de borda, onde é usado com telemetria.
 dotnet_diagnostic.CA1031.severity = none
 # CA1303: literais de log em português não passam por recurso localizado.

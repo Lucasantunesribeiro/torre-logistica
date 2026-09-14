@@ -1,4 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using TorreLogistica.Application.Identidade;
+using TorreLogistica.Application.Organizacoes;
+using TorreLogistica.Application.Usuarios;
 
 namespace TorreLogistica.Application;
 
@@ -7,16 +10,23 @@ namespace TorreLogistica.Application;
 /// </summary>
 public static class ConfiguracaoDeServicosDaApplication
 {
-    /// <summary>
-    /// Registra os serviços da camada de aplicação.
-    /// </summary>
+    /// <summary>Registra os casos de uso da camada de aplicação.</summary>
     /// <remarks>
-    /// Na Fase 0 a camada existe com suas fronteiras declaradas e nenhum caso de uso:
-    /// casos de uso nascem junto com as regras de negócio que os justificam.
+    /// Tudo com tempo de vida <c>scoped</c>: os casos de uso dependem do contexto de
+    /// persistência e do usuário da requisição, que também são por escopo. Registrar
+    /// qualquer um deles como singleton prenderia o contexto da primeira requisição.
     /// </remarks>
     public static IServiceCollection AdicionarCamadaDeApplication(this IServiceCollection servicos)
     {
         ArgumentNullException.ThrowIfNull(servicos);
+
+        servicos.AddScoped<AutenticarUsuario>();
+        servicos.AddScoped<RenovarSessao>();
+        servicos.AddScoped<EncerrarSessao>();
+        servicos.AddScoped<ValidarSessaoAtiva>();
+        servicos.AddScoped<GestaoDeUsuarios>();
+        servicos.AddScoped<ConsultaDeOrganizacao>();
+
         return servicos;
     }
 }

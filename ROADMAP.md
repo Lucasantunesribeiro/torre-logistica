@@ -121,7 +121,7 @@ Não antecipar:
 | Fase | Nome | Status |
 |---:|---|:---:|
 | 0 | Fundação Técnica | ✅ |
-| 1 | Identidade e Multi-tenancy | ⬜ |
+| 1 | Identidade e Multi-tenancy | ✅ |
 | 2 | Frota e Estrutura Operacional | ⬜ |
 | 3 | Núcleo de Entregas | ⬜ |
 | 4 | Rotas e Paradas | ⬜ |
@@ -452,6 +452,146 @@ tenant A não consegue ler, alterar ou inferir recurso do tenant B
 - sessão;
 - headers;
 - logs de autenticação sem token.
+
+---
+
+## Fase 1 concluída — 2026-09-14
+
+### Entregáveis
+
+| Entregável | Situação | Onde |
+|---|:---:|---|
+| Organização, Usuário, Sessão, Perfil | ✅ | `src/TorreLogistica.Domain/Identidade/` |
+| Convite | não implementado, por decisão | ver "Decisões" abaixo |
+| Perfis Administrador, Supervisor, Operador, Motorista | ✅ | `Perfil`, `CanalDeAcesso` |
+| Login e logout | ✅ | `/api/autenticacao/{login,sair}` e `/api/motorista/autenticacao/{login,sair}` |
+| Token de acesso curto | ✅ | JWT HS256, 15 min |
+| Refresh token rotativo | ✅ | opaco, hash SHA-256, cookie `HttpOnly; Secure; SameSite=Strict; Path` |
+| Reuse detection e revogação de família | ✅ | `PoliticaDeRenovacao` + trava de linha na sessão |
+| Autorização no backend | ✅ | políticas por perfil, fallback exigindo sessão |
+| Tenant resolvido pela identidade | ✅ | `ContextoDoUsuarioHttp` + filtro global que falha fechado |
+| Cross-tenant → 404 | ✅ | idêntico ao de identificador inexistente |
+| Motorista com autoridade separada | ✅ | esquema e audiência próprios; token não autentica no console |
+| Tela de login do console | ✅ | `apps/operacao` — sessão em memória, renovação serializada, rota protegida |
+
+### Invariantes, um por um
+
+| Invariante | Resultado | Evidência |
+|---|:---:|---|
+| `OrganizacaoId` de payload nunca é autoridade | ✅ | `OrganizacaoInformadaNoCorpoEhRecusada`: 400 e nada criado |
+| Usuário não troca de tenant por parâmetro | ✅ | nenhuma rota recebe organização; `ContaDeBNaoAutenticaUsandoOIdentificadorDeA` |
+| Motorista não herda permissões de Operador | ✅ | matriz: 401 em toda rota do console; `ContaDeMotoristaNaoViraContaDoConsole` (422) |
+| Refresh token reutilizado revoga a família | ✅ | `ReusoDeTokenRevogaAFamiliaInteiraERegistraAuditoria`; `RepeticaoDentroDaJanelaEhAceitaMasSucessorDescartadoDenunciaReuso` |
+| Recurso de outro tenant não vaza existência | ✅ | 404 comparado campo a campo com identificador inexistente; e-mail de B cadastra em A sem conflito |
+
+### Critério de aceite
+
+> tenant A não consegue ler, alterar ou inferir recurso do tenant B
+
+✅ `IsolamentoEntreTenantsTestes` (9 provas) contra PostgreSQL real: leitura, troca de perfil,
+desativação, listagem, mass assignment, inferência por conflito de e-mail, login cruzado e o
+filtro global direto no contexto — com tenant A enxerga só A, sem tenant enxerga zero.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| login válido/inválido | `AutenticacaoTestes` — inclusive 7 causas de falha indistinguíveis |
+| refresh e rotação | `RenovacaoTestes` |
+| reuse | `ReusoDeTokenTestes`, `RenovacaoTestes` |
+| logout | `RenovacaoTestes.LogoutEncerraASessaoNaHora` |
+| RBAC | `AutorizacaoTestes` — 40 casos perfil × rota + matriz contra o roteamento real |
+| isolamento entre tenants | `IsolamentoEntreTenantsTestes` |
+| motorista tentando rota administrativa | `AutorizacaoTestes` (401 em todas) |
+| operador tentando administração | `AutorizacaoTestes` (403) |
+| acesso cross-tenant | `IsolamentoEntreTenantsTestes` |
+
+Além do pedido: prazos com relógio controlado, bloqueio temporário, 10 renovações simultâneas,
+criações simultâneas com mesmo e-mail, rebaixamentos cruzados simultâneos de administradores,
+auditoria somente-inserção recusando `UPDATE`/`DELETE`/`TRUNCATE`, JWT adulterado, assinado com
+outra chave e com `alg: none`.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 121 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 19 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 128 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **317** | **✅** |
+
+Lint e verificação de tipos limpos nas três aplicações; os três builds verdes.
+
+**Validação contra a API real** (processo em Development, banco local, semeadura habilitada):
+19/19 verificações — atributos do cookie, RBAC, 404 cross-tenant idêntico ao inexistente,
+motorista recusado no console e aceito na PWA, renovação, renovação sem `Origin` (403), logout
+imediato, preflight CORS com credenciais e login de origem desconhecida (403). A migration
+`Identidade` aplicou no banco local na subida.
+
+### Security Gate 1
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Cookies e tokens | ✅ | cookie `HttpOnly; Secure; SameSite=Strict; Path` por canal; token de renovação fora do corpo; só hash no banco; JWT com emissor, audiência, algoritmo e validade exigidos |
+| CSRF | ✅ | `SameSite=Strict` **e** `Origin` obrigatório e conhecido em login, renovação e logout |
+| Brute force e rate limiting | ✅ | 10 logins/min por endereço antes de qualquer hash (429 com `Retry-After`); bloqueio de 15 min após 5 falhas, contador atômico |
+| Enumeração de usuários | ✅ | resposta idêntica para 7 causas de falha; hash calculado em todos os caminhos; e-mail único por organização |
+| Sessão | ✅ | conferida a cada requisição; logout, desativação, troca de perfil e reuso valem na hora; prazo absoluto |
+| Headers | ✅ | suíte da Fase 0 verde; `Cache-Control: no-store` nas respostas com token |
+| Logs de autenticação sem token | ✅ | `LogsSemSegredoTestes`: nenhum token, cookie, senha ou e-mail no log — com prova de que o log foi capturado |
+| Segredos | ✅ | gitleaks: 0 achados em 661 KB; chave de assinatura obrigatória fora de Development/Testing |
+| Dependências | ✅ | `dotnet list package --vulnerable --include-transitive`: nada; `--deprecated`: nada; `npm audit`: 0 |
+
+### Defeitos encontrados e corrigidos durante a fase
+
+1. **Hash de senha corrompido derrubava o login com 500.** O `PasswordHasher` do Identity lança
+   `FormatException` com hash que não é Base64. Além da indisponibilidade, só contas **existentes**
+   dariam 500 — um oráculo de enumeração. Encontrado por teste de unidade; corrigido para recusar,
+   gastar o tempo de uma conferência real e registrar o problema em log sem o valor.
+
+### Comportamentos que mudaram e testes da Fase 0 ajustados
+
+A política de *fallback* passou a exigir sessão em todo endpoint sem anotação. Consequência
+deliberada: rota inexistente sem sessão responde 401, igual a rota existente — o mapa de rotas não
+é levantável sem login. Três testes da Fase 0 dependiam do comportamento antigo e foram ajustados,
+não afrouxados: as rotas de erro de teste passaram a ser chamadas autenticadas, a rota inexistente
+é verificada com e sem sessão, e a ausência do OpenAPI fora de desenvolvimento é verificada com
+sessão (404) para não confundir "não publicado" com "sem sessão".
+
+### Decisões
+
+ADRs [0008](./docs/adr/0008-application-usa-ef-core-sem-repositorio.md),
+[0009](./docs/adr/0009-autenticacao-e-sessao.md) e
+[0010](./docs/adr/0010-multi-tenancy-e-isolamento.md); matriz em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **E-mail único por organização**, com login por organização + e-mail + senha. Unicidade global
+  faria o conflito de cadastro revelar contas de outro tenant.
+- **Convite não implementado.** O roadmap o condiciona a "se necessário para demo/administração":
+  administrador cria conta com senha inicial, e a semeadura local cobre o desenvolvimento. A demo
+  pública terá seed próprio (Fases 23 e 24).
+- **Tela de login da PWA do motorista fica para a Fase 11**, onde o roadmap a lista. O endpoint
+  existe e é testado.
+- **Application passa a usar o núcleo do EF Core** — altera a tabela do ADR 0001, registrado no ADR 0008.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Endereço de origem atrás de proxy | o limite por endereço verá o do proxy até os cabeçalhos encaminhados serem tratados — Fase 25 |
+| `SameSite=Strict` pressupõe console e API no mesmo domínio registrável | verdadeiro em localhost; a topologia de produção é decidida na Fase 25 e, se divergir, o ADR 0009 precisa ser revisto |
+| Bloqueio temporário usável contra a vítima | quem sabe organização e e-mail consegue atrasar o login dela por 15 min; aceito na v1 e documentado no ADR 0009 |
+| Log de erro do EF Core em violação de unicidade tratada | o `409` de e-mail duplicado em corrida gera também um log `Error` do próprio EF Core; ruído de observabilidade a tratar na Fase 21 |
+| Uma consulta de sessão por requisição autenticada | desprezível na escala atual; medir na Fase 22 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: identidade, sessao e isolamento entre organizacoes (Fase 1)`
 
 ---
 
@@ -2164,9 +2304,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 0 — Fundação Técnica** (2026-09-09) |
-| Próxima fase | **Fase 1 — Identidade e Multi-tenancy** |
-| Testes verdes | 131 — 43 unidade, 16 arquitetura, 32 integração, 40 frontend |
+| Última fase concluída | **Fase 1 — Identidade e Multi-tenancy** (2026-09-14) |
+| Próxima fase | **Fase 2 — Frota e Estrutura Operacional** |
+| Testes verdes | 317 — 121 unidade, 19 arquitetura, 128 integração, 49 frontend |
 
 Comando para continuar:
 

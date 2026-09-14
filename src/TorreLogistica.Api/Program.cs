@@ -1,15 +1,20 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
+using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Correlacao;
 using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Seguranca;
+using TorreLogistica.Api.Usuarios;
 using TorreLogistica.Application;
 using TorreLogistica.Application.Abstracoes.Correlacao;
+using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Infrastructure;
+using TorreLogistica.Infrastructure.Desenvolvimento;
 
 // Logger provisório: garante que uma falha durante a própria construção do host
 // ainda apareça em algum lugar, em vez de morrer silenciosamente.
@@ -36,8 +41,25 @@ try
         kestrel.Limits.MaxRequestBodySize = 1 * 1024 * 1024;
     });
 
+    construtor.Services.ConfigureHttpJsonOptions(json =>
+    {
+        // Campo desconhecido no corpo é recusado, não ignorado. É a defesa estrutural
+        // contra mass assignment: mandar "organizacaoId" num cadastro vira 400, e não
+        // um campo silenciosamente descartado que alguém um dia passe a ler.
+        json.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+
+        // Enumeração só por nome. Aceitar número deixaria "perfil": 99 chegar ao domínio.
+        json.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
+    });
+
     construtor.Services.AddHttpContextAccessor();
     construtor.Services.AddSingleton<IContextoDeCorrelacao, ContextoDeCorrelacaoHttp>();
+
+    // Registrado antes da infraestrutura, que só completa com o contexto sem tenant o
+    // que ainda não estiver registrado.
+    construtor.Services.AddScoped<ContextoDoUsuarioHttp>();
+    construtor.Services.AddScoped<IContextoDoUsuario>(provedor => provedor.GetRequiredService<ContextoDoUsuarioHttp>());
+    construtor.Services.AddScoped<IContextoDoTenant>(provedor => provedor.GetRequiredService<ContextoDoUsuarioHttp>());
 
     construtor.Services.AddProblemDetails(opcoes =>
         opcoes.CustomizeProblemDetails = contexto =>
@@ -85,16 +107,21 @@ try
                     .WithOrigins([.. origens])
                     .WithHeaders("Content-Type", "Authorization", CorrelacaoHttp.NomeDoCabecalho)
                     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                    .WithExposedHeaders(CorrelacaoHttp.NomeDoCabecalho)
+                    .WithExposedHeaders(CorrelacaoHttp.NomeDoCabecalho, "Retry-After")
                     .AllowCredentials();
             }));
 
     construtor.Services.AddOpenApi();
 
+    construtor.Services.AdicionarAutenticacaoDaTorre(construtor.Configuration);
     construtor.Services.AdicionarCamadaDeApplication();
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
 
     var aplicacao = construtor.Build();
+
+    // Resolver agora faz chave ausente ou inválida derrubar a subida, e não a
+    // primeira requisição autenticada.
+    _ = aplicacao.Services.GetRequiredService<ChaveDeAssinaturaDeToken>();
 
     var migrationsAplicadas = await ConfiguracaoDeServicosDaInfrastructure
         .AplicarMigrationsSeConfiguradoAsync(aplicacao.Services)
@@ -103,6 +130,11 @@ try
     if (migrationsAplicadas)
     {
         Log.Information("Migrations pendentes aplicadas durante a inicialização da API.");
+    }
+
+    if (aplicacao.Environment.IsDevelopment())
+    {
+        await SemeadorDeDesenvolvimento.SemearSeHabilitadoAsync(aplicacao.Services).ConfigureAwait(false);
     }
 
     aplicacao.UseMiddleware<MiddlewareDeCabecalhosDeSeguranca>();
@@ -130,12 +162,20 @@ try
     aplicacao.UseExceptionHandler();
     aplicacao.UseStatusCodePages();
 
+    // Limite antes da autenticação: rajada contra o login é descartada antes de
+    // gastar hash de senha ou consulta de sessão.
+    aplicacao.UseRateLimiter();
+    aplicacao.UseAuthentication();
+    aplicacao.UseAuthorization();
+
     if (aplicacao.Environment.IsDevelopment())
     {
-        aplicacao.MapOpenApi();
+        aplicacao.MapOpenApi().AllowAnonymous();
     }
 
     aplicacao.MapearEndpointsDeSaude();
+    aplicacao.MapearEndpointsDeAutenticacao();
+    aplicacao.MapearEndpointsDeUsuarios();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
     return 0;
