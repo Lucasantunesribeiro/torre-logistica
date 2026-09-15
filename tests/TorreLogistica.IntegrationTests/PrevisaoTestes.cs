@@ -133,12 +133,12 @@ public sealed class PrevisaoTestes(ContainerPostgis banco) : TesteDePrevisao(ban
         var cenario = await CenarioAsync(http, inicio.AddMinutes(1), inicio.AddMinutes(30), 0);
         var entrega = cenario.Entregas[0];
         await EsperarPrevisaoAsync(http, cenario.Supervisor, entrega, previsao => previsao.GetProperty("disponivel").GetBoolean());
-        await using var console = await ConectarAoConsoleAsync(cenario.Supervisor);
+        await using var console = await ConectarAoConsoleAsync(cenario.Supervisor, EventosDeTempoReal.RiscoDaEntregaAlterado);
 
         // A 30 km, a chegada prevista cai 20 min depois do fim da janela.
         await EnviarPosicaoAsync(http, cenario, distanciaAoSulEmMetros: 30_000, sequencia: 1);
 
-        var aviso = await console.EsperarAsync(carga => carga.GetProperty("entregaId").GetGuid() == entrega);
+        var aviso = await console.EsperarAsync(EventosDeTempoReal.RiscoDaEntregaAlterado, carga => carga.GetProperty("entregaId").GetGuid() == entrega);
         Assert.Equal("Normal", aviso.GetProperty("situacaoAnterior").GetString());
         Assert.Equal("Risco", aviso.GetProperty("situacao").GetString());
         Assert.Equal("ChegadaPrevistaDepoisDaJanela", aviso.GetProperty("motivo").GetString());
@@ -147,7 +147,7 @@ public sealed class PrevisaoTestes(ContainerPostgis banco) : TesteDePrevisao(ban
 
         // A primeira previsão, Normal, não é mudança de risco.
         await Task.Delay(TimeSpan.FromSeconds(1), Cancelamento);
-        Assert.Equal(1, console.Contar(entrega));
+        Assert.Equal(1, console.Contar(EventosDeTempoReal.RiscoDaEntregaAlterado, carga => carga.GetProperty("entregaId").GetGuid() == entrega));
     }
 
     [Fact]
@@ -198,61 +198,6 @@ public sealed class PrevisaoTestes(ContainerPostgis banco) : TesteDePrevisao(ban
         Assert.Equal(paradasAntes, composicao.GetProperty("paradasAntes").GetInt32());
         Assert.Equal(tempoDasParadasAntes, composicao.GetProperty("tempoDasParadasAntesEmSegundos").GetInt32());
         Assert.Equal(300, composicao.GetProperty("tempoPorParadaEmSegundos").GetInt32());
-    }
-
-    private async Task<ClienteDoConsole> ConectarAoConsoleAsync(string token)
-    {
-        var conexao = new HubConnectionBuilder()
-            .WithUrl(new Uri(Fabrica.Server.BaseAddress, HubDaOperacao.Caminho), opcoes =>
-            {
-                opcoes.Transports = HttpTransportType.WebSockets;
-                opcoes.SkipNegotiation = true;
-                opcoes.WebSocketFactory = async (contexto, cancelamento) =>
-                {
-                    var fabricaDeSocket = Fabrica.Server.CreateWebSocketClient();
-                    fabricaDeSocket.ConfigureRequest = requisicao => requisicao.Headers.Authorization = $"Bearer {token}";
-                    return await fabricaDeSocket.ConnectAsync(contexto.Uri, cancelamento);
-                };
-            })
-            .AddJsonProtocol(json => json.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
-            .Build();
-
-        var cliente = new ClienteDoConsole(conexao);
-        await conexao.StartAsync(Cancelamento);
-        return cliente;
-    }
-
-    private sealed class ClienteDoConsole : IAsyncDisposable
-    {
-        private readonly ConcurrentQueue<JsonElement> _avisos = new();
-
-        public ClienteDoConsole(HubConnection conexao)
-        {
-            Conexao = conexao;
-            conexao.On<JsonElement>(EventosDeTempoReal.RiscoDaEntregaAlterado, carga => _avisos.Enqueue(carga.Clone()));
-        }
-
-        private HubConnection Conexao { get; }
-
-        public async Task<JsonElement> EsperarAsync(Func<JsonElement, bool> filtro)
-        {
-            var relogio = Stopwatch.StartNew();
-            while (relogio.Elapsed < EsperaDoProcessamento)
-            {
-                if (_avisos.FirstOrDefault(filtro) is { ValueKind: JsonValueKind.Object } aviso)
-                {
-                    return aviso;
-                }
-
-                await Task.Delay(50, Cancelamento);
-            }
-
-            throw new TimeoutException($"O aviso {EventosDeTempoReal.RiscoDaEntregaAlterado} não chegou.");
-        }
-
-        public int Contar(Guid entrega) => _avisos.Count(carga => carga.GetProperty("entregaId").GetGuid() == entrega);
-
-        public ValueTask DisposeAsync() => Conexao.DisposeAsync();
     }
 }
 
@@ -394,7 +339,13 @@ public sealed class SemProvedorDeRotasTestes(ContainerPostgis banco) : TesteDePr
     }
 }
 
-/// <summary>Base dos testes de previsão: relógio parado, parâmetros exatos e cenário com rota em andamento.</summary>
+/// <summary>Uma entrega do cenário: destino ao norte da base, a esta distância, com esta janela.</summary>
+public sealed record DestinoDeTeste(double DistanciaAoNorteEmMetros, DateTimeOffset JanelaDe, DateTimeOffset JanelaAte);
+
+/// <summary>
+/// Base dos testes de previsão e alertas: relógio parado, parâmetros exatos, cenário com rota em andamento e
+/// console de tempo real.
+/// </summary>
 public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegracao(banco)
 {
     /// <summary>Espera por recálculo disparado por evento.</summary>
@@ -429,11 +380,13 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
         ["Torre:Previsao:IntervaloDeReavaliacao"] = "00:01:00",
     };
 
-    /// <summary>Organização, supervisor, motorista autenticado e rota iniciada com as entregas em ordem.</summary>
+    /// <summary>Organização, supervisor, operador, motorista autenticado e rota iniciada com as entregas em ordem.</summary>
     protected sealed record CenarioDePrevisao(
         OrganizacaoDeTeste Organizacao,
         string Supervisor,
+        string Operador,
         string TokenDoMotorista,
+        Guid Motorista,
         Guid Rota,
         IReadOnlyList<Guid> Entregas);
 
@@ -445,24 +398,29 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
     protected static DateTimeOffset Truncado(DateTimeOffset instante) =>
         new(instante.UtcTicks - (instante.UtcTicks % TimeSpan.TicksPerSecond), TimeSpan.Zero);
 
-    /// <summary>
-    /// Cria o cenário. Cada entrega tem destino ao norte da base, na distância informada; a rota as visita
-    /// nessa ordem e é iniciada pelo motorista.
-    /// </summary>
-    protected async Task<CenarioDePrevisao> CenarioAsync(
+    /// <summary>Cenário com a mesma janela para todas as entregas.</summary>
+    protected Task<CenarioDePrevisao> CenarioAsync(
         HttpClient http,
         DateTimeOffset janelaDe,
         DateTimeOffset janelaAte,
-        params double[] distanciasDosDestinosAoNorte)
+        params double[] distanciasDosDestinosAoNorte) =>
+        CenarioAsync(http, [.. distanciasDosDestinosAoNorte.Select(distancia => new DestinoDeTeste(distancia, janelaDe, janelaAte))]);
+
+    /// <summary>
+    /// Cria o cenário. Cada entrega tem destino ao norte da base; a rota as visita nessa ordem e é iniciada
+    /// pelo motorista.
+    /// </summary>
+    protected async Task<CenarioDePrevisao> CenarioAsync(HttpClient http, IReadOnlyList<DestinoDeTeste> destinos)
     {
-        var organizacao = await Cenario.CriarOrganizacaoAsync(Perfil.Supervisor, Perfil.Motorista);
+        var organizacao = await Cenario.CriarOrganizacaoAsync(Perfil.Supervisor, Perfil.Operador, Perfil.Motorista);
         var supervisor = (await EntrarAsync(http, organizacao.Com(Perfil.Supervisor))).TokenDeAcesso;
+        var operador = (await EntrarAsync(http, organizacao.Com(Perfil.Operador))).TokenDeAcesso;
         var clienteId = await CriarAsync(http, supervisor, "/api/clientes", RoteirosDeCadastro.Obter("cliente").Corpo());
 
         var entregas = new List<Guid>();
-        foreach (var (distancia, indice) in distanciasDosDestinosAoNorte.Select((distancia, indice) => (distancia, indice)))
+        foreach (var (destino, indice) in destinos.Select((destino, indice) => (destino, indice)))
         {
-            var (latitude, longitude) = await ProjetarAsync(distancia, azimute: 0);
+            var (latitude, longitude) = await ProjetarAsync(destino.DistanciaAoNorteEmMetros, azimute: 0);
             var destinatarioId = await CriarAsync(http, supervisor, "/api/destinatarios", new
             {
                 nome = $"Destinatária {indice + 1}",
@@ -471,7 +429,7 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
                 longitude,
             });
 
-            entregas.Add(await CriarAsync(http, supervisor, "/api/entregas", RoteirosDeEntrega.Corpo(clienteId, destinatarioId, janelaDe, janelaAte)));
+            entregas.Add(await CriarAsync(http, supervisor, "/api/entregas", RoteirosDeEntrega.Corpo(clienteId, destinatarioId, destino.JanelaDe, destino.JanelaAte)));
         }
 
         var motorista = await CriarAsync(http, supervisor, "/api/motoristas", RoteirosDeCadastro.Obter("motorista").Corpo());
@@ -490,16 +448,20 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
         await OkAsync(http, HttpMethod.Post, $"/api/rotas/{rota}/planejamento", supervisor);
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/rotas/{rota}/inicio", tokenDoMotorista);
 
-        return new CenarioDePrevisao(organizacao, supervisor, tokenDoMotorista, rota, entregas);
+        return new CenarioDePrevisao(organizacao, supervisor, operador, tokenDoMotorista, motorista, rota, entregas);
     }
 
-    /// <summary>Envia uma posição do motorista ao sul da base, capturada há 5 segundos.</summary>
+    /// <summary>
+    /// Envia uma posição do motorista ao sul da base, capturada há 5 segundos. Entra de novo a cada envio: o
+    /// teste avança o relógio além dos 15 minutos do token de acesso.
+    /// </summary>
     protected async Task EnviarPosicaoAsync(HttpClient http, CenarioDePrevisao cenario, double distanciaAoSulEmMetros, long sequencia)
     {
         var (latitude, longitude) = await ProjetarAsync(distanciaAoSulEmMetros, azimute: Math.PI);
+        var tokenDoMotorista = (await EntrarAsync(http, cenario.Organizacao.Com(Perfil.Motorista))).TokenDeAcesso;
         var lote = await PosicoesTestes.EnviarAsync(
             http,
-            cenario.TokenDoMotorista,
+            tokenDoMotorista,
             PosicoesTestes.Posicao(sequencia, Tempo.GetUtcNow().AddSeconds(-5), latitude, longitude, precisao: 5));
 
         Assert.Equal(1, lote.GetProperty("aceitas").GetInt32());
@@ -510,10 +472,19 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
         OkAsync(http, HttpMethod.Get, $"/api/entregas/{entrega}/previsao", token);
 
     /// <summary>Consulta a previsão até a condição valer: o recálculo roda em segundo plano.</summary>
-    protected static async Task<JsonElement> EsperarPrevisaoAsync(
+    protected static Task<JsonElement> EsperarPrevisaoAsync(
         HttpClient http,
         string token,
         Guid entrega,
+        Func<JsonElement, bool> condicao,
+        TimeSpan? espera = null) =>
+        EsperarAsync(http, token, $"/api/entregas/{entrega}/previsao", condicao, espera);
+
+    /// <summary>Consulta a URL até a condição valer.</summary>
+    protected static async Task<JsonElement> EsperarAsync(
+        HttpClient http,
+        string token,
+        string url,
         Func<JsonElement, bool> condicao,
         TimeSpan? espera = null)
     {
@@ -523,7 +494,7 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
 
         do
         {
-            ultima = await PrevisaoAsync(http, token, entrega);
+            ultima = await OkAsync(http, HttpMethod.Get, url, token);
             if (condicao(ultima))
             {
                 return ultima;
@@ -533,7 +504,7 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
         }
         while (relogio.Elapsed < limite);
 
-        throw new TimeoutException($"A previsão da entrega não chegou ao estado esperado em {limite.TotalSeconds} s. Última: {ultima}");
+        throw new TimeoutException($"{url} não chegou ao estado esperado em {limite.TotalSeconds} s. Última resposta: {ultima}");
     }
 
     /// <summary>JSON de uma resposta 200.</summary>
@@ -553,6 +524,29 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
             .Where(campo => campo.Name is not ("traceId" or "idDeCorrelacao" or "instance"))
             .Select(campo => $"{campo.Name}={campo.Value.GetRawText()}");
         return $"{(int)resposta.StatusCode}|{string.Join("|", campos)}";
+    }
+
+    /// <summary>Conecta ao hub do console por WebSocket e guarda os avisos pedidos.</summary>
+    protected async Task<ClienteDoConsole> ConectarAoConsoleAsync(string token, params string[] eventos)
+    {
+        var conexao = new HubConnectionBuilder()
+            .WithUrl(new Uri(Fabrica.Server.BaseAddress, HubDaOperacao.Caminho), opcoes =>
+            {
+                opcoes.Transports = HttpTransportType.WebSockets;
+                opcoes.SkipNegotiation = true;
+                opcoes.WebSocketFactory = async (contexto, cancelamento) =>
+                {
+                    var fabricaDeSocket = Fabrica.Server.CreateWebSocketClient();
+                    fabricaDeSocket.ConfigureRequest = requisicao => requisicao.Headers.Authorization = $"Bearer {token}";
+                    return await fabricaDeSocket.ConnectAsync(contexto.Uri, cancelamento);
+                };
+            })
+            .AddJsonProtocol(json => json.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+            .Build();
+
+        var cliente = new ClienteDoConsole(conexao, eventos);
+        await conexao.StartAsync(Cancelamento);
+        return cliente;
     }
 
     private static async Task<Guid> CriarAsync(HttpClient http, string token, string url, object corpo)
@@ -578,5 +572,45 @@ public abstract class TesteDePrevisao(ContainerPostgis banco) : TesteDeIntegraca
 
         var partes = ponto!.Split(';');
         return (double.Parse(partes[0], CultureInfo.InvariantCulture), double.Parse(partes[1], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Cliente do console que guarda os avisos recebidos.</summary>
+    protected sealed class ClienteDoConsole : IAsyncDisposable
+    {
+        private readonly ConcurrentQueue<(string Evento, JsonElement Carga)> _avisos = new();
+        private readonly HubConnection _conexao;
+
+        public ClienteDoConsole(HubConnection conexao, IEnumerable<string> eventos)
+        {
+            _conexao = conexao;
+            foreach (var evento in eventos)
+            {
+                conexao.On<JsonElement>(evento, carga => _avisos.Enqueue((evento, carga.Clone())));
+            }
+        }
+
+        public async Task<JsonElement> EsperarAsync(string evento, Func<JsonElement, bool> filtro)
+        {
+            var relogio = Stopwatch.StartNew();
+            while (relogio.Elapsed < EsperaDoProcessamento)
+            {
+                foreach (var (nome, carga) in _avisos)
+                {
+                    if (nome == evento && filtro(carga))
+                    {
+                        return carga;
+                    }
+                }
+
+                await Task.Delay(50, Cancelamento);
+            }
+
+            throw new TimeoutException($"O aviso {evento} não chegou.");
+        }
+
+        public int Contar(string evento, Func<JsonElement, bool> filtro) =>
+            _avisos.Count(aviso => aviso.Evento == evento && filtro(aviso.Carga));
+
+        public ValueTask DisposeAsync() => _conexao.DisposeAsync();
     }
 }

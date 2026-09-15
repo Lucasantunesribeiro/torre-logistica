@@ -10,6 +10,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.Roteamento;
+using TorreLogistica.Application.Alertas;
 using TorreLogistica.Application.Previsao;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Domain.Comum;
@@ -202,6 +203,10 @@ public sealed class ProcessadorDePrevisoes(
         }
 
         await recalculo.RecalcularRotaAsync(rotaId, parada).ConfigureAwait(false);
+
+        // Alertas depois da previsão: risco e atraso são lidos da previsão que acabou de ser confirmada.
+        var monitoramento = ActivatorUtilities.CreateInstance<MonitoramentoOperacional>(servicos, (IContextoDePersistencia)contexto);
+        await monitoramento.AvaliarRotaAsync(rotaId, parada).ConfigureAwait(false);
     }
 
     private bool LiberarRecalculoPorPosicao(Guid rotaId)
@@ -286,6 +291,24 @@ public static class ConfiguracaoDePrevisao
         servicos.AddSingleton<FilaDeRecalculoDePrevisoes>();
         servicos.AddSingleton<ISolicitacoesDeRecalculoDePrevisao>(provedor => provedor.GetRequiredService<FilaDeRecalculoDePrevisoes>());
         servicos.AddHostedService<ProcessadorDePrevisoes>();
+
+        return servicos;
+    }
+
+    /// <summary>
+    /// Registra os limites do motor de alertas. As regras rodam no mesmo processador, logo depois da previsão
+    /// de cada rota.
+    /// </summary>
+    public static IServiceCollection AdicionarAlertasOperacionais(this IServiceCollection servicos, IConfiguration configuracao)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+        ArgumentNullException.ThrowIfNull(configuracao);
+
+        servicos
+            .AddOptions<OpcoesDeAlertas>()
+            .Bind(configuracao.GetSection(OpcoesDeAlertas.Secao))
+            .ValidateOnStart();
+        servicos.AddSingleton<IValidateOptions<OpcoesDeAlertas>, ValidacaoDeOpcoesDeAlertas>();
 
         return servicos;
     }

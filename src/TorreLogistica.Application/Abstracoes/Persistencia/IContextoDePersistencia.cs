@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
 using TorreLogistica.Domain.Comum;
@@ -104,6 +105,23 @@ public interface IContextoDePersistencia
 
     /// <summary>Histórico de previsões, filtrado pelo tenant. Somente-inserção.</summary>
     DbSet<RegistroDePrevisao> RegistrosDePrevisao { get; }
+
+    /// <summary>Alertas operacionais, filtrados pelo tenant.</summary>
+    DbSet<AlertaOperacional> AlertasOperacionais { get; }
+
+    /// <summary>Ciclo de vida dos alertas, filtrado pelo tenant. Somente-inserção.</summary>
+    DbSet<EventoDoAlerta> EventosDeAlerta { get; }
+
+    /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
+    Guid? OrganizacaoDoTenant { get; }
+
+    /// <summary>
+    /// Quanto tempo o motorista está no mesmo lugar: a sequência mais recente de posições confiáveis, desde
+    /// <paramref name="desde"/>, a no máximo <paramref name="raioEmMetros"/> da posição atual — pelo PostGIS
+    /// (<c>ST_DWithin</c> sobre <c>geography</c>).
+    /// </summary>
+    /// <returns>A permanência, ou <see langword="null"/> sem posição atual.</returns>
+    Task<PermanenciaNoLocal?> AvaliarPermanenciaAsync(Guid motoristaId, DateTimeOffset desde, double raioEmMetros, CancellationToken cancelamento);
 
     /// <summary>
     /// Distância geodésica entre cada par de pontos consecutivos, em metros — calculada pelo PostGIS

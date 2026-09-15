@@ -1,3 +1,4 @@
+using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Previsao;
 
@@ -41,6 +42,29 @@ public sealed record RiscoDaEntregaAlterado(
     MotivoDaSituacao Motivo,
     DateTimeOffset? ChegadaPrevistaEm,
     int? FolgaEmSegundos,
+    int Sequencia,
+    DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
+
+/// <summary>Um alerta foi aberto ou reaberto (<c>AlertCreated</c>).</summary>
+/// <remarks>Sem evidência: a descrição e a evidência vêm da API, com a autorização de quem consulta.</remarks>
+public sealed record AlertaCriado(
+    Guid OrganizacaoId,
+    Guid AlertaId,
+    TipoDeAlerta Tipo,
+    SeveridadeDoAlerta Severidade,
+    Guid? EntregaId,
+    Guid? MotoristaId,
+    Guid? RotaId,
+    bool Reaberto,
+    int Sequencia,
+    DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
+
+/// <summary>Um alerta foi resolvido (<c>AlertResolved</c>).</summary>
+public sealed record AlertaResolvido(
+    Guid OrganizacaoId,
+    Guid AlertaId,
+    TipoDeAlerta Tipo,
+    FormaDeResolucao Forma,
     int Sequencia,
     DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
 

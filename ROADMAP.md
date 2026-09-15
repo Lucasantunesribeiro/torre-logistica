@@ -2089,6 +2089,139 @@ Operador consegue identificar uma entrega problemática sem analisar manualmente
 
 ---
 
+## Fase 10 concluída — 2026-09-15
+
+### Tipos iniciais
+
+| Tipo | Situação | Regra | Severidade |
+|---|:---:|---|:---:|
+| `RiscoDeAtraso` | ✅ | previsão ativa em Risco (Fase 9) | Média |
+| `EntregaAtrasada` | ✅ | previsão ativa Atrasada | Alta |
+| `MotoristaOffline` | ✅ | rota em andamento, com pendência, sem posição há ≥ 10 min (desde a saída, se nunca enviou) | Alta |
+| `ParadoTempoExcessivo` | ✅ | permanência num raio de 100 m ≥ 15 min, calculada no PostGIS sobre o histórico; ≥ 30 min atendendo parada; suprimido com motorista offline | Média |
+| `TentativasExcedidas` | ✅ | tentativas sem sucesso ≥ 2 e entrega nem entregue nem cancelada | Alta |
+| `OcorrenciaCritica` | tipo definido | tipo, severidade (Crítica), chave, ciclo de vida, API e aviso prontos; **a ocorrência que o produz nasce na Fase 13**, que tem o teste "ocorrência crítica" | Crítica |
+| `DesvioRelevante` | não entra | exige traçado planejado, que o provedor simulado não produz; sem ele a regra alertaria atalho legítimo — não é confiável nem demonstrável, a condição do ROADMAP | — |
+
+### Alerta
+
+| Pedido | Resultado | Evidência |
+|---|:---:|---|
+| tipo, severidade, entrega, motorista | ✅ | `alertas_operacionais`, com rota; alvo coerente com o tipo por check constraint |
+| evidência | ✅ | JSON com números, instantes e limites (evidência de abertura e última evidência); sem coordenada |
+| aberto em, resolvido em, estado | ✅ | mais forma de resolução, quem resolveu, observação, reaberturas e última constatação |
+| deduplicação | ✅ | chave tipo + alvo; índice único parcial `(organizacao_id, chave) WHERE estado = 'Aberto'` |
+| ciclo de vida | ✅ | resolve sozinho; reabre em até 30 min; depois, alerta novo; resolução do operador não é desfeita enquanto a condição persiste; `eventos_de_alerta` somente-inserção por trigger |
+
+### Critério de aceite
+
+> Operador consegue identificar uma entrega problemática sem analisar manualmente todos os GPS.
+
+✅ `OperadorIdentificaEntregaProblematicaSemAnalisarOsGps` — numa rota com duas entregas e o motorista a
+20 km, o operador chama `GET /api/alertas?estado=Aberto` e recebe **um** alerta: `RiscoDeAtraso`, da
+entrega problemática, com o código dela, folga de −200 s na evidência, nenhuma coordenada e a descrição
+exata:
+
+> Entrega em risco de atraso. Risco porque a chegada prevista fica 3 min depois do fim da janela
+> prometida. A chegada prevista soma 33 min de deslocamento (20,0 km, pelo provedor de rotas simulado) e
+> nenhuma parada antes desta.
+
+A outra entrega não tem alerta, e o console conectado recebe `AlertCreated`.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| cria | critério de aceite; `MotoristaParadoAbreAlertaPelaPermanenciaCalculadaNoPostgis`; `TentativasExcedidasAbreEResolveQuandoAEntregaEhCancelada` |
+| não duplica | `MesmaCondicaoNaoDuplicaAlertaACadaAvaliacao` — três avaliações, um alerta e um evento; `CicloDeVidaDoAlertaTestes` — 47 constatações sem evento novo (R11) |
+| resolve | automática quando a posição volta, quando o motorista anda e quando a entrega é cancelada; pelo operador em `OperadorResolveEAlertaNaoReabreEnquantoACondicaoPersiste` |
+| reabre quando regra definir | `MotoristaOfflineAbreResolveReabreEViraAlertaNovoDepoisDaJanela` — Aberto, Resolvido, Reaberto, Resolvido; depois da janela, alerta novo |
+| tenant isolation | `AlertaDeOutraOrganizacaoNaoApareceNemPodeSerResolvido` — ausente da lista, 404 idêntico a inexistente, resolução recusada |
+
+Além do pedido: `CicloDeVidaDosAlertasEhSomenteInsercao`, `RegrasDeAlertaTestes` (bordas de cada regra),
+`DescricaoDoAlertaTestes` e as três rotas na matriz de autorização.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 527 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 381 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **979** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 10
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autorização | ✅ | leitura `operacao:leitura`; resolução `entregas:operacao`; motorista e anônimo 401; sem criação ou alteração de alerta pela API |
+| Isolamento entre tenants | ✅ | filtro global nas duas tabelas; avaliação no tenant da rota; permanência no PostGIS com organização explícita; teste com duas organizações |
+| Leitura sem tenant | ✅ | só identificadores de rota na reavaliação periódica, com `IgnoreQueryFilters()` explícito |
+| Dado pessoal | ✅ | evidência, descrição e aviso sem coordenada, endereço ou dado do destinatário; nome do motorista só na API autorizada |
+| Integridade | ✅ | ciclo de vida somente-inserção por trigger; um aberto por chave no banco; versão da linha; resolução concorrente responde 409 |
+| Entrada | ✅ | observação até 280 caracteres, normalizada; filtros por nome exato de enumeração; paginação limitada |
+| Configuração | ✅ | limites validados na subida |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados |
+| Dependências | ✅ | nenhum pacote novo; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada |
+
+### Observabilidade
+
+Medidor `TorreLogistica.Alertas`: `alerts.opened` e `alerts.reopened` por tipo, `alerts.resolved` por tipo e
+forma. Log informativo em abertura e reabertura, sem evidência.
+
+### Defeitos e ajustes durante a fase
+
+1. **Logs perdidos entre APIs de teste em sequência (defeito anterior, exposto agora).** A primeira execução
+   completa falhou em `EntregasTestes.TimelineAuditoriaELogNaoGuardamDadoPessoal`, que passa isolado: o
+   log da criação da entrega não estava no sink. Causa confirmada na documentação do
+   `Serilog.Extensions.Hosting`: sem `preserveStaticLogger`, `UseSerilog` troca o `Log.Logger` global e os
+   `ILogger` do host escrevem nele; o `Log.CloseAndFlushAsync()` do `finally` de uma API que termina fechava
+   o logger global que a API seguinte já usava. O desligamento ficou mais longo com o processador em segundo
+   plano, e a corrida passou a acontecer. Corrigido: cada host usa o próprio logger
+   (`preserveStaticLogger: true`), e o log de subida sai por `aplicacao.Logger`. Em produção havia um só
+   host, então o defeito não aparecia.
+2. **Dois testes com token vencido.** Os testes de offline e de parado avançam o relógio além dos 15 minutos
+   do token de acesso; o envio de posição recebeu 401. O defeito era do teste: o auxiliar agora entra de novo
+   como motorista a cada envio.
+3. **Ordem de importações** em `ProcessamentoDePrevisoes.cs`, apontada pela verificação de formatação.
+
+### Decisões
+
+[ADR 0019](./docs/adr/0019-motor-de-alertas-operacionais.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Regras puras no domínio**, uma constatação por tipo e alvo, valendo ou não.
+- **Uma chave por problema** e índice único parcial no banco.
+- **Janela de reabertura** de 30 min: oscilação reabre; episódio novo é alerta novo.
+- **Decisão do operador não é desfeita** enquanto a condição persiste.
+- **Motor encadeado à previsão**, no mesmo processador, com a reavaliação periódica percebendo a ausência de
+  evento (offline) e a saída da entrega da operação.
+- **`AlertResolved` acrescentado** aos nomes do ADR 0017, para o console tirar o alerta da tela.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Produtor de `OcorrenciaCritica` | Fase 13 |
+| `DesvioRelevante` | depende de traçado planejado por provedor de rotas real |
+| Notificação fora do console (e-mail, push) | fora desta fase |
+| Limites por organização | decisão de produto inexistente; limites gravados na evidência |
+| Mais de uma instância | avaliação repetida entre instâncias (resultado correto) e aviso sem backplane — Fase 25 |
+| `Workers` com `AddSerilog` sem `preserveStaticLogger` | processo único, sem o problema; revisar quando hospedar jobs |
+| Console exibindo alertas | Fase 18 |
+| CI nunca executada | exige `git push`, não autorizado |
+
+### Commit
+
+`feat: motor de alertas operacionais com deduplicacao e ciclo de vida (Fase 10)`
+
+---
+
 # FASE 11 — PWA DO MOTORISTA
 
 ## Objetivo
@@ -3289,9 +3422,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 9 — ETA e SLA** (2026-09-15) |
-| Próxima fase | **Fase 10 — Motor de Alertas Operacionais** |
-| Testes verdes | 936 — 504 unidade, 22 arquitetura, 361 integração, 49 frontend |
+| Última fase concluída | **Fase 10 — Motor de Alertas Operacionais** (2026-09-15) |
+| Próxima fase | **Fase 11 — PWA do Motorista** |
+| Testes verdes | 979 — 527 unidade, 22 arquitetura, 381 integração, 49 frontend |
 
 Comando para continuar:
 

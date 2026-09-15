@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
+using TorreLogistica.Api.Alertas;
 using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Cadastros;
 using TorreLogistica.Api.Correlacao;
@@ -34,10 +35,15 @@ try
 {
     var construtor = WebApplication.CreateBuilder(args);
 
-    construtor.Host.UseSerilog((contexto, provedor, configuracao) => configuracao
-        .ReadFrom.Configuration(contexto.Configuration)
-        .ReadFrom.Services(provedor)
-        .Enrich.FromLogContext());
+    // preserveStaticLogger: o host usa o próprio logger, e não o Log.Logger global. Sem isto, o
+    // CloseAndFlush do finally de um host que termina fecha o logger global que outro host do mesmo
+    // processo — como as APIs em sequência dos testes de integração — ainda está usando, e os logs dele somem.
+    construtor.Host.UseSerilog(
+        (contexto, provedor, configuracao) => configuracao
+            .ReadFrom.Configuration(contexto.Configuration)
+            .ReadFrom.Services(provedor)
+            .Enrich.FromLogContext(),
+        preserveStaticLogger: true);
 
     construtor.WebHost.ConfigureKestrel(kestrel =>
     {
@@ -127,6 +133,7 @@ try
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
     construtor.Services.AdicionarTempoRealDaOperacao();
     construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
+    construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
 
     var aplicacao = construtor.Build();
 
@@ -140,7 +147,7 @@ try
 
     if (migrationsAplicadas)
     {
-        Log.Information("Migrations pendentes aplicadas durante a inicialização da API.");
+        aplicacao.Logger.LogInformation("Migrations pendentes aplicadas durante a inicialização da API.");
     }
 
     if (aplicacao.Environment.IsDevelopment())
@@ -195,6 +202,7 @@ try
     aplicacao.MapearEndpointsDeExecucao();
     aplicacao.MapearEndpointsDeRastreamento();
     aplicacao.MapearEndpointsDePrevisao();
+    aplicacao.MapearEndpointsDeAlertas();
     aplicacao.MapearTempoRealDaOperacao();
 
     await aplicacao.RunAsync().ConfigureAwait(false);

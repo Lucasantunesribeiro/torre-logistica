@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 9. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 10. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -53,6 +53,8 @@
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/entregas/{id}/previsao` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `GET /api/alertas` e `GET /api/alertas/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `POST /api/alertas/{id}/resolucao` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
@@ -102,6 +104,10 @@ inverso.
 | Previsão e situação do SLA não são informadas por ninguém: não há rota de escrita | calculadas pelo sistema a partir da execução; [ADR 0018](../adr/0018-previsao-de-chegada-e-sla.md) |
 | Recálculo em segundo plano roda no tenant da organização do pedido, nunca sem tenant | contexto de persistência criado com o tenant do pedido; a reavaliação periódica lê sem tenant só identificadores |
 | Explicação da previsão não leva coordenada nem dado do destinatário | só durações, distâncias e regras |
+| Alerta não é criado nem alterado pela API; o operador só consulta e resolve | o motor abre e resolve pelas regras; [ADR 0019](../adr/0019-motor-de-alertas-operacionais.md) |
+| Alerta de outra organização responde 404 idêntico a inexistente, inclusive na resolução | filtro global de tenant nas duas tabelas |
+| Evidência e aviso de alerta sem coordenada nem dado do destinatário | a localização exata fica no histórico de posições, só para gestão |
+| Resolução registra quem resolveu e a observação, em ciclo de vida somente-inserção | trigger no banco |
 
 ## Como adicionar um endpoint
 

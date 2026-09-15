@@ -18,8 +18,11 @@ public static class EventosDeTempoReal
     /// <summary>Situação do SLA de entrega mudou (ETA e SLA, Fase 9).</summary>
     public const string RiscoDaEntregaAlterado = "DeliveryRiskChanged";
 
-    /// <summary>Alerta criado — produzido a partir da Fase 10.</summary>
+    /// <summary>Alerta aberto ou reaberto (Fase 10).</summary>
     public const string AlertaCriado = "AlertCreated";
+
+    /// <summary>Alerta resolvido, pela regra ou pelo operador (Fase 10).</summary>
+    public const string AlertaResolvido = "AlertResolved";
 
     /// <summary>Ocorrência criada — produzida a partir da fase de ocorrências.</summary>
     public const string OcorrenciaCriada = "IncidentCreated";

@@ -38,6 +38,34 @@ public sealed record DadosDaExplicacao(
 /// </remarks>
 public static class ExplicacaoDaPrevisao
 {
+    /// <summary>Explicação da previsão atual — sem registro, portanto sem transição.</summary>
+    public static string DaPrevisaoAtual(PrevisaoDaEntrega previsao)
+    {
+        ArgumentNullException.ThrowIfNull(previsao);
+
+        return Montar(new DadosDaExplicacao(
+            null,
+            null,
+            previsao.Situacao,
+            previsao.MotivoDaSituacao,
+            previsao.ChegadaPrevistaEm,
+            previsao.MotivoSemChegadaPrevista,
+            previsao.JaNoDestino,
+            previsao.FolgaEmSegundos,
+            previsao.DeslocamentoEmSegundos,
+            previsao.DistanciaEmMetros,
+            previsao.ParadasAntes,
+            previsao.TempoDasParadasAntesEmSegundos,
+            previsao.Fonte,
+            previsao.Provedor,
+            previsao.MotivoDaContingencia,
+            previsao.LimiarDeAtencaoEmSegundos,
+            previsao.LimiarDeRiscoEmSegundos,
+            previsao.PosicaoCapturadaEm,
+            previsao.CalculadaEm,
+            null));
+    }
+
     /// <summary>Monta a explicação.</summary>
     public static string Montar(DadosDaExplicacao dados)
     {

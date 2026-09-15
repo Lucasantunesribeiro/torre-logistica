@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using TorreLogistica.Application.Alertas;
 using TorreLogistica.Application.Cadastros;
 using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Execucao;
@@ -56,6 +57,10 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<RecalculoDePrevisoes>();
         servicos.AddScoped<ConsultaDeRotasParaReavaliacao>();
         servicos.AddScoped<ConsultaDePrevisao>();
+
+        servicos.AddSingleton<MetricasDeAlertas>();
+        servicos.AddScoped<MonitoramentoOperacional>();
+        servicos.AddScoped<GestaoDeAlertas>();
 
         return servicos;
     }

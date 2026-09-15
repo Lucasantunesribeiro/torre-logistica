@@ -5,6 +5,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.TempoReal;
+using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
 using TorreLogistica.Domain.Comum;
@@ -123,6 +124,74 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<RegistroDePrevisao> RegistrosDePrevisao => Set<RegistroDePrevisao>();
+
+    /// <inheritdoc />
+    public DbSet<AlertaOperacional> AlertasOperacionais => Set<AlertaOperacional>();
+
+    /// <inheritdoc />
+    public DbSet<EventoDoAlerta> EventosDeAlerta => Set<EventoDoAlerta>();
+
+    /// <inheritdoc />
+    public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
+
+    /// <inheritdoc />
+    public async Task<PermanenciaNoLocal?> AvaliarPermanenciaAsync(
+        Guid motoristaId,
+        DateTimeOffset desde,
+        double raioEmMetros,
+        CancellationToken cancelamento)
+    {
+        // A permanência atual é a sequência de posições confiáveis, depois da última posição fora do raio, que
+        // ficam a no máximo o raio da posição atual. Consulta crua: a organização vai explícita na condição.
+        await using var comando = Database.GetDbConnection().CreateCommand();
+        comando.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+        comando.CommandText = """
+            WITH atual AS (
+                SELECT localizacao, capturada_em
+                FROM posicoes_atuais
+                WHERE motorista_id = @motorista AND organizacao_id = @organizacao
+            ),
+            historico AS (
+                SELECT posicoes.capturada_em, ST_DWithin(posicoes.localizacao, atual.localizacao, @raio) AS dentro
+                FROM posicoes, atual
+                WHERE posicoes.motorista_id = @motorista
+                  AND posicoes.organizacao_id = @organizacao
+                  AND posicoes.qualidade = 'Confiavel'
+                  AND posicoes.capturada_em >= @desde
+                  AND posicoes.capturada_em <= atual.capturada_em
+            ),
+            ultima_fora AS (
+                SELECT coalesce(max(capturada_em), '-infinity'::timestamptz) AS em FROM historico WHERE NOT dentro
+            )
+            SELECT atual.capturada_em, min(historico.capturada_em), count(historico.capturada_em)
+            FROM atual
+            CROSS JOIN ultima_fora
+            LEFT JOIN historico ON historico.dentro AND historico.capturada_em > ultima_fora.em
+            GROUP BY atual.capturada_em
+            """;
+        comando.Parameters.Add(new NpgsqlParameter("motorista", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = motoristaId });
+        comando.Parameters.Add(new NpgsqlParameter("organizacao", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = OrganizacaoIdDoFiltro });
+        comando.Parameters.Add(new NpgsqlParameter("raio", NpgsqlTypes.NpgsqlDbType.Double) { Value = raioEmMetros });
+        comando.Parameters.Add(new NpgsqlParameter("desde", NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = desde.ToUniversalTime() });
+
+        await Database.OpenConnectionAsync(cancelamento).ConfigureAwait(false);
+        try
+        {
+            await using var leitor = await comando.ExecuteReaderAsync(cancelamento).ConfigureAwait(false);
+            if (!await leitor.ReadAsync(cancelamento).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            var ultimaCaptura = leitor.GetFieldValue<DateTimeOffset>(0);
+            var inicio = leitor.IsDBNull(1) ? ultimaCaptura : leitor.GetFieldValue<DateTimeOffset>(1);
+            return new PermanenciaNoLocal(inicio, ultimaCaptura, (int)leitor.GetInt64(2));
+        }
+        finally
+        {
+            await Database.CloseConnectionAsync().ConfigureAwait(false);
+        }
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<DistanciaAoDestino>> CalcularDistanciasAosDestinosAsync(
@@ -289,6 +358,7 @@ public class TorreLogisticaDbContext(
     {
         var avisos = RecolherAvisosDeEntrega();
         avisos.AddRange(RecolherAvisosDeRisco());
+        avisos.AddRange(RecolherAvisosDeAlerta());
         var sessoesRevogadas = RecolherSessoesRevogadas();
         var recalculos = RecolherRecalculosPorEntrega();
 
@@ -342,6 +412,44 @@ public class TorreLogisticaDbContext(
                 registro.Sequencia,
                 registro.RegistradoEm)),
     ];
+
+    /// <summary>Abertura, reabertura e resolução de alertas.</summary>
+    private List<NotificacaoDaOperacao> RecolherAvisosDeAlerta()
+    {
+        var alertas = ChangeTracker.Entries<AlertaOperacional>().ToDictionary(entrada => entrada.Entity.Id, entrada => entrada.Entity);
+
+        return
+        [
+            .. ChangeTracker.Entries<EventoDoAlerta>()
+                .Where(entrada => entrada.State == EntityState.Added && alertas.ContainsKey(entrada.Entity.AlertaId))
+                .Select(entrada => entrada.Entity)
+                .OrderBy(evento => evento.AlertaId)
+                .ThenBy(evento => evento.Sequencia)
+                .Select(evento =>
+                {
+                    var alerta = alertas[evento.AlertaId];
+                    return evento.Tipo is TipoDeEventoDoAlerta.Aberto or TipoDeEventoDoAlerta.Reaberto
+                        ? (NotificacaoDaOperacao)new AlertaCriado(
+                            alerta.OrganizacaoId,
+                            alerta.Id,
+                            alerta.Tipo,
+                            alerta.Severidade,
+                            alerta.EntregaId,
+                            alerta.MotoristaId,
+                            alerta.RotaId,
+                            evento.Tipo == TipoDeEventoDoAlerta.Reaberto,
+                            evento.Sequencia,
+                            evento.OcorridoEm)
+                        : new AlertaResolvido(
+                            alerta.OrganizacaoId,
+                            alerta.Id,
+                            alerta.Tipo,
+                            evento.Tipo == TipoDeEventoDoAlerta.ResolvidoPeloOperador ? FormaDeResolucao.PeloOperador : FormaDeResolucao.Automatica,
+                            evento.Sequencia,
+                            evento.OcorridoEm);
+                }),
+        ];
+    }
 
     private List<Guid> RecolherSessoesRevogadas() =>
     [
@@ -653,6 +761,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(previsao => previsao.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<RegistroDePrevisao>()
             .HasQueryFilter(registro => registro.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<AlertaOperacional>()
+            .HasQueryFilter(alerta => alerta.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EventoDoAlerta>()
+            .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

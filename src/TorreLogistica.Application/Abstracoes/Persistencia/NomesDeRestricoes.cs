@@ -60,4 +60,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Uma previsão atual por entrega.</summary>
     public const string PrevisaoDaEntrega = "pk_previsoes_da_entrega";
+
+    /// <summary>Um alerta aberto por chave de deduplicação na organização.</summary>
+    public const string AlertaAbertoPorChave = "ux_alertas_operacionais_chave_aberto";
+
+    /// <summary>Posição do evento no ciclo de vida única por alerta.</summary>
+    public const string SequenciaDoEventoDoAlerta = "ux_eventos_de_alerta_alerta_id_sequencia";
 }

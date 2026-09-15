@@ -113,27 +113,7 @@ public sealed class ConsultaDePrevisao(IContextoDePersistencia contexto)
             return new PrevisaoResumo(false, false, null, null, null, null, null, null, null, null, null, historico);
         }
 
-        var explicacao = ExplicacaoDaPrevisao.Montar(new DadosDaExplicacao(
-            null,
-            null,
-            previsao.Situacao,
-            previsao.MotivoDaSituacao,
-            previsao.ChegadaPrevistaEm,
-            previsao.MotivoSemChegadaPrevista,
-            previsao.JaNoDestino,
-            previsao.FolgaEmSegundos,
-            previsao.DeslocamentoEmSegundos,
-            previsao.DistanciaEmMetros,
-            previsao.ParadasAntes,
-            previsao.TempoDasParadasAntesEmSegundos,
-            previsao.Fonte,
-            previsao.Provedor,
-            previsao.MotivoDaContingencia,
-            previsao.LimiarDeAtencaoEmSegundos,
-            previsao.LimiarDeRiscoEmSegundos,
-            previsao.PosicaoCapturadaEm,
-            previsao.CalculadaEm,
-            null));
+        var explicacao = ExplicacaoDaPrevisao.DaPrevisaoAtual(previsao);
 
         return new PrevisaoResumo(
             true,

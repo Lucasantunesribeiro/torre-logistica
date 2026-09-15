@@ -4,14 +4,14 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 9 — ETA e SLA concluída.**
+> **Estado: Fase 10 — Motor de Alertas Operacionais concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
-> no PostGIS, tempo real do console e, agora, a **previsão de chegada com SLA**: cada entrega em rota
-> tem chegada prevista composta de deslocamento, paradas anteriores e tempo por parada, situação
-> Normal, Atenção, Risco ou Atrasada pela folga até o fim da janela, e um histórico que explica em
-> texto por que ela mudou — mesmo quando o provedor de rotas falha. Alertas vêm na próxima fase. A
-> ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> no PostGIS, tempo real do console, previsão de chegada com SLA explicável e, agora, o **motor de
+> alertas**: risco de atraso, entrega atrasada, motorista offline, parado tempo demais e tentativas
+> excedidas viram uma lista priorizada com descrição e evidência — um alerta por problema, que se
+> resolve sozinho, reabre quando o problema volta e avisa o console em tempo real. A PWA do motorista
+> vem na próxima fase. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -82,9 +82,9 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 504 |
+| Unidade | 527 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 361 |
+| Integração (PostgreSQL + PostGIS real) | 381 |
 | Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -117,6 +117,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0016](./docs/adr/0016-geofence-de-destino.md) | Geofence de destino: avaliada na ingestão, distância no PostGIS, histerese e estado por entrega |
 | [0017](./docs/adr/0017-tempo-real-da-operacao.md) | Tempo real da operação: aviso só depois do commit, grupo pela sessão, conexão que cai com a sessão |
 | [0018](./docs/adr/0018-previsao-de-chegada-e-sla.md) | Previsão de chegada e SLA: cálculo explicável por rota, fora da requisição, contingência e histórico fotografado |
+| [0019](./docs/adr/0019-motor-de-alertas-operacionais.md) | Motor de alertas: regras tipadas, uma chave por problema e ciclo de vida com reabertura |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

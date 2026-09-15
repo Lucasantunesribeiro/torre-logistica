@@ -8,6 +8,7 @@ using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.Roteamento;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
+using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Previsao;
@@ -355,10 +356,22 @@ public sealed class ConsultaDeRotasParaReavaliacao(IContextoDePersistencia conte
             .ToListAsync(cancelamento)
             .ConfigureAwait(false);
 
+        // Alerta aberto também precisa de reavaliação: é assim que ele se resolve depois que a rota encerra.
+        var comAlertaAberto = await contexto.AlertasOperacionais
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(alerta => alerta.Estado == EstadoDoAlerta.Aberto && alerta.RotaId != null)
+            .Select(alerta => new { alerta.OrganizacaoId, RotaId = alerta.RotaId!.Value })
+            .Distinct()
+            .Take(Limite)
+            .ToListAsync(cancelamento)
+            .ConfigureAwait(false);
+
         return
         [
             .. emAndamento
                 .Concat(comPrevisaoAtiva)
+                .Concat(comAlertaAberto)
                 .Select(item => new RotaParaReavaliar(item.OrganizacaoId, item.RotaId))
                 .Distinct(),
         ];
