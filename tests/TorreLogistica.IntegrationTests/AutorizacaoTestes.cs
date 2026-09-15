@@ -207,6 +207,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/motoristas/{id:guid}/posicao-atual"] = "operacao:leitura",
             ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
             ["GET /api/entregas/{id:guid}/geofence"] = "operacao:leitura",
+            ["* /tempo-real/operacao"] = "console",
+            ["* /tempo-real/operacao/negotiate"] = "console",
         };
 
         var encontrado = new SortedDictionary<string, string>(StringComparer.Ordinal);

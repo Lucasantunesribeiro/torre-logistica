@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 7. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 8. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -52,6 +52,7 @@
 | `GET /api/motoristas/{id}/posicao-atual` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
 
@@ -93,6 +94,10 @@ inverso.
 | Limite de envio de posições por motorista, não por endereço | operadoras móveis compartilham IP (CGNAT) |
 | Geofence só avalia entregas da organização e do motorista responsável; destino de outra organização no mesmo ponto não é tocado | consulta PostGIS com organização explícita; [ADR 0016](../adr/0016-geofence-de-destino.md) |
 | Eventos de geofence guardam distância e raio, nunca a coordenada | a localização exata fica só no histórico de posições |
+| Conexão de tempo real entra só no grupo da organização da sessão; o hub não tem método para escolher grupo | [ADR 0017](../adr/0017-tempo-real-da-operacao.md) |
+| Token na query string autentica só o hub do console; em rota da API, não | o navegador não envia cabeçalho em WebSocket |
+| Sessão revogada derruba as conexões de tempo real dela; token vencido fecha a conexão | detectado no commit da revogação |
+| Rastreamento público não usa o canal interno | o hub exige sessão do console |
 
 ## Como adicionar um endpoint
 

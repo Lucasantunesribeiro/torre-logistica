@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Application.Abstracoes.TempoReal;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
 using TorreLogistica.Domain.Entregas;
@@ -30,7 +31,8 @@ namespace TorreLogistica.Infrastructure.Persistencia;
 /// </remarks>
 public class TorreLogisticaDbContext(
     DbContextOptions<TorreLogisticaDbContext> opcoes,
-    IContextoDoTenant contextoDoTenant)
+    IContextoDoTenant contextoDoTenant,
+    IPublicadorDeTempoReal? publicadorDeTempoReal = null)
     : DbContext(opcoes), IContextoDePersistencia
 {
     /// <summary>Nome da extensão geoespacial exigida pelo domínio.</summary>
@@ -38,6 +40,10 @@ public class TorreLogisticaDbContext(
 
     private readonly IContextoDoTenant _contextoDoTenant =
         contextoDoTenant ?? throw new ArgumentNullException(nameof(contextoDoTenant));
+
+    // Avisos e sessões revogadas confirmados por gravação, à espera do commit para sair.
+    private readonly List<NotificacaoDaOperacao> _notificacoesPendentes = [];
+    private readonly HashSet<Guid> _sessoesRevogadasPendentes = [];
 
     /// <inheritdoc />
     public DbSet<Organizacao> Organizacoes => Set<Organizacao>();
@@ -165,21 +171,112 @@ public class TorreLogisticaDbContext(
         // precisa reexecutar a unidade inteira, não só o comando que falhou.
         var estrategia = Database.CreateExecutionStrategy();
 
-        return await estrategia.ExecuteAsync(
-            async cancelamentoDaTentativa =>
-            {
-                ChangeTracker.Clear();
+        T resultadoConfirmado;
+        try
+        {
+            resultadoConfirmado = await estrategia.ExecuteAsync(
+                async cancelamentoDaTentativa =>
+                {
+                    ChangeTracker.Clear();
 
-                await using var transacao = await Database
-                    .BeginTransactionAsync(cancelamentoDaTentativa)
-                    .ConfigureAwait(false);
+                    // Aviso de tentativa desfeita não sai: a próxima tentativa recoleta o que confirmar.
+                    DescartarAvisosPendentes();
 
-                var resultado = await operacao(cancelamentoDaTentativa).ConfigureAwait(false);
+                    await using var transacao = await Database
+                        .BeginTransactionAsync(cancelamentoDaTentativa)
+                        .ConfigureAwait(false);
 
-                await transacao.CommitAsync(cancelamentoDaTentativa).ConfigureAwait(false);
-                return resultado;
-            },
-            cancelamento).ConfigureAwait(false);
+                    var resultado = await operacao(cancelamentoDaTentativa).ConfigureAwait(false);
+
+                    await transacao.CommitAsync(cancelamentoDaTentativa).ConfigureAwait(false);
+                    return resultado;
+                },
+                cancelamento).ConfigureAwait(false);
+        }
+        catch
+        {
+            DescartarAvisosPendentes();
+            throw;
+        }
+
+        await DespacharAvisosAsync().ConfigureAwait(false);
+        return resultadoConfirmado;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Único ponto de saída dos avisos de tempo real. Antes de gravar, recolhe os eventos de entrega
+    /// que mudam status e as sessões que estão sendo revogadas; depois de gravar, despacha na hora se
+    /// não há transação aberta, ou espera o commit de <see cref="ExecutarEmTransacaoAsync{T}"/>. Nenhum
+    /// caso de uso precisa lembrar de publicar — e nenhum aviso sai de mudança que não foi confirmada.
+    /// </remarks>
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        var avisos = RecolherAvisosDeEntrega();
+        var sessoesRevogadas = RecolherSessoesRevogadas();
+
+        var gravados = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
+
+        _notificacoesPendentes.AddRange(avisos);
+        _sessoesRevogadasPendentes.UnionWith(sessoesRevogadas);
+
+        if (Database.CurrentTransaction is null)
+        {
+            await DespacharAvisosAsync().ConfigureAwait(false);
+        }
+
+        return gravados;
+    }
+
+    private List<NotificacaoDaOperacao> RecolherAvisosDeEntrega() =>
+    [
+        .. ChangeTracker.Entries<EventoDaEntrega>()
+            .Where(entrada => entrada.State == EntityState.Added)
+            .Select(entrada => entrada.Entity)
+            .Where(evento => evento.Tipo is not (TipoDeEventoDaEntrega.DadosAlterados or TipoDeEventoDaEntrega.Reatribuida))
+            .OrderBy(evento => evento.EntregaId)
+            .ThenBy(evento => evento.Sequencia)
+            .Select(evento => new StatusDaEntregaAlterado(
+                evento.OrganizacaoId, evento.EntregaId, evento.StatusResultante, evento.Tipo, evento.Sequencia, evento.OcorridoEm)),
+    ];
+
+    private List<Guid> RecolherSessoesRevogadas() =>
+    [
+        .. ChangeTracker.Entries<Sessao>()
+            .Where(entrada => entrada.State == EntityState.Modified
+                && entrada.Property(sessao => sessao.RevogadaEm).OriginalValue is null
+                && entrada.Entity.RevogadaEm is not null)
+            .Select(entrada => entrada.Entity.Id),
+    ];
+
+    private void DescartarAvisosPendentes()
+    {
+        _notificacoesPendentes.Clear();
+        _sessoesRevogadasPendentes.Clear();
+    }
+
+    private async Task DespacharAvisosAsync()
+    {
+        if (publicadorDeTempoReal is null || (_notificacoesPendentes.Count == 0 && _sessoesRevogadasPendentes.Count == 0))
+        {
+            DescartarAvisosPendentes();
+            return;
+        }
+
+        var avisos = _notificacoesPendentes.ToList();
+        var sessoes = _sessoesRevogadasPendentes.ToList();
+        DescartarAvisosPendentes();
+
+        // A mudança já foi confirmada: o aviso sai mesmo se a requisição for cancelada agora.
+        if (avisos.Count > 0)
+        {
+            await publicadorDeTempoReal.PublicarAsync(avisos, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        if (sessoes.Count > 0)
+        {
+            await publicadorDeTempoReal.EncerrarConexoesDasSessoesAsync(sessoes, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -304,7 +401,26 @@ public class TorreLogisticaDbContext(
 
         await using var leitor = await comando.ExecuteReaderAsync(cancelamento).ConfigureAwait(false);
         await leitor.ReadAsync(cancelamento).ConfigureAwait(false);
-        return new GravacaoDePosicao(leitor.GetBoolean(0), leitor.GetBoolean(1));
+        var gravacao = new GravacaoDePosicao(leitor.GetBoolean(0), leitor.GetBoolean(1));
+
+        if (gravacao.AtualizouPosicaoAtual)
+        {
+            // Um aviso por motorista no lote: só a posição mais recente interessa ao console.
+            _notificacoesPendentes.RemoveAll(aviso => aviso is PosicaoDoMotoristaAtualizada anterior && anterior.MotoristaId == posicao.MotoristaId);
+            _notificacoesPendentes.Add(new PosicaoDoMotoristaAtualizada(
+                posicao.OrganizacaoId,
+                posicao.MotoristaId,
+                posicao.RotaId,
+                posicao.Localizacao.Latitude,
+                posicao.Localizacao.Longitude,
+                posicao.PrecisaoEmMetros,
+                posicao.VelocidadeEmMetrosPorSegundo,
+                posicao.DirecaoEmGraus,
+                posicao.Sequencia,
+                posicao.CapturadaEm));
+        }
+
+        return gravacao;
 
         static void Parametro(System.Data.Common.DbCommand comando, string nome, NpgsqlTypes.NpgsqlDbType tipo, object? valor) =>
             comando.Parameters.Add(new NpgsqlParameter(nome, tipo) { Value = valor ?? DBNull.Value });

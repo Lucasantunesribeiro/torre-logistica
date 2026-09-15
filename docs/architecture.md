@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 7 concluída (PostGIS e geofencing). Este documento cresce junto com as fases.
+> Estado: Fase 8 concluída (tempo real com SignalR). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -188,7 +188,7 @@ acompanham a resposta de falha.
 |---|---|:---:|
 | `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS, estado da geofence (entrada, histerese, reentrada, posição antiga) e proximidade | 469 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), concorrência otimista, geografia, auditoria, limite, logs | 340 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), tempo real com cliente SignalR real (aviso, isolamento, reconexão, sessão revogada), concorrência otimista, geografia, auditoria, limite, logs | 346 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -437,9 +437,36 @@ destino), equivalente e idempotente com a chegada manual. Conflito com comando d
 lote inteiro. Consulta em `GET /api/entregas/{id}/geofence`. Detalhes em
 [ADR 0016](./adr/0016-geofence-de-destino.md).
 
+## Fase 8 — Tempo real com SignalR
+
+### Caminho de um aviso
+
+```text
+caso de uso → SaveChanges
+  └─ TorreLogisticaDbContext recolhe: eventos de entrega que mudam status, sessões revogadas
+     (e RegistrarPosicaoAsync recolhe a posição atual que avançou)
+  → commit (ou gravação sem transação)
+  → IPublicadorDeTempoReal (Application)
+       └─ PublicadorDeTempoRealSignalR (Api) → grupo organizacao:{id}
+            DriverPositionUpdated · DeliveryStatusChanged
+       └─ sessões revogadas → RegistroDeConexoesDaOperacao derruba as conexões delas
+```
+
+| Peça | Regra |
+|---|---|
+| `/tempo-real/operacao` | política do console; grupo pela organização do token; nenhum método chamável pelo cliente |
+| Token | cabeçalho, ou `access_token` na query string só neste caminho |
+| Conexão | cai com a sessão revogada e no vencimento do token |
+| Publicação | só depois do commit; melhor esforço, nunca derruba a operação |
+
+Implementação na `Api`: a `Infrastructure` não pode depender de ASP.NET Core. Uma instância, sem
+backplane. Detalhes em [ADR 0017](./adr/0017-tempo-real-da-operacao.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhum tempo real, ETA, SLA ou mapa: chegam a partir da Fase 8. Não há geofence de hub, raio
+Nenhum ETA, SLA, alerta ou mapa na tela: chegam a partir da Fase 9. Os avisos de risco, alerta e
+ocorrência têm nome reservado e nascem com seus produtores. Não há backplane para mais de uma
+instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há retenção
 automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de
 entrega (Fase 14), tela de execução para o motorista (Fase 11) nem deduplicação por identificador de

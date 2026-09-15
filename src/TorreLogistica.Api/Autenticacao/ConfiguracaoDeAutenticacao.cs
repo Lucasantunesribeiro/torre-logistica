@@ -204,6 +204,7 @@ public static class ConfiguracaoDeAutenticacao
 
                     opcoes.Events = new JwtBearerEvents
                     {
+                        OnMessageReceived = contexto => LerTokenDoTempoReal(contexto, canal),
                         OnTokenValidated = contexto => ValidarSessaoAsync(contexto, canal),
                         OnChallenge = EscreverDesafioAsync,
                         OnForbidden = contexto => RespostasDeProblema.EscreverAsync(
@@ -214,6 +215,25 @@ public static class ConfiguracaoDeAutenticacao
                             "O perfil da sessão não permite esta operação."),
                     };
                 });
+    }
+
+    /// <summary>
+    /// O navegador não envia cabeçalho <c>Authorization</c> no WebSocket: o cliente SignalR manda o
+    /// token na query string. Aceito só no caminho do hub do console e só quando não há cabeçalho — em
+    /// nenhuma outra rota um token na URL vale.
+    /// </summary>
+    private static Task LerTokenDoTempoReal(MessageReceivedContext contexto, CanalDeAcesso canal)
+    {
+        if (canal == CanalDeAcesso.Operacao
+            && contexto.HttpContext.Request.Path.StartsWithSegments(TempoReal.HubDaOperacao.Caminho, StringComparison.Ordinal)
+            && string.IsNullOrEmpty(contexto.HttpContext.Request.Headers.Authorization)
+            && contexto.Request.Query["access_token"] is { Count: 1 } token
+            && !string.IsNullOrWhiteSpace(token))
+        {
+            contexto.Token = token;
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -14,6 +14,7 @@ using TorreLogistica.Api.Execucao;
 using TorreLogistica.Api.Rastreamento;
 using TorreLogistica.Api.Rotas;
 using TorreLogistica.Api.Seguranca;
+using TorreLogistica.Api.TempoReal;
 using TorreLogistica.Api.Usuarios;
 using TorreLogistica.Application;
 using TorreLogistica.Application.Abstracoes.Correlacao;
@@ -110,7 +111,8 @@ try
 
                 politica
                     .WithOrigins([.. origens])
-                    .WithHeaders("Content-Type", "Authorization", CorrelacaoHttp.NomeDoCabecalho)
+                    // X-Requested-With e X-SignalR-User-Agent: enviados pelo cliente SignalR do navegador.
+                    .WithHeaders("Content-Type", "Authorization", CorrelacaoHttp.NomeDoCabecalho, "X-Requested-With", "X-SignalR-User-Agent")
                     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                     .WithExposedHeaders(CorrelacaoHttp.NomeDoCabecalho, "Retry-After")
                     .AllowCredentials();
@@ -121,6 +123,7 @@ try
     construtor.Services.AdicionarAutenticacaoDaTorre(construtor.Configuration);
     construtor.Services.AdicionarCamadaDeApplication();
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
+    construtor.Services.AdicionarTempoRealDaOperacao();
 
     var aplicacao = construtor.Build();
 
@@ -167,8 +170,6 @@ try
     aplicacao.UseExceptionHandler();
     aplicacao.UseStatusCodePages();
 
-    // Limite antes da autenticação: rajada contra o login é descartada antes de
-    // gastar hash de senha ou consulta de sessão.
     aplicacao.UseAuthentication();
     aplicacao.UseAuthorization();
 
@@ -190,6 +191,7 @@ try
     aplicacao.MapearEndpointsDeRotas();
     aplicacao.MapearEndpointsDeExecucao();
     aplicacao.MapearEndpointsDeRastreamento();
+    aplicacao.MapearTempoRealDaOperacao();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
     return 0;

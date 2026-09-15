@@ -4,13 +4,13 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 7 — PostGIS e Geofencing concluída.**
+> **Estado: Fase 8 — Tempo Real com SignalR concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
-> somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS com posição atual
-> que nunca regride e, agora, a **geofence do destino**: distância e raio calculados pelo PostGIS,
-> entrada detectada uma vez só, saída com margem contra oscilação na borda, e a entrega passando
-> sozinha a "próxima do destino" — sem transição retroativa por GPS atrasado. Tempo real vem na
-> próxima fase. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
+> no PostGIS e, agora, o **tempo real do console**: posição de motorista e mudança de status chegam ao
+> console conectado sem recarregar, só depois do commit, só para a própria organização — e a conexão
+> cai quando a sessão é encerrada. ETA e SLA vêm na próxima fase. A ordem está em
+> [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -19,7 +19,7 @@ ocorrências, prova de entrega e rastreamento público controlado.
 | Backend | C# / .NET 10, ASP.NET Core |
 | Banco | PostgreSQL 17 + PostGIS 3.5, EF Core 10 |
 | Frontend | React 19, TypeScript estrito, Vite 8, React Router, TanStack Query, Zod |
-| Tempo real | SignalR (direção — Fase 8) |
+| Tempo real | SignalR (canal do console) |
 | Testes | xunit.v3, Testcontainers, Vitest, Testing Library |
 | Observabilidade | Serilog estruturado; OpenTelemetry na Fase 21 |
 
@@ -83,7 +83,7 @@ npm run verificar                                             # frontend
 |---|:---:|
 | Unidade | 469 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 340 |
+| Integração (PostgreSQL + PostGIS real) | 346 |
 | Frontend (3 aplicações) | 49 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -114,6 +114,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0014](./docs/adr/0014-maquina-de-estados-e-concorrencia.md) | Máquina de estados em tabela, comandos nomeados e concorrência decidida pela versão da linha |
 | [0015](./docs/adr/0015-ingestao-de-localizacao.md) | Ingestão de localização: histórico e posição atual separados, gravação atômica e coleta mínima |
 | [0016](./docs/adr/0016-geofence-de-destino.md) | Geofence de destino: avaliada na ingestão, distância no PostGIS, histerese e estado por entrega |
+| [0017](./docs/adr/0017-tempo-real-da-operacao.md) | Tempo real da operação: aviso só depois do commit, grupo pela sessão, conexão que cai com a sessão |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

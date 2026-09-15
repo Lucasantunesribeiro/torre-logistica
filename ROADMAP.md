@@ -1706,6 +1706,136 @@ Uma posição válida deve aparecer em cliente operacional conectado sem F5.
 
 ---
 
+## Fase 8 concluída — 2026-09-15
+
+### Eventos realtime mínimos
+
+| Evento | Situação | Origem |
+|---|:---:|---|
+| `DriverPositionUpdated` | ✅ | posição atual do motorista que avançou — um aviso por motorista por lote, o mais recente |
+| `DeliveryStatusChanged` | ✅ | todo evento de entrega que muda status, com o evento que causou e a sequência na timeline |
+| `DeliveryRiskChanged` | nome reservado | produzido quando existir risco — Fase 9 (ETA e SLA) |
+| `AlertCreated` | nome reservado | produzido quando existirem alertas — Fase 10 |
+| `IncidentCreated` | nome reservado | produzido quando existirem ocorrências |
+
+Os três últimos não têm produtor nesta fase; o nome está fixado para o console assinar desde já, e o
+conteúdo nasce com quem os produz (ADR 0017). Não há contrato sem produtor.
+
+### Arquitetura
+
+| Pedido | Resultado | Evidência |
+|---|:---:|---|
+| Domínio não conhece SignalR | ✅ | teste de arquitetura existente; o domínio não mudou |
+| Abstração de publicação em Application/Infrastructure | ✅ | `IPublicadorDeTempoReal` na `Application`; chamada pelo contexto de persistência, na `Infrastructure`, no único ponto pós-commit; implementação SignalR na `Api` (ASP.NET Core é proibido na `Infrastructure` — divergência do ADR 0005 registrada no ADR 0017) |
+
+Nenhum caso de uso publica diretamente: o contexto recolhe os eventos de entrega e as sessões
+revogadas ao gravar e despacha depois do commit — tentativa desfeita não avisa.
+
+### Segurança
+
+| Pedido | Resultado | Evidência |
+|---|:---:|---|
+| Grupos respeitam tenant | ✅ | o hub coloca a conexão só no grupo da organização **do token**; não há método para o cliente escolher grupo; `AvisoNaoVazaEntreOrganizacoes` |
+| Motorista não assina canal administrativo | ✅ | hub com a política do console; token de motorista recebe 401 |
+| Rastreamento público não usa canal interno | ✅ | sem sessão do console não há conexão (401) |
+
+Além do pedido: sessão revogada derruba a conexão (logout, reuso, perfil, desativação); conexão fecha
+no vencimento do token; token na query string só vale no hub; mensagem do cliente limitada a 4 KB.
+
+### Critério de aceite
+
+> Uma posição válida deve aparecer em cliente operacional conectado sem F5.
+
+✅ `PosicaoValidaApareceNoClienteOperacionalConectadoSemRecarregar`: um operador conectado ao hub
+por WebSocket, com cliente SignalR real, recebe `DriverPositionUpdated` com motorista, rota,
+latitude, longitude, sequência e captura logo depois de o motorista enviar a posição pela API. Posição
+atrasada e posição recusada, que não movem a posição atual, não avisam.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| conexão autenticada | `ConexaoExigeSessaoDoConsoleEOHubNaoAceitaComando` — sem token, token de motorista e adulterado: 401; token na query string conecta no hub e não autentica rota da API; método do hub recusado |
+| tenant isolation | `AvisoNaoVazaEntreOrganizacoes` |
+| reconexão | `ReconexaoRetomaOCanalDaOrganizacao` — queda de rede do lado do cliente, reconexão automática e aviso recebido de novo |
+| evento correto | `MudancaDeStatusChegaComOEventoCertoEOQueNaoMudaStatusNaoAvisa` — saída para rota e proximidade com status e evento corretos; alteração de dados e comando recusado sem aviso |
+| ausência de vazamento entre organizações | `AvisoNaoVazaEntreOrganizacoes` — cada console só recebe avisos da própria organização |
+
+Além do pedido: `SessaoEncerradaDerrubaAConexaoEAReconexaoEhRecusada` e ausência do token no log.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 469 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 346 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **886** | **✅** |
+
+Solução compila com 0 aviso e 0 erro; formatação verificada. Frontend sem alteração nesta fase.
+
+### Security Gate 8
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autenticação do canal | ✅ | política do console; sessão conferida no banco a cada conexão e reconexão |
+| Isolamento entre tenants | ✅ | grupo pela organização da sessão; teste com duas organizações conectadas |
+| Autoridade separada do motorista | ✅ | token de motorista: 401 no hub |
+| Canal público | ✅ | sem acesso anônimo ao hub |
+| Sessão revogada | ✅ | conexões derrubadas no commit da revogação; reconexão recusada |
+| Token em URL | ✅ | aceito só no caminho do hub, só sem cabeçalho; rota da API com `access_token` responde 401; token ausente do log |
+| CORS | ✅ | só os cabeçalhos do cliente SignalR acrescentados à política existente |
+| Abuso pelo cliente | ✅ | hub sem métodos; mensagem limitada a 4 KB; erros detalhados desligados |
+| Dado pessoal no aviso | ✅ | sem nome, endereço ou telefone; detalhe só pela API |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados |
+| Dependências | ✅ | pacote novo `Microsoft.AspNetCore.SignalR.Client` 10.0.11, só no projeto de testes; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada; `npm audit`: 0 |
+
+### Defeitos e ajustes durante a fase
+
+1. **Comentário falso em `Program.cs` desde a Fase 6.** Sobre `UseAuthentication` ainda dizia
+   "limite antes da autenticação", mas o limitador passou a rodar depois da autorização naquela fase.
+   Removido.
+2. **Dois erros no próprio teste de reconexão.** A primeira versão simulava queda derrubando a
+   conexão pelo servidor sobre long polling — o que o cliente recebe como **encerramento normal** e,
+   corretamente, não tenta reconectar. Passou a usar WebSocket (o transporte do navegador) e a
+   derrubar o socket do lado do cliente, que é a queda de rede real. Depois, a comparação dos
+   identificadores de conexão antes e depois falhou porque, sem negociação, o cliente não recebe
+   identificador; o teste passou a provar a reconexão pelo estado e pelo aviso recebido.
+3. **Chave do mapa de autorização.** O endpoint `negotiate` do hub não tem restrição de método; o mapa
+   declarado foi corrigido para `* /tempo-real/operacao/negotiate`.
+
+### Decisões
+
+[ADR 0017](./docs/adr/0017-tempo-real-da-operacao.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Aviso nasce no contexto de persistência, só depois do commit**, sem publicação espalhada.
+- **Grupo pela sessão; hub sem métodos.**
+- **Token na query string só no hub.**
+- **Sessão revogada derruba conexão**; token vencido fecha conexão.
+- **Implementação na `Api`**, porque a `Infrastructure` não pode depender de ASP.NET Core.
+- **Uma instância, sem backplane**, mantendo a decisão adiada do ADR 0005.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CI nunca executada | exige `git push`, não autorizado |
+| Mais de uma instância da API | exige backplane ou serviço gerenciado — Fase 25 |
+| Fechamento da conexão no vencimento do token | configurado (`CloseOnAuthenticationExpiration`), mas sem teste automatizado: o temporizador usa o relógio do sistema e exigiria esperar 15 minutos |
+| Console consumindo os avisos | a tela do mapa é da Fase 18; o contrato está pronto |
+| Log de erro do EF Core em conflito tratado | continua das fases anteriores — Fase 21 |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: tempo real da operacao com SignalR e aviso so depois do commit (Fase 8)`
+
+---
+
 # FASE 9 — ETA E SLA
 
 ## Objetivo
@@ -3018,9 +3148,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 7 — PostGIS e Geofencing** (2026-09-14) |
-| Próxima fase | **Fase 8 — Tempo Real com SignalR** |
-| Testes verdes | 880 — 469 unidade, 22 arquitetura, 340 integração, 49 frontend |
+| Última fase concluída | **Fase 8 — Tempo Real com SignalR** (2026-09-15) |
+| Próxima fase | **Fase 9 — ETA e SLA** |
+| Testes verdes | 886 — 469 unidade, 22 arquitetura, 346 integração, 49 frontend |
 
 Comando para continuar:
 
