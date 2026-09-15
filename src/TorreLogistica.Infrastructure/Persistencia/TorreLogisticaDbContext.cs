@@ -3,13 +3,16 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.TempoReal;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 
@@ -32,18 +35,31 @@ namespace TorreLogistica.Infrastructure.Persistencia;
 public class TorreLogisticaDbContext(
     DbContextOptions<TorreLogisticaDbContext> opcoes,
     IContextoDoTenant contextoDoTenant,
-    IPublicadorDeTempoReal? publicadorDeTempoReal = null)
+    IPublicadorDeTempoReal? publicadorDeTempoReal = null,
+    ISolicitacoesDeRecalculoDePrevisao? solicitacoesDeRecalculo = null)
     : DbContext(opcoes), IContextoDePersistencia
 {
     /// <summary>Nome da extensão geoespacial exigida pelo domínio.</summary>
     public const string ExtensaoPostGis = "postgis";
 
+    // Mudanças na execução da entrega que alteram a previsão das paradas da rota.
+    private static readonly HashSet<TipoDeEventoDaEntrega> EventosQueMudamAPrevisao =
+    [
+        TipoDeEventoDaEntrega.SaiuParaRota,
+        TipoDeEventoDaEntrega.ChegadaRegistrada,
+        TipoDeEventoDaEntrega.ProximidadeDetectada,
+        TipoDeEventoDaEntrega.Entregue,
+        TipoDeEventoDaEntrega.TentativaFrustrada,
+        TipoDeEventoDaEntrega.Reatribuida,
+    ];
+
     private readonly IContextoDoTenant _contextoDoTenant =
         contextoDoTenant ?? throw new ArgumentNullException(nameof(contextoDoTenant));
 
-    // Avisos e sessões revogadas confirmados por gravação, à espera do commit para sair.
+    // Avisos, sessões revogadas e pedidos de recálculo confirmados por gravação, à espera do commit para sair.
     private readonly List<NotificacaoDaOperacao> _notificacoesPendentes = [];
     private readonly HashSet<Guid> _sessoesRevogadasPendentes = [];
+    private readonly HashSet<SolicitacaoDeRecalculo> _recalculosPendentes = [];
 
     /// <inheritdoc />
     public DbSet<Organizacao> Organizacoes => Set<Organizacao>();
@@ -103,6 +119,12 @@ public class TorreLogisticaDbContext(
     public DbSet<EventoDeGeofence> EventosDeGeofence => Set<EventoDeGeofence>();
 
     /// <inheritdoc />
+    public DbSet<PrevisaoDaEntrega> PrevisoesDaEntrega => Set<PrevisaoDaEntrega>();
+
+    /// <inheritdoc />
+    public DbSet<RegistroDePrevisao> RegistrosDePrevisao => Set<RegistroDePrevisao>();
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<DistanciaAoDestino>> CalcularDistanciasAosDestinosAsync(
         IReadOnlyCollection<Guid> entregaIds,
         double latitude,
@@ -151,6 +173,58 @@ public class TorreLogisticaDbContext(
         }
 
         return distancias;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<double>> CalcularDistanciasDoTrajetoAsync(
+        IReadOnlyList<CoordenadaGeografica> pontos,
+        CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(pontos);
+
+        if (pontos.Count < 2)
+        {
+            return [];
+        }
+
+        // Pares consecutivos pela ordem dos arrays. Só coordenadas: nenhum dado de tenant é lido.
+        await using var comando = Database.GetDbConnection().CreateCommand();
+        comando.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+        comando.CommandText = """
+            SELECT ST_Distance(
+                ST_SetSRID(ST_MakePoint(origem.longitude, origem.latitude), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(destino.longitude, destino.latitude), 4326)::geography)
+            FROM unnest(@latitudes, @longitudes) WITH ORDINALITY AS origem(latitude, longitude, ordem)
+            JOIN unnest(@latitudes, @longitudes) WITH ORDINALITY AS destino(latitude, longitude, ordem)
+              ON destino.ordem = origem.ordem + 1
+            ORDER BY origem.ordem
+            """;
+        comando.Parameters.Add(new NpgsqlParameter("latitudes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Double)
+        {
+            Value = pontos.Select(ponto => ponto.Latitude).ToArray(),
+        });
+        comando.Parameters.Add(new NpgsqlParameter("longitudes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Double)
+        {
+            Value = pontos.Select(ponto => ponto.Longitude).ToArray(),
+        });
+
+        // O provedor simulado e a contingência rodam fora de transação: a conexão é aberta e devolvida aqui.
+        await Database.OpenConnectionAsync(cancelamento).ConfigureAwait(false);
+        try
+        {
+            var distancias = new List<double>(pontos.Count - 1);
+            await using var leitor = await comando.ExecuteReaderAsync(cancelamento).ConfigureAwait(false);
+            while (await leitor.ReadAsync(cancelamento).ConfigureAwait(false))
+            {
+                distancias.Add(leitor.GetDouble(0));
+            }
+
+            return distancias;
+        }
+        finally
+        {
+            await Database.CloseConnectionAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -205,20 +279,24 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     /// <remarks>
-    /// Único ponto de saída dos avisos de tempo real. Antes de gravar, recolhe os eventos de entrega
-    /// que mudam status e as sessões que estão sendo revogadas; depois de gravar, despacha na hora se
-    /// não há transação aberta, ou espera o commit de <see cref="ExecutarEmTransacaoAsync{T}"/>. Nenhum
-    /// caso de uso precisa lembrar de publicar — e nenhum aviso sai de mudança que não foi confirmada.
+    /// Único ponto de saída dos efeitos pós-commit: avisos de tempo real, conexões de sessões revogadas e
+    /// pedidos de recálculo de previsão. Antes de gravar, recolhe o que a gravação vai confirmar; depois de
+    /// gravar, despacha na hora se não há transação aberta, ou espera o commit de
+    /// <see cref="ExecutarEmTransacaoAsync{T}"/>. Nenhum caso de uso precisa lembrar — e nada sai de
+    /// mudança que não foi confirmada.
     /// </remarks>
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         var avisos = RecolherAvisosDeEntrega();
+        avisos.AddRange(RecolherAvisosDeRisco());
         var sessoesRevogadas = RecolherSessoesRevogadas();
+        var recalculos = RecolherRecalculosPorEntrega();
 
         var gravados = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
 
         _notificacoesPendentes.AddRange(avisos);
         _sessoesRevogadasPendentes.UnionWith(sessoesRevogadas);
+        _recalculosPendentes.UnionWith(recalculos);
 
         if (Database.CurrentTransaction is null)
         {
@@ -240,6 +318,31 @@ public class TorreLogisticaDbContext(
                 evento.OrganizacaoId, evento.EntregaId, evento.StatusResultante, evento.Tipo, evento.Sequencia, evento.OcorridoEm)),
     ];
 
+    /// <summary>
+    /// Registros de previsão que mudam a situação do SLA. A primeira previsão conta como mudança só se não
+    /// for Normal: toda entrega nasce Normal para quem acompanha.
+    /// </summary>
+    private List<NotificacaoDaOperacao> RecolherAvisosDeRisco() =>
+    [
+        .. ChangeTracker.Entries<RegistroDePrevisao>()
+            .Where(entrada => entrada.State == EntityState.Added)
+            .Select(entrada => entrada.Entity)
+            .Where(registro => registro.Tipo != TipoDeRegistroDePrevisao.Encerrada
+                && (registro.SituacaoAnterior ?? SituacaoDoSla.Normal) != registro.Situacao)
+            .OrderBy(registro => registro.EntregaId)
+            .ThenBy(registro => registro.Sequencia)
+            .Select(registro => new RiscoDaEntregaAlterado(
+                registro.OrganizacaoId,
+                registro.EntregaId,
+                registro.SituacaoAnterior,
+                registro.Situacao,
+                registro.MotivoDaSituacao,
+                registro.ChegadaPrevistaEm,
+                registro.FolgaEmSegundos,
+                registro.Sequencia,
+                registro.RegistradoEm)),
+    ];
+
     private List<Guid> RecolherSessoesRevogadas() =>
     [
         .. ChangeTracker.Entries<Sessao>()
@@ -249,33 +352,45 @@ public class TorreLogisticaDbContext(
             .Select(entrada => entrada.Entity.Id),
     ];
 
+    private List<SolicitacaoDeRecalculo> RecolherRecalculosPorEntrega() =>
+        solicitacoesDeRecalculo is null
+            ? []
+            :
+            [
+                .. ChangeTracker.Entries<EventoDaEntrega>()
+                    .Where(entrada => entrada.State == EntityState.Added && EventosQueMudamAPrevisao.Contains(entrada.Entity.Tipo))
+                    .Select(entrada => new SolicitacaoDeRecalculo(
+                        entrada.Entity.OrganizacaoId, OrigemDoRecalculo.Entrega, null, entrada.Entity.EntregaId, null)),
+            ];
+
     private void DescartarAvisosPendentes()
     {
         _notificacoesPendentes.Clear();
         _sessoesRevogadasPendentes.Clear();
+        _recalculosPendentes.Clear();
     }
 
     private async Task DespacharAvisosAsync()
     {
-        if (publicadorDeTempoReal is null || (_notificacoesPendentes.Count == 0 && _sessoesRevogadasPendentes.Count == 0))
-        {
-            DescartarAvisosPendentes();
-            return;
-        }
-
         var avisos = _notificacoesPendentes.ToList();
         var sessoes = _sessoesRevogadasPendentes.ToList();
+        var recalculos = _recalculosPendentes.ToList();
         DescartarAvisosPendentes();
 
         // A mudança já foi confirmada: o aviso sai mesmo se a requisição for cancelada agora.
-        if (avisos.Count > 0)
+        if (publicadorDeTempoReal is not null && avisos.Count > 0)
         {
             await publicadorDeTempoReal.PublicarAsync(avisos, CancellationToken.None).ConfigureAwait(false);
         }
 
-        if (sessoes.Count > 0)
+        if (publicadorDeTempoReal is not null && sessoes.Count > 0)
         {
             await publicadorDeTempoReal.EncerrarConexoesDasSessoesAsync(sessoes, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        if (solicitacoesDeRecalculo is not null && recalculos.Count > 0)
+        {
+            solicitacoesDeRecalculo.Solicitar(recalculos);
         }
     }
 
@@ -418,6 +533,14 @@ public class TorreLogisticaDbContext(
                 posicao.DirecaoEmGraus,
                 posicao.Sequencia,
                 posicao.CapturadaEm));
+
+            // A posição atual mudou: a previsão das paradas da rota do motorista também. O conjunto colapsa
+            // o lote inteiro num pedido só.
+            if (solicitacoesDeRecalculo is not null)
+            {
+                _recalculosPendentes.Add(new SolicitacaoDeRecalculo(
+                    posicao.OrganizacaoId, OrigemDoRecalculo.Posicao, posicao.RotaId, null, posicao.RotaId is null ? posicao.MotoristaId : null));
+            }
         }
 
         return gravacao;
@@ -526,6 +649,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(estado => estado.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<EventoDeGeofence>()
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<PrevisaoDaEntrega>()
+            .HasQueryFilter(previsao => previsao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<RegistroDePrevisao>()
+            .HasQueryFilter(registro => registro.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

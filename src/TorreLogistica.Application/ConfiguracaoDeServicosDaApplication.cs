@@ -4,6 +4,7 @@ using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Organizacoes;
+using TorreLogistica.Application.Previsao;
 using TorreLogistica.Application.Rastreamento;
 using TorreLogistica.Application.Rotas;
 using TorreLogistica.Application.Usuarios;
@@ -50,6 +51,11 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<IngestaoDeLocalizacao>();
         servicos.AddScoped<ConsultaDeLocalizacao>();
         servicos.AddScoped<ConsultaDeGeofence>();
+
+        servicos.AddSingleton<MetricasDePrevisao>();
+        servicos.AddScoped<RecalculoDePrevisoes>();
+        servicos.AddScoped<ConsultaDeRotasParaReavaliacao>();
+        servicos.AddScoped<ConsultaDePrevisao>();
 
         return servicos;
     }

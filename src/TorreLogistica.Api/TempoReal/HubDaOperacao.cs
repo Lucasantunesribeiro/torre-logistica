@@ -15,7 +15,7 @@ public static class EventosDeTempoReal
     /// <summary>Status de entrega mudou.</summary>
     public const string StatusDaEntregaAlterado = "DeliveryStatusChanged";
 
-    /// <summary>Risco de entrega mudou — produzido a partir da Fase 9 (ETA e SLA).</summary>
+    /// <summary>Situação do SLA de entrega mudou (ETA e SLA, Fase 9).</summary>
     public const string RiscoDaEntregaAlterado = "DeliveryRiskChanged";
 
     /// <summary>Alerta criado — produzido a partir da Fase 10.</summary>

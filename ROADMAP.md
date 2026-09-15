@@ -1898,6 +1898,147 @@ A aplicação deve explicar por que uma entrega passou de Normal para Risco.
 
 ---
 
+## Fase 9 concluída — 2026-09-15
+
+### Entregáveis
+
+| Pedido | Resultado | Evidência |
+|---|:---:|---|
+| SLA: `PromisedFrom` e `PromisedUntil` | ✅ | já existia desde a Fase 3 como `JanelaDeEntrega` (início e fim em UTC, API `prometidaDe`/`prometidaAte`); a Fase 9 classifica contra ela |
+| Fronteira `IRoutingProvider` | ✅ | `IProvedorDeRotas` na `Application`: N pontos → N − 1 trechos; responde só pelo deslocamento |
+| Implementação controlada sem custo | ✅ | provedor `simulado`: distância geodésica do PostGIS × sinuosidade ÷ velocidade média, configuráveis; a previsão registra o nome |
+| ETA determinístico: duração restante | ✅ | deslocamento acumulado desde a posição atual, pelo provedor |
+| ETA: paradas anteriores | ✅ | paradas pendentes antes, em ordem da rota; parada sem coordenada conta o atendimento |
+| ETA: tempo médio configurado por parada | ✅ | `TempoMedioPorParada` (5 min) |
+| ETA: estado operacional | ✅ | em rota soma deslocamento; próxima do destino usa a chegada registrada e o atendimento que falta; sem posição ou sem coordenada fica sem previsão, com motivo |
+| Histórico sem sobrescrever | ✅ | `registros_de_previsao` somente-inserção por trigger, fotografia completa com valores anteriores, janela e limiares |
+| Classificação Normal, Atenção, Risco e Atrasada | ✅ | `RegrasDeSla`, com motivo em vocabulário fechado |
+| Limiares configuráveis e documentados | ✅ | `Torre:Previsao` validado na subida; tabela em [ADR 0018](./docs/adr/0018-previsao-de-chegada-e-sla.md) |
+
+### Critério de aceite
+
+> A aplicação deve explicar por que uma entrega passou de Normal para Risco.
+
+✅ `ExplicaPorQueAEntregaPassouDeNormalParaRisco`, contra API, processador em segundo plano e
+PostgreSQL + PostGIS reais, com relógio controlado:
+
+1. O motorista está a 10 km: a chegada prevista é exata ao segundo (1.000 s) e a situação é Normal.
+2. Cem minutos depois, **sem nenhum evento**, a reavaliação periódica percebe a folga de 200 s e passa
+   a entrega a Risco.
+3. `GET /api/entregas/{id}/previsao` devolve o registro `SituacaoAlterada`, com situação anterior,
+   limiares, janela e composição, e a explicação exata:
+
+   > Passou de Normal para Risco porque a folga até o fim da janela prometida caiu para 3 min, abaixo
+   > do limiar de risco de 5 min. A chegada prevista soma 17 min de deslocamento (10,0 km, pelo provedor
+   > de rotas simulado) e nenhuma parada antes desta. A posição do motorista usada foi capturada 1 h 40
+   > min antes do cálculo.
+
+4. O histórico anterior continua byte a byte igual, e no fim da janela a entrega passa a Atrasada.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| ETA | `CalculadoraDeChegadaTestes` (5 cenários); `ChegadaPrevistaSomaDeslocamentoParadasAnterioresETempoPorParada` — duas paradas, chegada registrada, conclusão que adianta a seguinte |
+| janela | `RegrasDeSlaTestes` — cada limiar dos dois lados da borda, chegada depois da janela, janela encerrada, sem previsão |
+| mudança de risco | critério de aceite; `MudancaDeRiscoChegaAoConsoleEmTempoReal` (`DeliveryRiskChanged`, e nenhum aviso para a primeira previsão Normal); `PrevisaoDaEntregaTestes` |
+| histórico | `PrevisaoDaEntregaTestes` (mudança pequena sem registro, relevante com valor anterior, cálculo antigo ignorado, encerramento, fotografia imutável); `HistoricoDePrevisoesEhSomenteInsercao` (`UPDATE`, `DELETE`, `TRUNCATE`) |
+| ausência de provider | `SemProvedorAPrevisaoUsaAContingenciaEDizPorque` |
+| timeout/falha do provider | `FalhaDoProvedorCaiNaContingenciaEmLinhaReta`; `ProvedorQueNaoRespondeNaoSeguraAIngestaoECaiNaContingencia` — com o provedor travado, a ingestão de GPS responde, e a previsão sai no tempo limite |
+
+Além do pedido: `PrevisaoDeOutraOrganizacaoNaoEhVisivel`, `ExplicacaoDaPrevisaoTestes`,
+`OpcoesDePrevisaoTestes` e a rota nova na matriz de autorização.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 504 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 361 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 12 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **936** | **✅** |
+
+A solução compila com 0 aviso e 0 erro, e a formatação foi verificada. O frontend não mudou nesta fase.
+
+### Security Gate 9
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autorização da consulta | ✅ | `operacao:leitura`; motorista e anônimo recebem 401; não há rota de escrita de previsão |
+| Isolamento entre tenants | ✅ | filtro global nas duas tabelas novas; recálculo em segundo plano com contexto criado no tenant do pedido; entrega de outra organização responde 404 igual a inexistente |
+| Leitura sem tenant | ✅ | só na reavaliação periódica, só identificadores, com `IgnoreQueryFilters()` explícito |
+| Dependência externa | ✅ | tempo limite imposto por quem chama (`CancelAfter` + `WaitAsync`), contingência registrada e medida; provedor lento não segura requisição |
+| Integridade do histórico | ✅ | trigger somente-inserção; índice único `(entrega_id, sequencia)`; versão da linha na previsão atual |
+| Dado pessoal | ✅ | previsão, explicação e aviso sem coordenada, endereço ou nome; só durações, distâncias e regras |
+| Configuração | ✅ | limiares e parâmetros validados na subida; configuração incoerente derruba o processo |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados; provedor simulado não usa chave |
+| Dependências | ✅ | pacote novo `Microsoft.Extensions.Hosting.Abstractions` 10.0.11 na `Infrastructure`, só as abstrações do `BackgroundService`; `dotnet list package --vulnerable --include-transitive` e `--deprecated`: nada; `npm audit`: 0 |
+
+### Observabilidade
+
+No medidor `TorreLogistica.Previsao`, sem organização nem entrega como dimensão:
+
+- `eta.calculation.duration`;
+- `eta.provider.fallbacks`, por motivo;
+- `sla.situation.changes`, pela situação nova.
+
+Nos logs: um aviso por falha ou tempo limite do provedor, um informativo por recálculo que grava
+histórico e um erro por falha inesperada do processamento.
+
+### Defeitos e ajustes durante a fase
+
+1. **Falso erro no encerramento do processo.** A primeira execução completa da integração passou
+   inteira, mas registrou um `Falha ao recalcular a previsão` com `EndOfStreamException`. A API de um
+   teste estava sendo encerrada: o cancelamento fecha o socket no meio da leitura, e o Npgsql lança
+   `NpgsqlException`, não `OperationCanceledException`. O filtro tratava isso como falha real. Agora,
+   com o processo parando, qualquer exceção encerra o laço sem log de erro, porque nada foi confirmado e
+   a reavaliação recalcula na próxima subida. Na nova execução completa não houve nenhum log desse tipo.
+2. **Conexão aberta fora de transação.** O cálculo de distâncias do trajeto nasceu reaproveitando a
+   conexão da transação da ingestão. Mas o provedor simulado e a contingência rodam fora de transação,
+   então o método passou a abrir e devolver a própria conexão.
+3. **Varredura da suíte inteira.** O banco de teste é compartilhado, e a reavaliação periódica de
+   qualquer API de teste percorreria as rotas em andamento de todos os testes. A fábrica de teste
+   configura 30 min por padrão, e os testes de previsão configuram 1 min com relógio controlado. Por
+   isso a espera pela reavaliação no teste é de até 60 s: ela passa pelas rotas da suíte antes de chegar
+   à do teste.
+
+### Decisões
+
+[ADR 0018](./docs/adr/0018-previsao-de-chegada-e-sla.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Rota inteira, fora da requisição**: gatilho pós-commit, fila em memória com um consumidor, e
+  reavaliação periódica para o tempo que passa sem evento e para o pedido perdido.
+- **Contingência em linha reta pelo PostGIS**, com motivo gravado, em vez de ficar sem previsão.
+- **Histórico só com mudança relevante**: inicial, situação, chegada ≥ 2 min, encerramento. Cada
+  registro é fotografia completa.
+- **Explicação sem horário de relógio**: fuso é assunto de apresentação.
+- **Sem outbox**: a previsão se recalcula do estado confirmado.
+- **Processador hospedado pela API**, porque o aviso de tempo real sai do processo do hub (ADR 0017).
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Provedor de rotas real | contrato pronto; escolher fornecedor tem custo e exige autorização |
+| Padrões de velocidade, sinuosidade e limiares | ponto de partida urbano; recalibrar com dados reais — Fase 19 |
+| Limiar por organização ou cliente, chegada antes da janela | decisão de produto ainda inexistente |
+| Mais de uma instância da API | recálculo repetido entre instâncias (resultado correto, trabalho dobrado) e aviso sem backplane — Fase 25 |
+| Reavaliação com mais de 5.000 rotas por ciclo | limite por ciclo; medir na Fase 22 |
+| Gauges `deliveries_at_risk` e `deliveries_late` | exigem consulta agregada; entram com a exportação de métricas — Fase 21 |
+| Console exibindo previsão e risco | contrato e aviso prontos; tela na Fase 18 |
+| CI nunca executada | exige `git push`, não autorizado |
+| Node 22.17.0 na máquina | Vite 8 pede ≥ 22.22.0; tudo passa, o aviso continua real |
+
+### Commit
+
+`feat: previsao de chegada e SLA explicaveis, com provedor de rotas e contingencia (Fase 9)`
+
+---
+
 # FASE 10 — MOTOR DE ALERTAS OPERACIONAIS
 
 ## Objetivo
@@ -3148,9 +3289,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 8 — Tempo Real com SignalR** (2026-09-15) |
-| Próxima fase | **Fase 9 — ETA e SLA** |
-| Testes verdes | 886 — 469 unidade, 22 arquitetura, 346 integração, 49 frontend |
+| Última fase concluída | **Fase 9 — ETA e SLA** (2026-09-15) |
+| Próxima fase | **Fase 10 — Motor de Alertas Operacionais** |
+| Testes verdes | 936 — 504 unidade, 22 arquitetura, 361 integração, 49 frontend |
 
 Comando para continuar:
 

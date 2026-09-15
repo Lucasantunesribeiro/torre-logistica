@@ -20,7 +20,8 @@ namespace TorreLogistica.IntegrationTests.Infra;
 public sealed class FabricaDaApi(
     ContainerPostgis banco,
     IReadOnlyDictionary<string, string?>? configuracaoAdicional = null,
-    TimeProvider? relogio = null) : WebApplicationFactory<Program>
+    TimeProvider? relogio = null,
+    Action<IServiceCollection>? servicosDeTeste = null) : WebApplicationFactory<Program>
 {
     /// <summary>Origem que os testes tratam como autorizada.</summary>
     public const string OrigemAutorizada = "https://console.torre.teste";
@@ -54,6 +55,10 @@ public sealed class FabricaDaApi(
                 ["Torre:LimiteDeRequisicoes:RenovacoesPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:EnviosDePosicaoPorMinuto"] = "100000",
 
+                // O banco é compartilhado pela suíte: a reavaliação periódica de uma API varreria as rotas
+                // em andamento de todos os testes. Os testes de previsão configuram o intervalo deles.
+                ["Torre:Previsao:IntervaloDeReavaliacao"] = "00:30:00",
+
                 // Tudo a partir de Information chega ao sink de teste; o console só mostra
                 // aviso e erro, para a saída do teste continuar legível.
                 ["Serilog:MinimumLevel:Default"] = "Information",
@@ -78,6 +83,8 @@ public sealed class FabricaDaApi(
                 servicos.RemoveAll<TimeProvider>();
                 servicos.AddSingleton(relogio);
             }
+
+            servicosDeTeste?.Invoke(servicos);
         });
     }
 

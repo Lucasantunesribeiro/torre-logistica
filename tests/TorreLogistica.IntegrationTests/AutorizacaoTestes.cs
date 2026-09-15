@@ -50,6 +50,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
 
         // O alvo é uma conta, não um motorista: quem pode ler recebe 404, igual a inexistente.
         ("GET", "/api/motoristas/{alvo}/posicao-atual", Status(404, 404, 404, 401, 401)),
+        ("GET", "/api/entregas/{alvo}/previsao", Status(404, 404, 404, 401, 401)),
     ];
 
     public static TheoryData<string, string, string, int> Casos()
@@ -207,6 +208,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/motoristas/{id:guid}/posicao-atual"] = "operacao:leitura",
             ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
             ["GET /api/entregas/{id:guid}/geofence"] = "operacao:leitura",
+            ["GET /api/entregas/{id:guid}/previsao"] = "operacao:leitura",
             ["* /tempo-real/operacao"] = "console",
             ["* /tempo-real/operacao/negotiate"] = "console",
         };

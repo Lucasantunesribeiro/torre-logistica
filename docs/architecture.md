@@ -1,6 +1,6 @@
 # Arquitetura — Torre Logística
 
-> Estado: Fase 8 concluída (tempo real com SignalR). Este documento cresce junto com as fases.
+> Estado: Fase 9 concluída (ETA e SLA). Este documento cresce junto com as fases.
 > As decisões por trás do que está aqui ficam em [`docs/adr/`](./adr/README.md).
 
 ## Visão geral
@@ -186,9 +186,9 @@ acompanham a resposta de falha.
 
 | Suíte | O que prova | Quantos |
 |---|---|:---:|
-| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS, estado da geofence (entrada, histerese, reentrada, posição antiga) e proximidade | 469 |
+| `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS, estado da geofence (entrada, histerese, reentrada, posição antiga) e proximidade, classificação do SLA nas bordas dos limiares, composição da chegada prevista, histórico de previsões fotografado, explicação em texto e validação das opções de previsão | 504 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), tempo real com cliente SignalR real (aviso, isolamento, reconexão, sessão revogada), concorrência otimista, geografia, auditoria, limite, logs | 346 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), tempo real com cliente SignalR real (aviso, isolamento, reconexão, sessão revogada), previsão de chegada e SLA com relógio controlado e processador em segundo plano (Normal para Risco explicado, reavaliação sem evento, paradas anteriores, provedor que falha ou trava, sem provedor, histórico somente-inserção, aviso de risco), concorrência otimista, geografia, auditoria, limite, logs | 361 |
 | Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
@@ -462,10 +462,39 @@ caso de uso → SaveChanges
 Implementação na `Api`: a `Infrastructure` não pode depender de ASP.NET Core. Uma instância, sem
 backplane. Detalhes em [ADR 0017](./adr/0017-tempo-real-da-operacao.md).
 
+## Fase 9 — ETA e SLA
+
+### Caminho de uma previsão
+
+```text
+posição atual avançou · entrega saiu, chegou, concluiu, falhou, foi reatribuída
+  → TorreLogisticaDbContext, depois do commit → ISolicitacoesDeRecalculoDePrevisao
+  → FilaDeRecalculoDePrevisoes (memória, pedidos repetidos colapsados)
+  → ProcessadorDePrevisoes (BackgroundService hospedado pela API, um consumidor, tenant do pedido)
+       └─ RecalculoDePrevisoes (Application), rota inteira:
+            IProvedorDeRotas ── tempo limite / falha / ausente ──► contingência em linha reta (PostGIS)
+            CalculadoraDeChegada + RegrasDeSla (Domain)
+            previsoes_da_entrega (atual) + registros_de_previsao (somente-inserção)
+       → commit → DeliveryRiskChanged, quando a situação muda
+reavaliação periódica (TimeProvider) → enfileira as rotas em andamento: o tempo passa sem evento
+```
+
+| Peça | Regra |
+|---|---|
+| Chegada prevista | agora + deslocamento acumulado + atendimento das paradas pendentes antes; parada no destino usa a chegada registrada |
+| Situação | pela folga até o fim da janela: Normal, Atenção (< 20 min), Risco (< 5 min ou depois da janela), Atrasada (janela encerrada) |
+| Provedor | `IProvedorDeRotas`; nesta fase, o simulado (PostGIS × sinuosidade ÷ velocidade) |
+| Histórico | inicial, mudança de situação, chegada que anda ≥ 2 min, encerramento; cada registro fotografa janela e limiares |
+| Consulta | `GET /api/entregas/{id}/previsao`, com a explicação de cada mudança |
+
+Parâmetros em `Torre:Previsao`, documentados e com os motivos em [ADR 0018](./adr/0018-previsao-de-chegada-e-sla.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhum ETA, SLA, alerta ou mapa na tela: chegam a partir da Fase 9. Os avisos de risco, alerta e
-ocorrência têm nome reservado e nascem com seus produtores. Não há backplane para mais de uma
+Nenhum alerta, ocorrência ou mapa na tela: chegam a partir da Fase 10. O aviso de alerta e o de
+ocorrência têm nome reservado e nascem com seus produtores. Não há provedor de rotas real — o
+simulado não sabe de ruas nem de trânsito, e escolher fornecedor tem custo —, nem limiar de SLA por
+organização ou cliente, nem classificação de chegada antes da janela. Não há backplane para mais de uma
 instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há retenção
 automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de

@@ -25,6 +25,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0015](./0015-ingestao-de-localizacao.md) | Ingestão de localização: histórico e posição atual separados, gravação atômica, coleta mínima | 6 | aceita |
 | [0016](./0016-geofence-de-destino.md) | Geofence de destino: avaliada na ingestão, distância no PostGIS, histerese, estado por entrega | 7 | aceita |
 | [0017](./0017-tempo-real-da-operacao.md) | Tempo real: aviso só depois do commit, grupo pela sessão, conexão que cai com a sessão | 8 | aceita |
+| [0018](./0018-previsao-de-chegada-e-sla.md) | Previsão de chegada e SLA: cálculo explicável por rota, fora da requisição, contingência e histórico fotografado | 9 | aceita |
 
 ## Regras
 

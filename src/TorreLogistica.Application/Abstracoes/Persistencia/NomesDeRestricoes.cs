@@ -54,4 +54,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Posição do evento na timeline única por rota.</summary>
     public const string SequenciaDoEventoDaRota = "ux_eventos_da_rota_rota_id_sequencia";
+
+    /// <summary>Posição do registro no histórico de previsões única por entrega.</summary>
+    public const string SequenciaDoRegistroDePrevisao = "ux_registros_de_previsao_entrega_id_sequencia";
+
+    /// <summary>Uma previsão atual por entrega.</summary>
+    public const string PrevisaoDaEntrega = "pk_previsoes_da_entrega";
 }

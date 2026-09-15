@@ -26,13 +26,16 @@ public abstract class TesteDeIntegracao(ContainerPostgis banco) : IAsyncLifetime
     /// <summary>Relógio controlado, quando o teste precisa passar o tempo.</summary>
     protected virtual TimeProvider? Relogio => null;
 
+    /// <summary>Troca de serviços da API deste teste — por exemplo, um provedor externo falso.</summary>
+    protected virtual Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>? ServicosDeTeste => null;
+
     /// <summary>Cancelamento do teste corrente.</summary>
     protected static CancellationToken Cancelamento => TestContext.Current.CancellationToken;
 
     /// <inheritdoc />
     public virtual ValueTask InitializeAsync()
     {
-        _fabrica = new FabricaDaApi(banco, ConfiguracaoAdicional, Relogio);
+        _fabrica = new FabricaDaApi(banco, ConfiguracaoAdicional, Relogio, ServicosDeTeste);
         return ValueTask.CompletedTask;
     }
 

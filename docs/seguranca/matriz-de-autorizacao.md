@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 8. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 9. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -52,6 +52,7 @@
 | `GET /api/motoristas/{id}/posicao-atual` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `GET /api/entregas/{id}/previsao` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |
 
 "—" nas rotas de autenticação: a resposta depende das credenciais, não do perfil.
@@ -98,6 +99,9 @@ inverso.
 | Token na query string autentica só o hub do console; em rota da API, não | o navegador não envia cabeçalho em WebSocket |
 | Sessão revogada derruba as conexões de tempo real dela; token vencido fecha a conexão | detectado no commit da revogação |
 | Rastreamento público não usa o canal interno | o hub exige sessão do console |
+| Previsão e situação do SLA não são informadas por ninguém: não há rota de escrita | calculadas pelo sistema a partir da execução; [ADR 0018](../adr/0018-previsao-de-chegada-e-sla.md) |
+| Recálculo em segundo plano roda no tenant da organização do pedido, nunca sem tenant | contexto de persistência criado com o tenant do pedido; a reavaliação periódica lê sem tenant só identificadores |
+| Explicação da previsão não leva coordenada nem dado do destinatário | só durações, distâncias e regras |
 
 ## Como adicionar um endpoint
 

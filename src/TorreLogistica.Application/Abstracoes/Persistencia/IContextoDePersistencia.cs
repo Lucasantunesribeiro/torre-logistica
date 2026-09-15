@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Operacao;
+using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 
@@ -96,6 +98,18 @@ public interface IContextoDePersistencia
 
     /// <summary>Entradas e saídas das geofences, filtradas pelo tenant. Somente-inserção.</summary>
     DbSet<EventoDeGeofence> EventosDeGeofence { get; }
+
+    /// <summary>Previsão atual de chegada e situação do SLA por entrega, filtrada pelo tenant.</summary>
+    DbSet<PrevisaoDaEntrega> PrevisoesDaEntrega { get; }
+
+    /// <summary>Histórico de previsões, filtrado pelo tenant. Somente-inserção.</summary>
+    DbSet<RegistroDePrevisao> RegistrosDePrevisao { get; }
+
+    /// <summary>
+    /// Distância geodésica entre cada par de pontos consecutivos, em metros — calculada pelo PostGIS
+    /// (<c>ST_Distance</c> sobre <c>geography</c>). Um valor a menos que a quantidade de pontos.
+    /// </summary>
+    Task<IReadOnlyList<double>> CalcularDistanciasDoTrajetoAsync(IReadOnlyList<CoordenadaGeografica> pontos, CancellationToken cancelamento);
 
     /// <summary>
     /// Distância geodésica do ponto a cada destino de entrega, e se ele está dentro do raio e da margem

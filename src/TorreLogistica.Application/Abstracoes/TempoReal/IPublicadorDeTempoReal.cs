@@ -1,4 +1,5 @@
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Previsao;
 
 namespace TorreLogistica.Application.Abstracoes.TempoReal;
 
@@ -25,6 +26,21 @@ public sealed record StatusDaEntregaAlterado(
     Guid EntregaId,
     StatusDaEntrega Status,
     TipoDeEventoDaEntrega Evento,
+    int Sequencia,
+    DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
+
+/// <summary>A situação do SLA de uma entrega mudou (<c>DeliveryRiskChanged</c>).</summary>
+/// <remarks>
+/// Leva a regra que decidiu e a sequência no histórico de previsões; a explicação completa vem da API.
+/// </remarks>
+public sealed record RiscoDaEntregaAlterado(
+    Guid OrganizacaoId,
+    Guid EntregaId,
+    SituacaoDoSla? SituacaoAnterior,
+    SituacaoDoSla Situacao,
+    MotivoDaSituacao Motivo,
+    DateTimeOffset? ChegadaPrevistaEm,
+    int? FolgaEmSegundos,
     int Sequencia,
     DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
 

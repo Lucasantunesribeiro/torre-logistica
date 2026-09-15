@@ -11,6 +11,7 @@ using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Entregas;
 using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Execucao;
+using TorreLogistica.Api.Previsao;
 using TorreLogistica.Api.Rastreamento;
 using TorreLogistica.Api.Rotas;
 using TorreLogistica.Api.Seguranca;
@@ -21,6 +22,7 @@ using TorreLogistica.Application.Abstracoes.Correlacao;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Infrastructure;
 using TorreLogistica.Infrastructure.Desenvolvimento;
+using TorreLogistica.Infrastructure.Previsao;
 
 // Logger provisório: garante que uma falha durante a própria construção do host
 // ainda apareça em algum lugar, em vez de morrer silenciosamente.
@@ -124,6 +126,7 @@ try
     construtor.Services.AdicionarCamadaDeApplication();
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
     construtor.Services.AdicionarTempoRealDaOperacao();
+    construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
 
     var aplicacao = construtor.Build();
 
@@ -191,6 +194,7 @@ try
     aplicacao.MapearEndpointsDeRotas();
     aplicacao.MapearEndpointsDeExecucao();
     aplicacao.MapearEndpointsDeRastreamento();
+    aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearTempoRealDaOperacao();
 
     await aplicacao.RunAsync().ConfigureAwait(false);
