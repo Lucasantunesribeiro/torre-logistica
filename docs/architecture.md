@@ -188,8 +188,8 @@ acompanham a resposta de falha.
 |---|---|:---:|
 | `UnitTests` | UUIDv7, relógio, contrato de erros, correlação, regras de identidade, política de renovação, hash de senha, tipos de valor (endereço, telefone, placa, CNPJ, coordenada), regras dos cadastros, entrega (criação, alteração tudo ou nada, cancelamento, janela, código, tabelas de regra por status), rota (paradas, ordem, atribuição, planejamento, cancelamento) e transições da entrega em rota, máquina de estados (comando × status), execução da entrega e da rota, política de aceitação de posição GPS, estado da geofence (entrada, histerese, reentrada, posição antiga) e proximidade, classificação do SLA nas bordas dos limiares, composição da chegada prevista, histórico de previsões fotografado, explicação em texto e validação das opções de previsão, ciclo de vida do alerta (deduplicação, resolução, reabertura, decisão do operador), regras de alerta nas bordas, descrição e limites | 527 |
 | `ArchitectureTests` | direção das dependências, simulador isolado, relógio, content root, domínio sem setter público, Application sem Npgsql, domínio sem NetTopologySuite, status só por comando da máquina de estados | 22 |
-| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), tempo real com cliente SignalR real (aviso, isolamento, reconexão, sessão revogada), previsão de chegada e SLA com relógio controlado e processador em segundo plano (Normal para Risco explicado, reavaliação sem evento, paradas anteriores, provedor que falha ou trava, sem provedor, histórico somente-inserção, aviso de risco), alertas (entrega problemática identificada pela lista, sem duplicar, offline que resolve e reabre, parado pela permanência no PostGIS, tentativas, resolução pelo operador, outra organização, ciclo de vida somente-inserção), concorrência otimista, geografia, auditoria, limite, logs | 381 |
-| Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout) | 49 |
+| `IntegrationTests` | API real contra PostgreSQL + PostGIS real: saúde, erros, borda, autenticação, renovação, reuso, prazos com relógio controlado, RBAC, isolamento entre tenants, gestão de contas, cadastros operacionais, entregas e timeline, código humano sob concorrência, montagem de rotas com regras entre rotas sob concorrência, execução pelo motorista, reatribuição concorrente com conclusão, ausência de endpoint genérico de status, ingestão de GPS (fora de ordem, duplicata, lote parcial, lotes simultâneos, métricas), geofence com pontos gerados no PostGIS (borda, duplicado, fora de ordem, reentrada, outro tenant, chegada simultânea), tempo real com cliente SignalR real (aviso, isolamento, reconexão, sessão revogada), previsão de chegada e SLA com relógio controlado e processador em segundo plano (Normal para Risco explicado, reavaliação sem evento, paradas anteriores, provedor que falha ou trava, sem provedor, histórico somente-inserção, aviso de risco), alertas (entrega problemática identificada pela lista, sem duplicar, offline que resolve e reabre, parado pela permanência no PostGIS, tentativas, resolução pelo operador, outra organização, ciclo de vida somente-inserção), leitura do motorista para a PWA (fluxo básico só pelas rotas do aplicativo, só o que é dele, reatribuída), concorrência otimista, geografia, auditoria, limite, logs | 394 |
+| Frontend (3 aplicações) | casca, roteamento, conexão, ambiente, sessão do console (login, renovação serializada, logout); PWA do motorista: fluxo básico completo, navegação, sessão encerrada, erros e conflito, estados vazios, permissão de localização negada, sem internet, rastreador de GPS, UUIDv7 do aparelho e responsividade | 78 |
 
 Os testes de integração usam PostgreSQL com PostGIS de verdade, por Testcontainers.
 Provedor em memória não prova transação, constraint, índice nem geografia — que é
@@ -511,6 +511,29 @@ ProcessadorDePrevisoes, por rota (evento ou reavaliação periódica)
 
 Limites em `Torre:Alertas`; motivos em [ADR 0019](./adr/0019-motor-de-alertas-operacionais.md).
 
+## Fase 11 — PWA do motorista
+
+```text
+apps/motorista (React, TanStack Query, Zod)
+  sessão: /api/motorista/autenticacao — token em memória, renovação por cookie, cache limpo ao sair
+  leitura: GET /api/motorista/rotas · /rotas/{id} · /entregas/{id}  (ConsultaDoMotorista, modelo próprio)
+  comandos: início · chegada · conclusão (com confirmação) · tentativa com motivo · encerramento da rota
+  GPS: RastreadorDeLocalizacao — watchPosition só com rota em andamento e app aberto
+       → lote a cada 15 s, UUIDv7 e sequência do aparelho → POST /api/motorista/posicoes
+```
+
+| Tela | Caminho |
+|---|---|
+| Entrar | `/entrar` |
+| Rota do dia e próxima entrega | `/` |
+| Lista de paradas | `/rotas/{id}/paradas` |
+| Detalhe da entrega (chegada, conclusão, mapa, ligar, ocorrências) | `/entregas/{id}` |
+| Registrar ocorrência (tentativa sem sucesso com motivo) | `/entregas/{id}/ocorrencia` |
+
+Uma coluna, ações com alvo de toque de 3,5rem, estado de conexão e de localização sempre visíveis. Sem
+service worker nesta fase — offline é a Fase 12. Limitações reais de localização em navegador e decisões
+em [ADR 0020](./adr/0020-pwa-do-motorista.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhuma ocorrência nem mapa na tela: chegam nas Fases 13 e 18. O alerta de ocorrência crítica tem tipo,
@@ -521,11 +544,11 @@ organização ou cliente, nem classificação de chegada antes da janela. Não h
 instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há retenção
 automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de
-entrega (Fase 14), tela de execução para o motorista (Fase 11) nem deduplicação por identificador de
-operação offline (Fases 11 e 12). Não há fuso horário configurado por organização: datas de rota usam
+entrega (Fase 14), service worker, fila persistente no aparelho nem deduplicação por identificador de
+operação offline (Fase 12). Não há fuso horário configurado por organização: datas de rota usam
 UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
-organizações tem duas contas. A PWA do motorista ainda não tem tela de login; o endpoint existe
-e é testado, a interface é da Fase 11.
+organizações tem duas contas. Não há localização em segundo plano na PWA: o navegador não garante, e o
+aplicativo avisa o motorista para mantê-lo aberto (ADR 0020).
 
 `Workers` sobe, confere que o banco está alcançável e encerra se não estiver — sem job
 registrado. `Simulator` exercita só o endpoint de prontidão.

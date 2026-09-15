@@ -47,6 +47,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/conclusao", Status(401, 401, 401, 404, 401)),
         ("POST", "/api/motorista/rotas/0198f0e2-0000-7000-8000-000000000001/inicio", Status(401, 401, 401, 404, 401)),
         ("POST", "/api/motorista/posicoes", Status(401, 401, 401, 404, 401)),
+        ("GET", "/api/motorista/rotas", Status(401, 401, 401, 404, 401)),
+        ("GET", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001", Status(401, 401, 401, 404, 401)),
 
         // O alvo é uma conta, não um motorista: quem pode ler recebe 404, igual a inexistente.
         ("GET", "/api/motoristas/{alvo}/posicao-atual", Status(404, 404, 404, 401, 401)),
@@ -204,6 +206,9 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/rotas/{id:guid}/planejamento"] = "operacao:gestao",
             ["POST /api/rotas/{id:guid}/cancelamento"] = "operacao:gestao",
             ["POST /api/entregas/{id:guid}/reagendamento"] = "entregas:operacao",
+            ["GET /api/motorista/rotas"] = "motorista",
+            ["GET /api/motorista/rotas/{id:guid}"] = "motorista",
+            ["GET /api/motorista/entregas/{id:guid}"] = "motorista",
             ["POST /api/motorista/rotas/{id:guid}/inicio"] = "motorista",
             ["POST /api/motorista/rotas/{id:guid}/conclusao"] = "motorista",
             ["POST /api/motorista/entregas/{id:guid}/chegada"] = "motorista",

@@ -1,30 +1,43 @@
 import { Route, Routes } from 'react-router';
 
 import { IndicadorDeConexao } from './componentes/IndicadorDeConexao';
+import { AreaDoMotorista } from './paginas/AreaDoMotorista';
+import { DetalheDaEntrega } from './paginas/DetalheDaEntrega';
+import { Entrar } from './paginas/Entrar';
+import { ListaDeParadas } from './paginas/ListaDeParadas';
+import { RegistrarOcorrencia } from './paginas/RegistrarOcorrencia';
 import { RotaDesconhecida } from './paginas/RotaDesconhecida';
 import { RotaDoDia } from './paginas/RotaDoDia';
+import { RotaProtegida } from './sessao/RotaProtegida';
 
 /**
- * Casca da PWA do motorista.
+ * PWA do motorista.
  *
- * Aplicação separada do console de propósito: a interface do motorista é orientada
- * a executar a próxima parada, não a administrar a operação. Compartilhar a casca
- * com o console levaria, na prática, a um painel administrativo comprimido no celular.
+ * Aplicação separada do console de propósito (ADR 0003): a interface é orientada a executar a próxima
+ * parada, com ações grandes, e não a administrar a operação num celular.
  */
 export function App() {
   return (
-    <main>
-      <h1>Torre Logística</h1>
-      <p className="sumario">Aplicativo do motorista.</p>
-
-      <div className="cartao">
+    <div className="app">
+      <header className="topo">
+        <span className="topo__marca">Torre Logística</span>
         <IndicadorDeConexao />
-      </div>
+      </header>
 
-      <Routes>
-        <Route path="/" element={<RotaDoDia />} />
-        <Route path="*" element={<RotaDesconhecida />} />
-      </Routes>
-    </main>
+      <main>
+        <Routes>
+          <Route path="/entrar" element={<Entrar />} />
+          <Route element={<RotaProtegida />}>
+            <Route element={<AreaDoMotorista />}>
+              <Route path="/" element={<RotaDoDia />} />
+              <Route path="/rotas/:rotaId/paradas" element={<ListaDeParadas />} />
+              <Route path="/entregas/:entregaId" element={<DetalheDaEntrega />} />
+              <Route path="/entregas/:entregaId/ocorrencia" element={<RegistrarOcorrencia />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<RotaDesconhecida />} />
+        </Routes>
+      </main>
+    </div>
   );
 }

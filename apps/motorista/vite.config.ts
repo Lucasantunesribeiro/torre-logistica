@@ -31,6 +31,11 @@ export default defineConfig({
     },
 
     globals: true,
+
+    // Por padrão o Vitest devolve CSS vazio, inclusive com `?raw`. A folha de estilos é processada para o
+    // teste de responsividade ler as regras reais (src/estilos.test.ts).
+    css: { include: [/estilos\.css/] },
+
     setupFiles: ['./vitest.setup.ts'],
     restoreMocks: true,
   },

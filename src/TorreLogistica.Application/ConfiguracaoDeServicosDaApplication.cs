@@ -44,6 +44,7 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<GestaoDeEntregas>();
         servicos.AddScoped<GestaoDeRotas>();
         servicos.AddScoped<ExecucaoPeloMotorista>();
+        servicos.AddScoped<ConsultaDoMotorista>();
 
         // Métricas são instrumentos do processo: uma instância só.
         servicos.AddSingleton<MetricasDeRastreamento>();

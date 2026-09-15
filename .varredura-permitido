@@ -2,6 +2,8 @@ src/torrelogistica.domain/identidade/usuario.cs:senha
 src/torrelogistica.infrastructure/persistencia/migrations/20260914122449_identidade.cs:senha
 apps/operacao/src/app.test.tsx:senha
 apps/operacao/src/infra/sessao.test.ts:senha
+apps/motorista/src/app.test.tsx:senha
+apps/motorista/src/infra/sessao.test.ts:senha
 tests/torrelogistica.integrationtests/autenticacaotestes.cs:senha
 tests/torrelogistica.integrationtests/autorizacaotestes.cs:senha
 tests/torrelogistica.integrationtests/gestaodeusuariostestes.cs:senha

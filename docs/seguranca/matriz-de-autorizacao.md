@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 10. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 11. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -46,6 +46,7 @@
 | `POST /api/rotas` | 201 | 201 | 403 | **401** | 401 | `operacao:gestao` |
 | `POST .../paradas`, `DELETE .../paradas/{entregaId}`, `PUT .../ordem`, `.../motorista`, `.../veiculo`, `.../saida`, `POST .../planejamento`, `.../cancelamento` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `POST /api/entregas/{id}/reagendamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
+| `GET /api/motorista/rotas`, `GET /api/motorista/rotas/{id}` e `GET /api/motorista/entregas/{id}` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/rotas/{id}/inicio` e `.../conclusao` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/entregas/{id}/chegada`, `.../conclusao` e `.../tentativa-frustrada` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/posicoes` | **401** | **401** | **401** | 200 | 401 | `motorista` + limite por motorista |
@@ -108,6 +109,10 @@ inverso.
 | Alerta de outra organização responde 404 idêntico a inexistente, inclusive na resolução | filtro global de tenant nas duas tabelas |
 | Evidência e aviso de alerta sem coordenada nem dado do destinatário | a localização exata fica no histórico de posições, só para gestão |
 | Resolução registra quem resolveu e a observação, em ciclo de vida somente-inserção | trigger no banco |
+| Motorista lê só as próprias rotas e entregas, com modelo próprio sem dado do console; o resto responde 404 | [ADR 0020](../adr/0020-pwa-do-motorista.md) |
+| Contato e instruções do destinatário só no detalhe da entrega do próprio motorista | não aparecem na lista da rota |
+| PWA guarda o token de acesso só em memória e limpa o cache de consultas ao sair | ninguém que pegar o aparelho depois vê a rota anterior |
+| Localização só é pedida e coletada com rota em andamento e o aplicativo aberto | coleta mínima; sem rastreamento em segundo plano |
 
 ## Como adicionar um endpoint
 

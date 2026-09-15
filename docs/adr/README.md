@@ -27,6 +27,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0017](./0017-tempo-real-da-operacao.md) | Tempo real: aviso só depois do commit, grupo pela sessão, conexão que cai com a sessão | 8 | aceita |
 | [0018](./0018-previsao-de-chegada-e-sla.md) | Previsão de chegada e SLA: cálculo explicável por rota, fora da requisição, contingência e histórico fotografado | 9 | aceita |
 | [0019](./0019-motor-de-alertas-operacionais.md) | Motor de alertas: regras tipadas, uma chave por problema, ciclo de vida com reabertura | 10 | aceita |
+| [0020](./0020-pwa-do-motorista.md) | PWA do motorista: leitura própria, ações grandes, GPS só em primeiro plano | 11 | aceita |
 
 ## Regras
 

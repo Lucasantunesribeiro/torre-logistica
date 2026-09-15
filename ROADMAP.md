@@ -2271,6 +2271,153 @@ Motorista consegue completar fluxo básico usando somente a PWA.
 
 ---
 
+## Fase 11 concluída — 2026-09-15
+
+### Telas
+
+| Tela pedida | Resultado | Onde |
+|---|:---:|---|
+| login | ✅ | `/entrar`, canal do motorista, token só em memória, renovação por cookie |
+| rota do dia | ✅ | `/`: rota em andamento primeiro; veículo, saída, pendentes; próximas rotas |
+| lista de paradas | ✅ | `/rotas/{id}/paradas`, na ordem da rota |
+| próxima entrega | ✅ | cartão em destaque na rota do dia, com "Abrir entrega" |
+| detalhe | ✅ | `/entregas/{id}`: endereço, janela, instruções, observações, abrir no mapa, ligar |
+| iniciar rota | ✅ | botão na rota do dia |
+| chegada | ✅ | "Cheguei ao destino" |
+| tentativa frustrada | ✅ | `/entregas/{id}/ocorrencia`, motivo tipado obrigatório |
+| concluir | ✅ | "Entrega concluída" com confirmação; "Encerrar rota" quando tudo tem resultado |
+| ocorrências | ✅ | registro com motivo tipado e histórico no detalhe; hoje a ocorrência do domínio é a tentativa sem sucesso — tipos além dela (veículo, mercadoria, severidade) são da Fase 13 |
+| estado de conexão | ✅ | cabeçalho: sem internet no aparelho, conectada, acordando, inalcançável; localização sempre visível na rota |
+
+### Backend necessário para a PWA
+
+A API do motorista só tinha comandos. Entraram três leituras próprias, com modelo sem dado do console:
+`GET /api/motorista/rotas`, `GET /api/motorista/rotas/{id}` e `GET /api/motorista/entregas/{id}`.
+Só o que é do motorista da sessão; o resto responde 404, e a entrega reatribuída, `409 entrega_reatribuida`.
+
+### UX
+
+- Uma coluna, ações com a largura inteira e alvo de toque de 3,5rem; fonte de 16px; contraste alto.
+- Nenhum painel: a rota do dia mostra a próxima ação.
+- Concluir pede confirmação; ocorrência exige motivo.
+- Toda falha vira frase curta, dizendo o que fazer; comando recusado atualiza a tela.
+
+### GPS
+
+`watchPosition` com alta precisão só com rota em andamento e o aplicativo aberto. Lote a cada 15 s, com
+UUIDv7 e sequência do aparelho; falha de envio mantém até 200 posições em memória e reenvia com os mesmos
+identificadores.
+
+**Limitações reais, documentadas no [ADR 0020](./docs/adr/0020-pwa-do-motorista.md) e ditas ao motorista:**
+
+- não existe API web de localização em segundo plano: com a tela bloqueada ou o app em segundo plano, o
+  navegador suspende as leituras;
+- permissão negada só o motorista libera;
+- Background Sync não é garantido;
+- fechar o navegador perde o que está em memória, e a fila persistente é da Fase 12.
+
+O aplicativo avisa "mantenha o aplicativo aberto", e o alerta de motorista offline (Fase 10) cobre a
+ausência.
+
+### Critério de aceite
+
+> Motorista consegue completar fluxo básico usando somente a PWA.
+
+✅ Nas duas pontas:
+
+- **PWA** — `motorista completa o fluxo básico só pela PWA`: com servidor que aplica os comandos como a
+  máquina de estados, o motorista inicia a rota, abre a próxima entrega, registra chegada, conclui com
+  confirmação, abre a seguinte, registra ocorrência com motivo "Local fechado" e encerra a rota, até o
+  estado "Nenhuma rota para você agora". Os comandos saem exatamente nesta ordem: início, chegada,
+  conclusão, tentativa, encerramento.
+- **API real** — `FluxoBasicoDoMotoristaSoComAsRotasDaPwa`: o mesmo fluxo usando só as rotas que a PWA
+  chama, contra PostgreSQL real, até a rota sair da lista do dia.
+
+### Testes pedidos pelo roadmap
+
+| Pedido | Onde |
+|---|---|
+| navegação | lista de paradas → detalhe, links de mapa e telefone; tela inexistente; critério de aceite |
+| autorização | sessão encerrada no meio da rota volta ao login; login só pelo canal do motorista; `MotoristaSoLeOQueEhDele` (outro motorista e outra organização 404, token do console 401); matriz de autorização |
+| estados | sem rota; rota planejada → em andamento → tudo resolvido → encerrada; localização aguardando, ativa, bloqueada, indisponível e sem sinal |
+| permission denied de geolocation | `localização negada avisa e não impede concluir a entrega`; `rastreador.test.ts` |
+| erros | reatribuída explicada (PWA e API); comando recusado atualiza a tela; falha 500 com "Tentar de novo"; sem internet no aparelho |
+| responsividade | `estilos.test.ts`: viewport, ações com largura inteira e alvo de toque, sem largura fixa em pixel nem conteúdo escondido, manifesto |
+
+Além do pedido: localização só pedida com rota em andamento, reenvio de posições com os mesmos
+identificadores, limite de pendentes, UUIDv7 do aparelho, renovação única de sessão.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 527 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 394 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 41 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **1.021** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Security Gate 11
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autoridade separada | ✅ | leituras do motorista só com a política do motorista; token do console 401 |
+| Isolamento | ✅ | motorista resolvido pela sessão; rota ou entrega de outro motorista ou organização 404 |
+| Minimização | ✅ | modelo próprio sem cliente, versão ou auditoria; contato e instruções só no detalhe da própria entrega |
+| Token no navegador | ✅ | só em memória; `localStorage` e `sessionStorage` vazios (teste); cookie HttpOnly no caminho do canal |
+| Aparelho compartilhado | ✅ | sair limpa o cache de consultas |
+| Localização | ✅ | pedida e coletada só com rota em andamento e app aberto; destino ao mapa externo só no toque |
+| Entrada | ✅ | respostas validadas com Zod antes de chegar à tela; ocorrência só com motivo da lista |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados; nenhum segredo no pacote da PWA |
+| Dependências | ✅ | nenhum pacote novo; `npm audit`: 0 |
+
+### Defeitos e ajustes durante a fase
+
+1. **Teste com tipo de veículo inválido.** O cenário da leitura do motorista usava tipo `Van`, que não existe;
+   a API respondeu 400, corretamente. Corrigido para `Utilitario`.
+2. **Alerta errado encontrado pelo teste.** Dois testes procuravam "o" alerta da tela, mas com rota em
+   andamento no jsdom (sem geolocalização) o aviso "este aparelho não informa localização" também é um
+   alerta. Os testes passaram a procurar a mensagem esperada.
+3. **CSS vazio no teste de responsividade.** O Vitest devolve CSS vazio mesmo com `?raw`; a folha de estilos
+   passou a ser processada no teste (`css.include`), sem dependência nova.
+4. **Consulta repetia erro 4xx.** O cliente da PWA repetia qualquer falha; entrega reatribuída ou inexistente
+   não muda por insistência. Agora só repete erro de servidor ou de rede.
+
+### Decisões
+
+[ADR 0020](./docs/adr/0020-pwa-do-motorista.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Leitura própria do motorista**, não as rotas do console.
+- **Sessão paralela à do console**, sem pacote compartilhado ainda.
+- **GPS só em primeiro plano**, com as limitações ditas ao motorista.
+- **Sem service worker nesta fase**: sem a fila da Fase 12, abriria offline e falharia em cada ação.
+- **Navegação pelo aplicativo de mapas do aparelho**, por link, sem provedor contratado.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Operação offline (service worker, IndexedDB, `ClientOperationId`) | Fase 12 |
+| Tipos de ocorrência além da tentativa sem sucesso | Fase 13 |
+| Comprovante de entrega | Fase 14 |
+| Verificação manual em aparelho real e navegador real | antes da release (CLAUDE.md, seção 84); nesta fase a validação é automatizada |
+| Instalação em navegador que exige service worker | chega com a Fase 12 |
+| Ícone em PNG 192/512 para lojas e instaladores antigos | só SVG nesta fase |
+| Comandos devolvem o modelo do console | a PWA ignora e relê pela leitura própria; reduzir junto com a Fase 12 |
+| CI nunca executada | exige `git push`, não autorizado |
+
+### Commit
+
+`feat: PWA do motorista com rota do dia, execucao, ocorrencia e GPS em primeiro plano (Fase 11)`
+
+---
+
 # FASE 12 — OFFLINE, SINCRONIZAÇÃO E IDEMPOTÊNCIA
 
 ## Objetivo
@@ -3422,9 +3569,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 10 — Motor de Alertas Operacionais** (2026-09-15) |
-| Próxima fase | **Fase 11 — PWA do Motorista** |
-| Testes verdes | 979 — 527 unidade, 22 arquitetura, 381 integração, 49 frontend |
+| Última fase concluída | **Fase 11 — PWA do Motorista** (2026-09-15) |
+| Próxima fase | **Fase 12 — Offline, Sincronização e Idempotência** |
+| Testes verdes | 1.021 — 527 unidade, 22 arquitetura, 394 integração, 78 frontend |
 
 Comando para continuar:
 

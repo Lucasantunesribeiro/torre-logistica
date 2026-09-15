@@ -1,32 +1,46 @@
+import { useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { consultarProntidao } from '../infra/clienteDaApi';
 
-type Estado = 'carregando' | 'pronta' | 'indisponivel' | 'inalcancavel';
+type Estado = 'offline' | 'carregando' | 'pronta' | 'indisponivel' | 'inalcancavel';
 
 const rotulos: Record<Estado, string> = {
+  offline: 'Sem internet no aparelho',
   carregando: 'Verificando a conexão com a operação…',
   pronta: 'Operação conectada',
   indisponivel: 'Operação respondendo, dependências ainda subindo',
   inalcancavel: 'Não foi possível falar com a operação',
 };
 
+function assinarConexao(aviso: () => void): () => void {
+  window.addEventListener('online', aviso);
+  window.addEventListener('offline', aviso);
+  return () => {
+    window.removeEventListener('online', aviso);
+    window.removeEventListener('offline', aviso);
+  };
+}
+
 /**
- * Mostra o estado da ligação com a API.
- *
- * Três estados e não dois, de propósito. "Respondeu que não está pronta" é
- * diferente de "não respondeu": o primeiro acontece durante o cold start da
- * infraestrutura de demonstração e passa sozinho; o segundo é problema de verdade.
- * Tratar os dois como "fora do ar" faria a demo parecer quebrada ao ser aberta.
+ * Estado da ligação com a operação, em quatro situações: sem internet no aparelho, operação pronta,
+ * operação acordando e operação inalcançável. "Sem internet" vem do próprio navegador e aparece na hora,
+ * antes de qualquer requisição falhar.
  */
 export function IndicadorDeConexao() {
+  const online = useSyncExternalStore(assinarConexao, () => navigator.onLine, () => true);
+
   const consulta = useQuery({
     queryKey: ['prontidao'],
     queryFn: ({ signal }) => consultarProntidao(signal),
+    enabled: online,
+    refetchInterval: 60_000,
   });
 
   let estado: Estado = 'carregando';
-  if (consulta.isError) {
+  if (!online) {
+    estado = 'offline';
+  } else if (consulta.isError) {
     estado = 'inalcancavel';
   } else if (consulta.data) {
     estado = consulta.data.disponivel ? 'pronta' : 'indisponivel';

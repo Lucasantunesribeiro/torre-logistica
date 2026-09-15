@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router';
 
 import { App } from './App';
 import { criarClienteDeConsultas } from './infra/consultas';
+import { ProvedorDeSessao } from './sessao/ProvedorDeSessao';
 import './estilos.css';
 
 const raiz = document.getElementById('raiz');
@@ -17,7 +18,9 @@ createRoot(raiz).render(
   <StrictMode>
     <QueryClientProvider client={criarClienteDeConsultas()}>
       <BrowserRouter>
-        <App />
+        <ProvedorDeSessao>
+          <App />
+        </ProvedorDeSessao>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

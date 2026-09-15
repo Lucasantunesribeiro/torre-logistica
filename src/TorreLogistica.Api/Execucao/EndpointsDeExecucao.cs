@@ -31,6 +31,19 @@ public static class EndpointsDeExecucao
 
         var grupo = rotas.MapGroup("/api/motorista").WithTags("Execução pelo motorista");
 
+        // Leitura do aplicativo: só o que é do motorista da sessão, com modelo próprio e dados mínimos.
+        grupo.MapGet("/rotas", (ConsultaDoMotorista consulta, CancellationToken cancelamento) =>
+                consulta.ListarRotasAsync(cancelamento))
+            .RequireAuthorization(Politicas.Motorista);
+
+        grupo.MapGet("/rotas/{id:guid}", (Guid id, ConsultaDoMotorista consulta, CancellationToken cancelamento) =>
+                consulta.ObterRotaAsync(id, cancelamento))
+            .RequireAuthorization(Politicas.Motorista);
+
+        grupo.MapGet("/entregas/{id:guid}", (Guid id, ConsultaDoMotorista consulta, CancellationToken cancelamento) =>
+                consulta.ObterEntregaAsync(id, cancelamento))
+            .RequireAuthorization(Politicas.Motorista);
+
         grupo.MapPost("/rotas/{id:guid}/inicio", (Guid id, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
                 execucao.IniciarRotaAsync(id, cancelamento))
             .RequireAuthorization(Politicas.Motorista);
