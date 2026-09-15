@@ -4,14 +4,14 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 11 — PWA do Motorista concluída.**
+> **Estado: Fase 12 — Offline, Sincronização e Idempotência concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
-> no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas e, agora,
-> a **PWA do motorista**: o motorista entra, vê a rota do dia e a próxima entrega, inicia a rota, registra
-> chegada, conclui ou registra ocorrência com motivo e encerra a rota — só pelo celular, com ações grandes
-> e a localização enviada enquanto o aplicativo está aberto. A operação offline vem na próxima fase. A
-> ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
+> motorista e, agora, a **operação sem conexão**: toda ação do motorista nasce no aparelho com
+> identificador próprio, fica guardada sem internet e é aplicada exatamente uma vez quando a conexão volta —
+> resposta perdida não duplica, e cancelamento feito enquanto o motorista estava offline não é
+> sobrescrito. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -119,6 +119,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0018](./docs/adr/0018-previsao-de-chegada-e-sla.md) | Previsão de chegada e SLA: cálculo explicável por rota, fora da requisição, contingência e histórico fotografado |
 | [0019](./docs/adr/0019-motor-de-alertas-operacionais.md) | Motor de alertas: regras tipadas, uma chave por problema e ciclo de vida com reabertura |
 | [0020](./docs/adr/0020-pwa-do-motorista.md) | PWA do motorista: leitura própria, ações grandes e GPS só em primeiro plano |
+| [0021](./docs/adr/0021-operacao-offline.md) | Operação offline: fila no aparelho e registro da operação na mesma transação do efeito |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

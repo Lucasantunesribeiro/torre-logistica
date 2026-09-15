@@ -42,6 +42,13 @@ public sealed class OpcoesDeLimiteDeRequisicoes
     /// </summary>
     [Range(1, 100_000)]
     public int EnviosDePosicaoPorMinuto { get; set; } = 60;
+
+    /// <summary>
+    /// Lotes de sincronização offline por minuto <b>por motorista</b>. O aplicativo envia ao reconectar e a
+    /// cada ação; o limite deixa folga para reenvio depois de rede instável.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int SincronizacoesPorMinuto { get; set; } = 30;
 }
 
 /// <summary>

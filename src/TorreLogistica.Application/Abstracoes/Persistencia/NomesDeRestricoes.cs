@@ -66,4 +66,7 @@ public static class NomesDeRestricoes
 
     /// <summary>Posição do evento no ciclo de vida única por alerta.</summary>
     public const string SequenciaDoEventoDoAlerta = "ux_eventos_de_alerta_alerta_id_sequencia";
+
+    /// <summary>Uma operação do aparelho por motorista: a mesma operação repetida não executa de novo.</summary>
+    public const string OperacaoDoCliente = "ux_operacoes_do_cliente_operacao";
 }

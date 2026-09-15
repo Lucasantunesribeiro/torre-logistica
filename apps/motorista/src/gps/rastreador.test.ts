@@ -142,6 +142,47 @@ describe('rastreador de localização', () => {
     expect(enviar.mock.calls[0]![0].map((posicao) => posicao.eventoDeLocalizacaoId)).toEqual(['id-3', 'id-4', 'id-5']);
   });
 
+  it('posições não enviadas sobrevivem a fechar o navegador e seguem na próxima abertura', async () => {
+    const disco = new Map<string, PosicaoParaEnvio>();
+    const armazenamento = {
+      carregar: () => Promise.resolve([...disco.values()]),
+      guardar: (posicoes: readonly PosicaoParaEnvio[]) => {
+        posicoes.forEach((posicao) => disco.set(posicao.eventoDeLocalizacaoId, posicao));
+        return Promise.resolve();
+      },
+      remover: (ids: readonly string[]) => {
+        ids.forEach((id) => disco.delete(id));
+        return Promise.resolve();
+      },
+    };
+
+    const geo = geolocalizacaoFalsa();
+    const antes = new RastreadorDeLocalizacao({
+      geolocalizacao: geo.api,
+      enviar: () => Promise.reject(new Error('sem rede')),
+      aoMudar: () => undefined,
+      armazenamento,
+      gerarId: () => `antes-${disco.size + 1}`,
+    });
+    antes.iniciar();
+    geo.emitir(1_726_400_000_000);
+    geo.emitir(1_726_400_001_000);
+    await antes.descarregar();
+    antes.parar();
+    await Promise.resolve();
+    expect([...disco.keys()]).toEqual(['antes-1', 'antes-2']);
+
+    // Nova abertura: outra instância, mesma memória do aparelho.
+    const enviar = vi.fn<(posicoes: readonly PosicaoParaEnvio[]) => Promise<unknown>>(() => Promise.resolve({}));
+    const depois = new RastreadorDeLocalizacao({ geolocalizacao: geolocalizacaoFalsa().api, enviar, aoMudar: () => undefined, armazenamento });
+    rastreadores.push(depois);
+    depois.iniciar();
+    await depois.descarregar();
+
+    expect(enviar.mock.calls[0]![0].map((posicao) => posicao.eventoDeLocalizacaoId)).toEqual(['antes-1', 'antes-2']);
+    expect(disco.size).toBe(0);
+  });
+
   it('parar desliga o monitoramento e envia o que ficou', async () => {
     const { geo, enviar, rastreador } = criar();
     rastreador.iniciar();

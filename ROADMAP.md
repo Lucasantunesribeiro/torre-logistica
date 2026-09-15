@@ -132,7 +132,7 @@ Não antecipar:
 | 9 | ETA e SLA | ⬜ |
 | 10 | Motor de Alertas Operacionais | ⬜ |
 | 11 | PWA do Motorista | ⬜ |
-| 12 | Offline, Sincronização e Idempotência | ⬜ |
+| 12 | Offline, Sincronização e Idempotência | ✅ |
 | 13 | Ocorrências e Tentativas de Entrega | ⬜ |
 | 14 | Proof of Delivery | ⬜ |
 | 15 | Rastreamento Público | ⬜ |
@@ -2418,6 +2418,142 @@ identificadores, limite de pendentes, UUIDv7 do aparelho, renovação única de 
 
 ---
 
+## Fase 12 concluída — 2026-09-15
+
+### IndexedDB
+
+Fila local `operacoes` no banco `torre-motorista`, com os campos pedidos:
+
+| Pedido | Campo |
+|---|---|
+| `ClientOperationId` UUIDv7 | `id`, gerado no aparelho antes de qualquer envio |
+| tipo | `tipo`: `IniciarRota`, `RegistrarChegada`, `ConcluirEntrega`, `RegistrarTentativaFrustrada`, `ConcluirRota` |
+| payload | `payload`: `{ alvoId, motivo }` |
+| createdAt | `criadaEm` (e `ordem`, a sequência das ações do motorista) |
+| status | `Pending`, `Uploading`, `Synced`, `Conflict`, `Failed` |
+| tentativas | `tentativas`, `ultimaTentativaEm` |
+
+Além da fila: cópia das leituras (rota do dia, rota, entrega), posições não enviadas e identidade de exibição
+(nunca token). Service worker guarda só a casca do aplicativo.
+
+### Backend — exatamente uma vez
+
+`POST /api/motorista/sincronizacao`, lote de 1 a 100, desfecho por operação. A tabela
+`operacoes_do_cliente` (somente-inserção, única por organização + motorista + operação) recebe o registro
+**na mesma transação** do efeito, pelo mesmo comando do caminho online. Repetição devolve o desfecho
+registrado com `repetida: true`; repetições simultâneas entram numa fila por motorista e encontram o registro.
+Conflito e recusa também ficam registrados e são definitivos. Operação com identificador reaproveitado para
+outro pedido é `operacao_divergente`.
+
+### Casos obrigatórios
+
+| Caso | API real (PostgreSQL) | PWA |
+|---|---|---|
+| Resposta perdida: backend conclui, resposta cai, PWA repete → mesmo resultado, sem efeito duplicado | `RespostaPerdidaERepetidaNaoDuplicaEfeito`: 1 evento `Entregue`, 1 registro, segunda resposta `repetida` | `resposta perdida: a repetição recebe o mesmo resultado e nada é aplicado duas vezes` |
+| Conflito real: offline conclui, operador cancela, reconecta → cancelamento preservado | `ConclusaoAtrasadaNaoSobrescreveCancelamento`: `Conflito transicao_invalida`, entrega `Cancelada`, repetição devolve o mesmo conflito | `conflito real: cancelamento feito enquanto o motorista estava sem internet não é sobrescrito`: aviso recuperável, tela atualizada, "Entendi" |
+
+### Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| offline | PWA `offline e reconexão…`: ações sem rede refletidas na tela, contador de pendentes, nenhum envio; `sincronizador.test.ts` "sem internet no aparelho não tenta enviar" |
+| reconnect | mesmo teste: evento `online` envia a fila; `guardadosNoAparelho.test.ts` e leitura pela cópia com o instante dela |
+| duplicate retry | API `RepeticoesSimultaneasTemUmUnicoEfeito` (6 envios simultâneos, 1 efeito); PWA resposta perdida; sincronizador reenvia com o mesmo identificador |
+| batch | API `LoteAplicaNaOrdemEDevolveDesfechoPorOperacao` (dia inteiro num lote, reenvio inteiro sem efeito) e `OperacaoInvalidaDivergenteOuAlheiaEhRecusadaSemDerrubarOLote`; PWA um único lote em ordem; sincronizador em lotes de 100 |
+| conflict | API cancelamento e reatribuição (`EntregaPassadaAOutroMotoristaEnquantoOfflineEhConflito`); PWA conflito real; sincronizador mapeia cada desfecho |
+| crash/restart de browser | PWA `fechar o aplicativo sem internet: reabre com a rota guardada e envia a fila…`; sincronizador retoma `Uploading` interrompido; rastreador reenvia posições guardadas no disco |
+| ação já sincronizada | PWA `ação já sincronizada não é enviada de novo`; API repetição devolve `repetida` sem novo evento |
+
+Além do pedido: lote vazio, maior que 100 ou com campo desconhecido (400); identificador que não é UUIDv7,
+operação com mais de 7 dias; operação de outra organização recusada sem efeito; trigger somente-inserção
+(UPDATE, DELETE, TRUNCATE); projeção local sem contar duas vezes; sessão sem rede por identidade guardada;
+saída sem rede confirmada no servidor antes da próxima renovação; service worker nunca intercepta a API.
+
+### Critério de aceite
+
+> Nenhuma ação crítica pode depender de "tomara que o POST não repita".
+
+✅ Estrutural e testado:
+
+- a PWA não chama mais nenhum comando direto — o teste do fluxo completo verifica que nenhuma chamada a
+  `/inicio`, `/chegada`, `/conclusao` ou `/tentativa-frustrada` sai do aplicativo;
+- toda ação nasce com `ClientOperationId` e o servidor grava o registro junto com o efeito, então repetir —
+  por rede instável, resposta perdida, envio simultâneo, aba fechada no meio — nunca aplica duas vezes.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 538 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 409 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 74 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **1.080** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Security Gate 12
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Tenant e dono | ✅ | motorista e organização vêm da sessão; operação sobre entrega de outra organização é recusada sem efeito (teste) |
+| Mass assignment | ✅ | lote com campo desconhecido (`motoristaId`) responde 400 |
+| Repetição e corrida | ✅ | índice único + fila por motorista; 6 envios simultâneos, 1 efeito |
+| Integridade do registro | ✅ | trigger `insufficient_privilege` para UPDATE, DELETE e TRUNCATE |
+| Limite | ✅ | política própria por motorista (`SincronizacoesPorMinuto`), lote de até 100 |
+| Operação antiga ou forjada | ✅ | UUIDv7 obrigatório, até 7 dias, até 2 min no futuro |
+| Token no aparelho | ✅ | IndexedDB guarda identidade de exibição, nunca token; token segue só em memória |
+| Aparelho compartilhado | ✅ | sair apaga cópias, posições e identidade; saída sem rede é confirmada no servidor antes de renovar |
+| Service worker | ✅ | só casca de mesma origem; nunca API nem outra origem (teste) |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados |
+| Dependências | ✅ | `fake-indexeddb` 6.2.5 só em teste (Apache-2.0); `npm audit`: 0; .NET sem pacote vulnerável ou obsoleto |
+
+### Defeitos e ajustes durante a fase
+
+1. **Log de erro falso em repetição simultânea.** A primeira versão deixava a segunda requisição da mesma
+   operação perder no índice único ou no controle de versão da entrega; o resultado estava certo, mas o EF
+   registrava erro de banco. A transação passou a entrar numa fila por motorista e conferir o registro na vez;
+   o índice único ficou como rede de segurança.
+2. **Banco local preso ao teste anterior.** A conexão do IndexedDB era guardada por módulo e continuava
+   apontando para a fábrica do teste anterior. A conexão agora é reaberta quando a fábrica muda.
+3. **Saída sem rede reabria a sessão.** Descoberto ao desenhar a sessão offline: sair sem internet deixava o
+   cookie válido, e a próxima abertura renovaria sozinha. A saída não confirmada fica anotada e é confirmada
+   antes de qualquer renovação.
+
+Observação fora da fase: ao desligar o host de teste, o EF às vezes registra "An error occurred using a
+transaction" de um processamento em segundo plano cancelado; acontece igual em classes de teste de fases
+anteriores, sem falha de teste.
+
+### Decisões
+
+[ADR 0021](./docs/adr/0021-operacao-offline.md).
+
+- **Registro da operação na mesma transação do efeito**, e não inbox genérica nem `Idempotency-Key` por rota.
+- **Um endpoint em lote, ordenado**, reaproveitando os comandos e a máquina de estados do caminho online.
+- **Conflito definitivo**: repetir não tenta de novo contra um estado que mudou.
+- **Envio pelo aplicativo**, sem depender de Background Sync.
+- **IndexedDB sem biblioteca** e service worker só de casca.
+- **Sessão sem rede** por identidade de exibição guardada por 7 dias.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Comprovante de entrega offline | Fase 14 (o roadmap o põe com a prova de entrega) |
+| Retenção de `operacoes_do_cliente` | com as políticas de retenção |
+| Envio com o navegador fechado | não existe na web sem Background Sync garantido; envia na próxima abertura (ADR 0021) |
+| Verificação manual em aparelho real, modo avião | antes da release (CLAUDE.md, seção 84) |
+| CI nunca executada | exige `git push`, não autorizado |
+
+### Commit
+
+`feat: operacao offline com fila no aparelho e sincronizacao exatamente uma vez (Fase 12)`
+
+---
+
 # FASE 12 — OFFLINE, SINCRONIZAÇÃO E IDEMPOTÊNCIA
 
 ## Objetivo
@@ -3569,9 +3705,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 11 — PWA do Motorista** (2026-09-15) |
-| Próxima fase | **Fase 12 — Offline, Sincronização e Idempotência** |
-| Testes verdes | 1.021 — 527 unidade, 22 arquitetura, 394 integração, 78 frontend |
+| Última fase concluída | **Fase 12 — Offline, Sincronização e Idempotência** (2026-09-15) |
+| Próxima fase | **Fase 13 — Ocorrências e Tentativas de Entrega** |
+| Testes verdes | 1.080 — 538 unidade, 22 arquitetura, 409 integração, 111 frontend |
 
 Comando para continuar:
 

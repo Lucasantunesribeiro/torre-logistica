@@ -92,4 +92,7 @@ public static class PoliticasDeLimite
 
     /// <summary>Envio de posições, por motorista autenticado.</summary>
     public const string Telemetria = "limite-telemetria";
+
+    /// <summary>Sincronização de operações offline, por motorista autenticado.</summary>
+    public const string Sincronizacao = "limite-sincronizacao";
 }

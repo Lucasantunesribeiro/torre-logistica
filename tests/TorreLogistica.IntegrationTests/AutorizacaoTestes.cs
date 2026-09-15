@@ -48,6 +48,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/motorista/rotas/0198f0e2-0000-7000-8000-000000000001/inicio", Status(401, 401, 401, 404, 401)),
         ("POST", "/api/motorista/posicoes", Status(401, 401, 401, 404, 401)),
         ("GET", "/api/motorista/rotas", Status(401, 401, 401, 404, 401)),
+        ("POST", "/api/motorista/sincronizacao", Status(401, 401, 401, 404, 401)),
         ("GET", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001", Status(401, 401, 401, 404, 401)),
 
         // O alvo é uma conta, não um motorista: quem pode ler recebe 404, igual a inexistente.
@@ -104,6 +105,10 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ("POST", "/api/entregas") => corpoDeEntrega,
             ("POST", "/api/rotas") => new { data = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)) },
             ("POST", "/api/motorista/posicoes") => PosicoesTestes.Corpo(PosicoesTestes.Posicao(1, DateTimeOffset.UtcNow)),
+            ("POST", "/api/motorista/sincronizacao") => new
+            {
+                operacoes = new[] { new { operacaoDoClienteId = Guid.CreateVersion7(), tipo = "ConcluirEntrega", alvoId = Guid.CreateVersion7(), criadaEm = DateTimeOffset.UtcNow } },
+            },
             ("POST", "/api/usuarios") => new
             {
                 nome = "Conta Nova",
@@ -215,6 +220,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/motorista/entregas/{id:guid}/conclusao"] = "motorista",
             ["POST /api/motorista/entregas/{id:guid}/tentativa-frustrada"] = "motorista",
             ["POST /api/motorista/posicoes"] = "motorista",
+            ["POST /api/motorista/sincronizacao"] = "motorista",
             ["GET /api/motoristas/{id:guid}/posicao-atual"] = "operacao:leitura",
             ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
             ["GET /api/entregas/{id:guid}/geofence"] = "operacao:leitura",

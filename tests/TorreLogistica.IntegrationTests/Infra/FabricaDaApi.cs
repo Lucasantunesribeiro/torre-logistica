@@ -54,6 +54,7 @@ public sealed class FabricaDaApi(
                 ["Torre:LimiteDeRequisicoes:TentativasDeLoginPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:RenovacoesPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:EnviosDePosicaoPorMinuto"] = "100000",
+                ["Torre:LimiteDeRequisicoes:SincronizacoesPorMinuto"] = "100000",
 
                 // O banco é compartilhado pela suíte: a reavaliação periódica de uma API varreria as rotas
                 // em andamento de todos os testes. Os testes de previsão configuram o intervalo deles.

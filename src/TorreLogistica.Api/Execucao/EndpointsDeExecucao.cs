@@ -2,12 +2,28 @@ using System.ComponentModel.DataAnnotations;
 using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Application.Execucao;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Sincronizacao;
 
 namespace TorreLogistica.Api.Execucao;
 
 /// <summary>Tentativa de entrega sem sucesso.</summary>
 public sealed record RequisicaoDeTentativaFrustrada(
     [property: Required(ErrorMessage = "Informe o motivo.")] MotivoDeTentativaFrustrada? Motivo);
+
+/// <summary>Uma operação feita no aparelho. Campos anuláveis para recusar item a item.</summary>
+public sealed record RequisicaoDeOperacao(
+    Guid? OperacaoDoClienteId,
+    TipoDeOperacaoDoCliente? Tipo,
+    Guid? AlvoId,
+    MotivoDeTentativaFrustrada? Motivo,
+    DateTimeOffset? CriadaEm);
+
+/// <summary>Lote de operações feitas no aparelho, na ordem em que aconteceram.</summary>
+public sealed record RequisicaoDeSincronizacao(
+    [property: Required(ErrorMessage = "Informe as operações.")]
+    [property: MinLength(1, ErrorMessage = "Informe ao menos uma operação.")]
+    [property: MaxLength(PoliticaDeOperacaoDoCliente.TamanhoMaximoDoLote, ErrorMessage = "Lote maior que o permitido.")]
+    RequisicaoDeOperacao[]? Operacoes);
 
 /// <summary>
 /// Comandos de execução do motorista, pelo canal da PWA.
@@ -64,6 +80,17 @@ public static class EndpointsDeExecucao
                 execucao.RegistrarTentativaFrustradaAsync(id, requisicao.Motivo!.Value, cancelamento))
             .RequireAuthorization(Politicas.Motorista)
             .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeTentativaFrustrada>>();
+
+        // Caminho do aplicativo para toda ação crítica: cada operação com o identificador do aparelho,
+        // aplicada exatamente uma vez. Responde 200 com o desfecho de cada operação, na ordem do envio.
+        grupo.MapPost("/sincronizacao", (RequisicaoDeSincronizacao requisicao, SincronizacaoDoMotorista sincronizacao, CancellationToken cancelamento) =>
+                sincronizacao.ProcessarAsync(
+                    [.. requisicao.Operacoes!.Select(operacao => new OperacaoEnviada(
+                        operacao.OperacaoDoClienteId, operacao.Tipo, operacao.AlvoId, operacao.Motivo, operacao.CriadaEm))],
+                    cancelamento))
+            .RequireAuthorization(Politicas.Motorista)
+            .RequireRateLimiting(PoliticasDeLimite.Sincronizacao)
+            .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeSincronizacao>>();
 
         return rotas;
     }

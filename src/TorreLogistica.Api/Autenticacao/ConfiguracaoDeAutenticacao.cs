@@ -111,7 +111,11 @@ public static class ConfiguracaoDeAutenticacao
 
             // Telemetria por motorista, não por endereço: aparelhos de operadora móvel saem pelo mesmo
             // IP público (CGNAT), e um limite por endereço bloquearia motoristas legítimos juntos.
-            limites.AddPolicy(PoliticasDeLimite.Telemetria, JanelaPorMotorista);
+            limites.AddPolicy(PoliticasDeLimite.Telemetria, http => JanelaPorMotorista(
+                http, PoliticasDeLimite.Telemetria, opcoes => opcoes.EnviosDePosicaoPorMinuto));
+
+            limites.AddPolicy(PoliticasDeLimite.Sincronizacao, http => JanelaPorMotorista(
+                http, PoliticasDeLimite.Sincronizacao, opcoes => opcoes.SincronizacoesPorMinuto));
         });
 
         return servicos;
@@ -144,7 +148,10 @@ public static class ConfiguracaoDeAutenticacao
             });
     }
 
-    private static RateLimitPartition<string> JanelaPorMotorista(HttpContext http)
+    private static RateLimitPartition<string> JanelaPorMotorista(
+        HttpContext http,
+        string politica,
+        Func<OpcoesDeLimiteDeRequisicoes, int> limite)
     {
         var opcoes = http.RequestServices.GetRequiredService<IOptions<OpcoesDeLimiteDeRequisicoes>>().Value;
 
@@ -154,10 +161,10 @@ public static class ConfiguracaoDeAutenticacao
             ?? "desconhecido";
 
         return RateLimitPartition.GetFixedWindowLimiter(
-            $"{PoliticasDeLimite.Telemetria}:{conta}",
+            $"{politica}:{conta}",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = opcoes.EnviosDePosicaoPorMinuto,
+                PermitLimit = limite(opcoes),
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,

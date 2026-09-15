@@ -16,6 +16,7 @@ using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
+using TorreLogistica.Domain.Sincronizacao;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
 
@@ -130,6 +131,9 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<EventoDoAlerta> EventosDeAlerta => Set<EventoDoAlerta>();
+
+    /// <inheritdoc />
+    public DbSet<OperacaoDoCliente> OperacoesDoCliente => Set<OperacaoDoCliente>();
 
     /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
@@ -552,6 +556,12 @@ public class TorreLogisticaDbContext(
             cancelamento);
 
     /// <inheritdoc />
+    public Task SerializarSincronizacaoDoMotoristaAsync(Guid motoristaId, CancellationToken cancelamento) =>
+        Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({"sincronizacao:" + motoristaId.ToString()}, 0))",
+            cancelamento);
+
+    /// <inheritdoc />
     public async Task<GravacaoDePosicao> RegistrarPosicaoAsync(PosicaoDoMotorista posicao, CancellationToken cancelamento)
     {
         ArgumentNullException.ThrowIfNull(posicao);
@@ -765,6 +775,8 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(alerta => alerta.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<EventoDoAlerta>()
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<OperacaoDoCliente>()
+            .HasQueryFilter(operacao => operacao.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

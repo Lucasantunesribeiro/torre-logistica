@@ -364,6 +364,10 @@ input:focus-visible {
   border-color: var(--atencao);
 }
 
+.sincronizacao .aviso strong {
+  display: inline;
+}
+
 .gps__dica {
   display: block;
   margin-top: 0.25rem;

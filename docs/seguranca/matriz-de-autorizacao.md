@@ -50,6 +50,7 @@
 | `POST /api/motorista/rotas/{id}/inicio` e `.../conclusao` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/entregas/{id}/chegada`, `.../conclusao` e `.../tentativa-frustrada` | **401** | **401** | **401** | 200 | 401 | `motorista` |
 | `POST /api/motorista/posicoes` | **401** | **401** | **401** | 200 | 401 | `motorista` + limite por motorista |
+| `POST /api/motorista/sincronizacao` | **401** | **401** | **401** | 200 | 401 | `motorista` + limite por motorista; dono de cada operação resolvido pela sessão |
 | `GET /api/motoristas/{id}/posicao-atual` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |

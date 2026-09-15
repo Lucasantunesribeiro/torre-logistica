@@ -534,6 +534,34 @@ Uma coluna, ações com alvo de toque de 3,5rem, estado de conexão e de localiz
 service worker nesta fase — offline é a Fase 12. Limitações reais de localização em navegador e decisões
 em [ADR 0020](./adr/0020-pwa-do-motorista.md).
 
+## Fase 12 — Offline, sincronização e idempotência
+
+```text
+PWA: ação do motorista
+  → IndexedDB `operacoes` (ClientOperationId UUIDv7, tipo, payload, criadaEm, status, tentativas)
+  → tela projeta a ação sobre a leitura (mesmas transições da API)
+  → Sincronizador (abertura · online · visível · depois da ação · 30 s; um envio por vez, lotes de 100)
+  → POST /api/motorista/sincronizacao
+API: SincronizacaoDoMotorista, uma transação por operação, em ordem
+  → fila por motorista (pg_advisory_xact_lock) → registro existe? devolve o mesmo desfecho (repetida)
+  → senão: INSERT operacoes_do_cliente (Aplicada) + comando de ExecucaoPeloMotorista → commit junto
+  → erro de domínio: registra Conflito/Recusada em transação própria · conflito de versão: reprocessa, TentarDeNovo
+  → 200 { resultados: [{ operacaoDoClienteId, desfecho, repetida, codigo, mensagem }] }
+PWA: Aplicada → Synced · Conflito → Conflict · Recusada → Failed · rede/5xx/401/429/TentarDeNovo → Pending
+```
+
+| Peça | Regra |
+|---|---|
+| Exatamente uma vez | registro único `(organização, motorista, operação)`, gravado na mesma transação do efeito; somente-inserção por trigger |
+| Conflito durante o offline | a ação atrasada passa pela máquina de estados atual; cancelamento ou reatribuição prevalecem; conflito é definitivo e mostrado até "Entendi" |
+| Validação | UUIDv7, tipo e motivo coerentes, criada há no máximo 7 dias e no máximo 2 min no futuro; lote de 1 a 100 |
+| Leituras sem rede | cópia em IndexedDB com o instante; 401/404/409 não caem para a cópia |
+| Sessão sem rede | identidade guardada (sem token) por 7 dias desde a última confirmação; saída sem rede é confirmada no servidor antes da próxima renovação |
+| Posições | pendentes também no IndexedDB |
+| Service worker | só a casca do aplicativo; nunca a API |
+
+Decisões e limitações em [ADR 0021](./adr/0021-operacao-offline.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhuma ocorrência nem mapa na tela: chegam nas Fases 13 e 18. O alerta de ocorrência crítica tem tipo,
@@ -544,8 +572,7 @@ organização ou cliente, nem classificação de chegada antes da janela. Não h
 instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há retenção
 automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de
-entrega (Fase 14), service worker, fila persistente no aparelho nem deduplicação por identificador de
-operação offline (Fase 12). Não há fuso horário configurado por organização: datas de rota usam
+entrega (Fase 14) nem retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
 UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. Não há localização em segundo plano na PWA: o navegador não garante, e o
 aplicativo avisa o motorista para mantê-lo aberto (ADR 0020).

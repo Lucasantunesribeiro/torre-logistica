@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { Aviso, Carregando } from '../componentes/Aviso';
-import { apiDoMotorista, mensagemDeErro } from '../infra/api';
+import { AvisoDeCopia, MENSAGEM_DE_FALHA_AO_GUARDAR } from '../componentes/EstadoDaSincronizacao';
 import type { Entrega } from '../infra/api';
 import {
   enderecoEmLinha,
@@ -13,45 +12,28 @@ import {
   ROTULOS_DA_ENTREGA,
   ROTULOS_DO_MOTIVO,
 } from '../infra/formatos';
+import { useEntrega, useRegistrarAcao } from '../offline/ProvedorDeSincronizacao';
 
 /**
  * Tudo o que o motorista precisa para fazer a entrega, e as ações do momento — grandes, uma de cada vez.
- * Concluir pede confirmação: é a ação que não se desfaz.
+ * Concluir pede confirmação: é a ação que não se desfaz. As ações valem com ou sem internet: ficam guardadas
+ * no aparelho e seguem para a operação quando houver conexão.
  */
 export function DetalheDaEntrega() {
   const { entregaId = '' } = useParams();
   const navegar = useNavigate();
-  const cliente = useQueryClient();
   const [confirmando, setConfirmando] = useState(false);
 
-  const entrega = useQuery({ queryKey: ['entrega', entregaId], queryFn: () => apiDoMotorista.obterEntrega(entregaId) });
+  const entrega = useEntrega(entregaId);
+  const acao = useRegistrarAcao();
 
-  const atualizar = () => Promise.all([
-    cliente.invalidateQueries({ queryKey: ['entrega', entregaId] }),
-    cliente.invalidateQueries({ queryKey: ['rota'] }),
-    cliente.invalidateQueries({ queryKey: ['rotas'] }),
-  ]);
-
-  const chegada = useMutation({ mutationFn: () => apiDoMotorista.registrarChegada(entregaId), onSettled: atualizar });
-  const conclusao = useMutation({
-    mutationFn: () => apiDoMotorista.concluirEntrega(entregaId),
-    onSuccess: () => {
-      void navegar('/', { replace: true });
-    },
-    onSettled: atualizar,
-  });
-
-  if (entrega.isPending) {
-    return <Carregando texto="Carregando a entrega…" />;
-  }
-
-  if (entrega.isError) {
+  if (entrega.consulta.isError) {
     return (
       <>
         <Aviso
-          erro={entrega.error}
+          erro={entrega.consulta.error}
           aoTentarDeNovo={() => {
-            void entrega.refetch();
+            void entrega.consulta.refetch();
           }}
         />
         <Link className="link" to="/">
@@ -61,9 +43,12 @@ export function DetalheDaEntrega() {
     );
   }
 
-  const dados = entrega.data;
+  if (!entrega.dados) {
+    return <Carregando texto="Carregando a entrega…" />;
+  }
+
+  const dados = entrega.dados;
   const emExecucao = dados.status === 'EmRota' || dados.status === 'ProximaDoDestino';
-  const erro = chegada.error ?? conclusao.error;
 
   return (
     <section>
@@ -73,6 +58,7 @@ export function DetalheDaEntrega() {
         {dados.sequencia !== null ? ` · parada ${dados.sequencia}` : ''} ·{' '}
         <span className={`etiqueta etiqueta--${dados.status}`}>{ROTULOS_DA_ENTREGA[dados.status]}</span>
       </p>
+      <AvisoDeCopia leitura={entrega.leitura} />
 
       <div className="cartao">
         <dl className="dados">
@@ -110,13 +96,17 @@ export function DetalheDaEntrega() {
             entrega={dados}
             confirmando={confirmando}
             aoPedirConfirmacao={setConfirmando}
-            chegando={chegada.isPending}
-            concluindo={conclusao.isPending}
+            registrando={acao.registrando}
             aoRegistrarChegada={() => {
-              chegada.mutate();
+              void acao.executar({ tipo: 'RegistrarChegada', alvoId: dados.id, descricao: `Chegada à entrega de ${dados.destinatario.nome}` });
             }}
             aoConcluir={() => {
-              conclusao.mutate();
+              void acao.executar(
+                { tipo: 'ConcluirEntrega', alvoId: dados.id, descricao: `Conclusão da entrega de ${dados.destinatario.nome}` },
+                () => {
+                  void navegar('/', { replace: true });
+                },
+              );
             }}
           />
         ) : (
@@ -127,9 +117,9 @@ export function DetalheDaEntrega() {
           </p>
         )}
 
-        {erro ? (
+        {acao.falhou ? (
           <p className="erro" role="alert">
-            {mensagemDeErro(erro)}
+            {MENSAGEM_DE_FALHA_AO_GUARDAR}
           </p>
         ) : null}
       </div>
@@ -158,8 +148,7 @@ function AcoesDaEntrega(props: {
   readonly entrega: Entrega;
   readonly confirmando: boolean;
   readonly aoPedirConfirmacao: (valor: boolean) => void;
-  readonly chegando: boolean;
-  readonly concluindo: boolean;
+  readonly registrando: boolean;
   readonly aoRegistrarChegada: () => void;
   readonly aoConcluir: () => void;
 }) {
@@ -169,13 +158,13 @@ function AcoesDaEntrega(props: {
     return (
       <>
         <p>Confirma que a entrega para {entrega.destinatario.nome} foi feita?</p>
-        <button type="button" className="acao acao--primaria" disabled={props.concluindo} onClick={props.aoConcluir}>
-          {props.concluindo ? 'Registrando…' : 'Confirmar entrega concluída'}
+        <button type="button" className="acao acao--primaria" disabled={props.registrando} onClick={props.aoConcluir}>
+          {props.registrando ? 'Registrando…' : 'Confirmar entrega concluída'}
         </button>
         <button
           type="button"
           className="acao acao--secundaria"
-          disabled={props.concluindo}
+          disabled={props.registrando}
           onClick={() => {
             props.aoPedirConfirmacao(false);
           }}
@@ -189,8 +178,8 @@ function AcoesDaEntrega(props: {
   return (
     <>
       {entrega.status === 'EmRota' ? (
-        <button type="button" className="acao acao--secundaria" disabled={props.chegando} onClick={props.aoRegistrarChegada}>
-          {props.chegando ? 'Registrando…' : 'Cheguei ao destino'}
+        <button type="button" className="acao acao--secundaria" disabled={props.registrando} onClick={props.aoRegistrarChegada}>
+          {props.registrando ? 'Registrando…' : 'Cheguei ao destino'}
         </button>
       ) : null}
 

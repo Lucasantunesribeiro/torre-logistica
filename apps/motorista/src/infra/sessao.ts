@@ -116,12 +116,20 @@ export function renovarSessao(): Promise<SessaoAtiva | null> {
   return renovacaoEmCurso;
 }
 
-export async function sair(): Promise<void> {
+/**
+ * Encerra a sessão. Devolve se o servidor confirmou: sem rede, o cookie de renovação continua válido lá, e
+ * quem chama precisa encerrar de novo quando a conexão voltar.
+ */
+export async function sair(): Promise<boolean> {
   try {
-    await fetch(`${ambiente.urlDaApi}${CAMINHO_DE_AUTENTICACAO}/sair`, {
+    const resposta = await fetch(`${ambiente.urlDaApi}${CAMINHO_DE_AUTENTICACAO}/sair`, {
       method: 'POST',
       credentials: 'include',
     });
+    // 401: a sessão já não valia no servidor — está encerrada do mesmo jeito.
+    return resposta.ok || resposta.status === 401;
+  } catch {
+    return false;
   } finally {
     // Mesmo sem resposta do servidor, a sessão local termina: o motorista pediu para sair.
     definirSessao(null);

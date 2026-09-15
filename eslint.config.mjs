@@ -76,6 +76,17 @@ export default tseslint.config(
   },
 
   {
+    // Service worker: JavaScript servido como está, fora do bundle e de qualquer tsconfig. Lint sem tipo,
+    // com as variáveis globais do contexto de service worker.
+    files: ['apps/*/public/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      parserOptions: { projectService: false, project: null },
+      globals: { ...globals.serviceworker },
+    },
+  },
+
+  {
     // Este próprio arquivo não pertence a nenhum tsconfig das aplicações, então as
     // regras que exigem informação de tipo não têm como ser aplicadas a ele.
     files: ['eslint.config.mjs'],

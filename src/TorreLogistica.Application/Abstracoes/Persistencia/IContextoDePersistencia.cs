@@ -10,6 +10,7 @@ using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
+using TorreLogistica.Domain.Sincronizacao;
 
 namespace TorreLogistica.Application.Abstracoes.Persistencia;
 
@@ -112,6 +113,9 @@ public interface IContextoDePersistencia
     /// <summary>Ciclo de vida dos alertas, filtrado pelo tenant. Somente-inserção.</summary>
     DbSet<EventoDoAlerta> EventosDeAlerta { get; }
 
+    /// <summary>Operações feitas no aparelho do motorista, pelo identificador do aparelho. Somente-inserção.</summary>
+    DbSet<OperacaoDoCliente> OperacoesDoCliente { get; }
+
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }
 
@@ -162,6 +166,16 @@ public interface IContextoDePersistencia
     /// um aparelho é sequencial por natureza; enfileirar os lotes dele elimina o impasse.
     /// </remarks>
     Task SerializarRastreamentoDoMotoristaAsync(Guid motoristaId, CancellationToken cancelamento);
+
+    /// <summary>
+    /// Enfileira, até o fim da transação, a sincronização de operações do motorista.
+    /// </summary>
+    /// <remarks>
+    /// A mesma operação reenviada enquanto a primeira ainda está gravando espera e encontra o registro
+    /// confirmado — em vez de executar o comando em paralelo e perder a corrida no banco. As ações de um
+    /// aparelho são sequenciais por natureza; enfileirá-las não custa nada ao motorista.
+    /// </remarks>
+    Task SerializarSincronizacaoDoMotoristaAsync(Guid motoristaId, CancellationToken cancelamento);
 
     /// <summary>
     /// Reserva o próximo número de uma série de código humano, por organização e ano.

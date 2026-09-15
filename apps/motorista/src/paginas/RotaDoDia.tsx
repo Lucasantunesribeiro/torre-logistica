@@ -1,39 +1,40 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 
 import { Aviso, Carregando } from '../componentes/Aviso';
-import { apiDoMotorista, mensagemDeErro } from '../infra/api';
+import { AvisoDeCopia, MENSAGEM_DE_FALHA_AO_GUARDAR } from '../componentes/EstadoDaSincronizacao';
 import type { Parada } from '../infra/api';
 import { enderecoEmLinha, formatarHora, formatarJanela, ROTULOS_DA_ENTREGA, ROTULOS_DA_ROTA } from '../infra/formatos';
+import { useRegistrarAcao, useRota, useRotas } from '../offline/ProvedorDeSincronizacao';
 
 /**
  * A tela que o motorista mais usa: a rota de agora e a próxima entrega, com a ação seguinte em destaque.
  * Nada de painel: uma coisa por vez.
  */
 export function RotaDoDia() {
-  const rotas = useQuery({ queryKey: ['rotas'], queryFn: apiDoMotorista.listarRotas });
+  const rotas = useRotas();
 
-  if (rotas.isPending) {
-    return <Carregando texto="Carregando sua rota…" />;
-  }
-
-  if (rotas.isError) {
+  if (rotas.consulta.isError) {
     return (
       <Aviso
-        erro={rotas.error}
+        erro={rotas.consulta.error}
         aoTentarDeNovo={() => {
-          void rotas.refetch();
+          void rotas.consulta.refetch();
         }}
       />
     );
   }
 
-  const [atual, ...proximas] = rotas.data;
+  if (!rotas.dados) {
+    return <Carregando texto="Carregando sua rota…" />;
+  }
+
+  const [atual, ...proximas] = rotas.dados;
 
   if (!atual) {
     return (
       <section>
         <h2>Rota do dia</h2>
+        <AvisoDeCopia leitura={rotas.leitura} />
         <div className="cartao">
           <p>Nenhuma rota para você agora.</p>
           <p className="sumario">Quando a operação liberar sua rota, ela aparece aqui.</p>
@@ -41,7 +42,7 @@ export function RotaDoDia() {
             type="button"
             className="acao acao--secundaria"
             onClick={() => {
-              void rotas.refetch();
+              void rotas.consulta.refetch();
             }}
           >
             Atualizar
@@ -54,6 +55,7 @@ export function RotaDoDia() {
   return (
     <section>
       <h2>Rota do dia</h2>
+      <AvisoDeCopia leitura={rotas.leitura} />
       <PainelDaRota rotaId={atual.id} />
 
       {proximas.length > 0 ? (
@@ -73,36 +75,27 @@ export function RotaDoDia() {
 }
 
 function PainelDaRota({ rotaId }: { readonly rotaId: string }) {
-  const cliente = useQueryClient();
-  const rota = useQuery({ queryKey: ['rota', rotaId], queryFn: () => apiDoMotorista.obterRota(rotaId) });
+  const rota = useRota(rotaId);
+  const acao = useRegistrarAcao();
 
-  const atualizar = () => Promise.all([
-    cliente.invalidateQueries({ queryKey: ['rotas'] }),
-    cliente.invalidateQueries({ queryKey: ['rota', rotaId] }),
-  ]);
-
-  const iniciar = useMutation({ mutationFn: () => apiDoMotorista.iniciarRota(rotaId), onSettled: atualizar });
-  const encerrar = useMutation({ mutationFn: () => apiDoMotorista.concluirRota(rotaId), onSettled: atualizar });
-
-  if (rota.isPending) {
-    return <Carregando texto="Carregando as paradas…" />;
-  }
-
-  if (rota.isError) {
+  if (rota.consulta.isError) {
     return (
       <Aviso
-        erro={rota.error}
+        erro={rota.consulta.error}
         aoTentarDeNovo={() => {
-          void rota.refetch();
+          void rota.consulta.refetch();
         }}
       />
     );
   }
 
-  const dados = rota.data;
+  if (!rota.dados) {
+    return <Carregando texto="Carregando as paradas…" />;
+  }
+
+  const dados = rota.dados;
   const pendentes = dados.paradas.filter((parada) => parada.status === 'EmRota' || parada.status === 'ProximaDoDestino' || parada.status === 'Atribuida');
   const proxima = dados.paradas.find((parada) => parada.status === 'EmRota' || parada.status === 'ProximaDoDestino');
-  const erro = iniciar.error ?? encerrar.error;
 
   return (
     <>
@@ -123,12 +116,12 @@ function PainelDaRota({ rotaId }: { readonly rotaId: string }) {
           <button
             type="button"
             className="acao acao--primaria"
-            disabled={iniciar.isPending}
+            disabled={acao.registrando}
             onClick={() => {
-              iniciar.mutate();
+              void acao.executar({ tipo: 'IniciarRota', alvoId: dados.id, descricao: `Início da rota ${dados.codigo}` });
             }}
           >
-            {iniciar.isPending ? 'Iniciando…' : 'Iniciar rota'}
+            {acao.registrando ? 'Iniciando…' : 'Iniciar rota'}
           </button>
         ) : null}
 
@@ -136,9 +129,9 @@ function PainelDaRota({ rotaId }: { readonly rotaId: string }) {
           Ver todas as paradas ({dados.paradas.length})
         </Link>
 
-        {erro ? (
+        {acao.falhou ? (
           <p className="erro" role="alert">
-            {mensagemDeErro(erro)}
+            {MENSAGEM_DE_FALHA_AO_GUARDAR}
           </p>
         ) : null}
       </div>
@@ -151,12 +144,12 @@ function PainelDaRota({ rotaId }: { readonly rotaId: string }) {
           <button
             type="button"
             className="acao acao--primaria"
-            disabled={encerrar.isPending}
+            disabled={acao.registrando}
             onClick={() => {
-              encerrar.mutate();
+              void acao.executar({ tipo: 'ConcluirRota', alvoId: dados.id, descricao: `Encerramento da rota ${dados.codigo}` });
             }}
           >
-            {encerrar.isPending ? 'Encerrando…' : 'Encerrar rota'}
+            {acao.registrando ? 'Encerrando…' : 'Encerrar rota'}
           </button>
         </div>
       ) : null}

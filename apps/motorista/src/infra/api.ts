@@ -104,6 +104,32 @@ const esquemaDoLote = z.object({
   rejeitadas: z.number().int(),
 });
 
+/** Ações do motorista que passam pela fila do aparelho. */
+export const TIPOS_DE_OPERACAO = ['IniciarRota', 'RegistrarChegada', 'ConcluirEntrega', 'RegistrarTentativaFrustrada', 'ConcluirRota'] as const;
+
+const esquemaDoResultadoDeOperacao = z.object({
+  operacaoDoClienteId: z.string().nullish(),
+  desfecho: z.enum(['Aplicada', 'Conflito', 'Recusada', 'TentarDeNovo']),
+  repetida: z.boolean(),
+  codigo: z.string().nullish(),
+  mensagem: z.string().nullish(),
+});
+
+const esquemaDaSincronizacao = z.object({ resultados: z.array(esquemaDoResultadoDeOperacao) });
+
+export type TipoDeOperacao = (typeof TIPOS_DE_OPERACAO)[number];
+export type ResultadoDeOperacao = z.infer<typeof esquemaDoResultadoDeOperacao>;
+export type ResultadoDaSincronizacao = z.infer<typeof esquemaDaSincronizacao>;
+
+/** Operação como a API de sincronização recebe. O identificador nasce no aparelho. */
+export interface OperacaoParaEnvio {
+  readonly operacaoDoClienteId: string;
+  readonly tipo: TipoDeOperacao;
+  readonly alvoId: string;
+  readonly motivo: MotivoDeTentativa | null;
+  readonly criadaEm: string;
+}
+
 export type StatusDaEntrega = z.infer<typeof esquemaDeStatusDaEntrega>;
 export type StatusDaRota = z.infer<typeof esquemaDeStatusDaRota>;
 export type MotivoDeTentativa = z.infer<typeof esquemaDeMotivo>;
@@ -148,28 +174,19 @@ async function ler<T>(caminho: string, esquema: z.ZodType<T>, opcoes?: RequestIn
   return resultado.data;
 }
 
-async function comandar(caminho: string, corpo?: unknown): Promise<void> {
-  const resposta = await requisicaoAutenticada(caminho, {
-    method: 'POST',
-    ...(corpo === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }),
-  });
-
-  if (!resposta.ok) {
-    throw await erroDaResposta(resposta);
-  }
-}
-
 export const apiDoMotorista = {
   listarRotas: () => ler('/api/motorista/rotas', z.array(esquemaDeItemDeRota)),
   obterRota: (rotaId: string) => ler(`/api/motorista/rotas/${encodeURIComponent(rotaId)}`, esquemaDeRota),
   obterEntrega: (entregaId: string) => ler(`/api/motorista/entregas/${encodeURIComponent(entregaId)}`, esquemaDeEntrega),
 
-  iniciarRota: (rotaId: string) => comandar(`/api/motorista/rotas/${encodeURIComponent(rotaId)}/inicio`),
-  concluirRota: (rotaId: string) => comandar(`/api/motorista/rotas/${encodeURIComponent(rotaId)}/conclusao`),
-  registrarChegada: (entregaId: string) => comandar(`/api/motorista/entregas/${encodeURIComponent(entregaId)}/chegada`),
-  concluirEntrega: (entregaId: string) => comandar(`/api/motorista/entregas/${encodeURIComponent(entregaId)}/conclusao`),
-  registrarTentativaFrustrada: (entregaId: string, motivo: MotivoDeTentativa) =>
-    comandar(`/api/motorista/entregas/${encodeURIComponent(entregaId)}/tentativa-frustrada`, { motivo }),
+  // Toda ação crítica sai por aqui, com o identificador do aparelho: nenhuma depende de o POST não repetir.
+  // Os comandos diretos da API continuam existindo para outros clientes, mas a PWA não os usa.
+  sincronizar: (operacoes: readonly OperacaoParaEnvio[]) =>
+    ler('/api/motorista/sincronizacao', esquemaDaSincronizacao, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operacoes }),
+    }),
 
   enviarPosicoes: (posicoes: readonly PosicaoParaEnvio[]) =>
     ler('/api/motorista/posicoes', esquemaDoLote, {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,22 @@ interface EntregaFalsa {
   nome: string;
   tentativas: number;
   motivo: string | null;
+}
+
+interface OperacaoRecebida {
+  operacaoDoClienteId: string;
+  tipo: string;
+  alvoId: string;
+  motivo: string | null;
+  criadaEm: string;
+}
+
+interface ResultadoFalso {
+  operacaoDoClienteId: string;
+  desfecho: string;
+  repetida: boolean;
+  codigo: string | null;
+  mensagem: string | null;
 }
 
 const SESSAO = {
@@ -47,10 +63,17 @@ function urlDe(entrada: RequestInfo | URL): string {
 }
 
 /**
- * Servidor falso com estado: aplica os comandos do motorista como a máquina de estados da API, para o
- * fluxo inteiro rodar pela interface.
+ * Servidor falso com estado: aplica as operações da fila como a máquina de estados da API, com o registro
+ * por identificador do aparelho — a mesma operação repetida devolve o resultado guardado, sem aplicar de novo.
  */
-function servidorDoMotorista(opcoes: { rota?: string; extras?: Record<string, Manipulador> } = {}) {
+function servidorDoMotorista(
+  opcoes: {
+    rota?: string;
+    extras?: Record<string, Manipulador>;
+    /** Aplica a operação e perde a resposta no caminho — o aparelho não sabe que deu certo. */
+    perderResposta?: () => boolean;
+  } = {},
+) {
   const estado = {
     rota: opcoes.rota ?? 'Planejada',
     entregas: {
@@ -58,7 +81,11 @@ function servidorDoMotorista(opcoes: { rota?: string; extras?: Record<string, Ma
       e2: { status: opcoes.rota === 'EmAndamento' ? 'EmRota' : 'Atribuida', nome: 'Bruno Alves', tentativas: 0, motivo: null },
     } as Record<string, EntregaFalsa>,
   };
+  const rede = { ativa: true };
   const comandos: string[] = [];
+  const lotes: OperacaoRecebida[][] = [];
+  const respostas: ResultadoFalso[] = [];
+  const registradas = new Map<string, ResultadoFalso>();
 
   const entregaJson = (id: string, sequencia: number) => {
     const entrega = estado.entregas[id]!;
@@ -85,6 +112,41 @@ function servidorDoMotorista(opcoes: { rota?: string; extras?: Record<string, Ma
   };
 
   const resolvida = (status: string) => ['Entregue', 'TentativaFrustrada', 'Reagendada', 'Cancelada'].includes(status);
+  const emExecucao = (status: string) => status === 'EmRota' || status === 'ProximaDoDestino';
+
+  /** Devolve o código do conflito, ou null quando aplicou. */
+  function aplicar(operacao: OperacaoRecebida): string | null {
+    const entrega = estado.entregas[operacao.alvoId];
+    switch (operacao.tipo) {
+      case 'IniciarRota':
+        if (estado.rota !== 'Planejada') return 'transicao_invalida';
+        estado.rota = 'EmAndamento';
+        Object.values(estado.entregas).forEach((item) => {
+          if (item.status === 'Atribuida') item.status = 'EmRota';
+        });
+        return null;
+      case 'RegistrarChegada':
+        if (entrega?.status !== 'EmRota') return 'transicao_invalida';
+        entrega.status = 'ProximaDoDestino';
+        return null;
+      case 'ConcluirEntrega':
+        if (!entrega || !emExecucao(entrega.status)) return 'transicao_invalida';
+        entrega.status = 'Entregue';
+        return null;
+      case 'RegistrarTentativaFrustrada':
+        if (!entrega || !emExecucao(entrega.status)) return 'transicao_invalida';
+        entrega.status = 'TentativaFrustrada';
+        entrega.tentativas += 1;
+        entrega.motivo = operacao.motivo;
+        return null;
+      case 'ConcluirRota':
+        if (estado.rota !== 'EmAndamento' || !Object.values(estado.entregas).every((item) => resolvida(item.status))) return 'rota_com_entregas_pendentes';
+        estado.rota = 'Concluida';
+        return null;
+      default:
+        return 'tipo_de_operacao_invalido';
+    }
+  }
 
   const rotas: Record<string, Manipulador> = {
     'GET /health/ready': () => json({ status: 'Healthy', duracaoEmMs: 2 }),
@@ -130,58 +192,71 @@ function servidorDoMotorista(opcoes: { rota?: string; extras?: Record<string, Ma
       }),
     'GET /api/motorista/entregas/e1': () => json(entregaJson('e1', 1)),
     'GET /api/motorista/entregas/e2': () => json(entregaJson('e2', 2)),
-    'POST /api/motorista/rotas/r1/inicio': () => {
-      estado.rota = 'EmAndamento';
-      Object.values(estado.entregas).forEach((entrega) => {
-        entrega.status = 'EmRota';
-      });
-      return json({});
-    },
-    'POST /api/motorista/rotas/r1/conclusao': () => {
-      estado.rota = 'Concluida';
-      return json({});
-    },
     'POST /api/motorista/posicoes': () => json({ recebidas: 1, aceitas: 1, duplicadas: 0, rejeitadas: 0 }),
-  };
+    'POST /api/motorista/sincronizacao': (corpo) => {
+      const { operacoes } = corpo as { operacoes: OperacaoRecebida[] };
+      lotes.push(operacoes);
 
-  for (const id of ['e1', 'e2']) {
-    rotas[`POST /api/motorista/entregas/${id}/chegada`] = () => {
-      estado.entregas[id]!.status = 'ProximaDoDestino';
-      return json({});
-    };
-    rotas[`POST /api/motorista/entregas/${id}/conclusao`] = () => {
-      estado.entregas[id]!.status = 'Entregue';
-      return json({});
-    };
-    rotas[`POST /api/motorista/entregas/${id}/tentativa-frustrada`] = (corpo) => {
-      const entrega = estado.entregas[id]!;
-      entrega.status = 'TentativaFrustrada';
-      entrega.tentativas += 1;
-      entrega.motivo = (corpo as { motivo: string }).motivo;
-      return json({});
-    };
-  }
+      const resultados = operacoes.map((operacao) => {
+        const anterior = registradas.get(operacao.operacaoDoClienteId);
+        if (anterior) {
+          return { ...anterior, repetida: true };
+        }
+
+        const codigo = aplicar(operacao);
+        const resultado: ResultadoFalso = codigo
+          ? { operacaoDoClienteId: operacao.operacaoDoClienteId, desfecho: 'Conflito', repetida: false, codigo, mensagem: 'Transição inválida.' }
+          : { operacaoDoClienteId: operacao.operacaoDoClienteId, desfecho: 'Aplicada', repetida: false, codigo: null, mensagem: null };
+        registradas.set(operacao.operacaoDoClienteId, resultado);
+        if (!codigo) comandos.push(`${operacao.tipo} ${operacao.alvoId}`);
+        return resultado;
+      });
+
+      respostas.push(...resultados);
+      if (opcoes.perderResposta?.()) {
+        throw new TypeError('Failed to fetch');
+      }
+
+      return json({ resultados });
+    },
+  };
 
   Object.assign(rotas, opcoes.extras);
 
   const chamadas = vi.fn((entrada: RequestInfo | URL, init?: RequestInit) => {
+    if (!rede.ativa) {
+      return Promise.reject(new TypeError('Failed to fetch'));
+    }
+
     const metodo = init?.method ?? 'GET';
     const chave = `${metodo} ${new URL(urlDe(entrada)).pathname}`;
     const corpo: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-
-    if (metodo === 'POST' && chave.startsWith('POST /api/motorista/') && !chave.includes('/autenticacao/') && !chave.endsWith('/posicoes')) {
-      comandos.push(chave);
-    }
-
     const manipulador = rotas[chave];
-    return Promise.resolve(manipulador ? manipulador(corpo) : json({ codigo: 'nao_encontrado' }, 404));
+
+    try {
+      return Promise.resolve(manipulador ? manipulador(corpo) : json({ codigo: 'nao_encontrado' }, 404));
+    } catch (erro) {
+      return Promise.reject(erro instanceof Error ? erro : new Error(String(erro)));
+    }
   });
 
   vi.stubGlobal('fetch', chamadas);
-  return { estado, comandos, chamadas };
+  return { estado, comandos, lotes, respostas, chamadas, rede };
 }
 
-// A sessão vive em memória de módulo: cada teste carrega a aplicação do zero.
+type Servidor = ReturnType<typeof servidorDoMotorista>;
+
+/** Liga ou desliga a internet do aparelho, como o navegador anuncia. */
+function conexao(servidor: Servidor, ligada: boolean) {
+  servidor.rede.ativa = ligada;
+  Object.defineProperty(navigator, 'onLine', { value: ligada, configurable: true });
+  act(() => {
+    window.dispatchEvent(new Event(ligada ? 'online' : 'offline'));
+  });
+}
+
+// A sessão vive em memória de módulo: cada montagem carrega a aplicação do zero, como abrir o navegador. O
+// IndexedDB do teste continua o mesmo entre montagens do mesmo teste — é o disco do aparelho.
 async function montar(rotaInicial = '/') {
   vi.resetModules();
   const { App } = await import('./App');
@@ -197,6 +272,11 @@ async function montar(rotaInicial = '/') {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+async function abrirPrimeiraEntrega() {
+  fireEvent.click(await screen.findByRole('link', { name: 'Abrir entrega' }));
+  expect(await screen.findByRole('heading', { level: 2, name: 'Carla Nunes' })).toBeVisible();
 }
 
 function simularGeolocalizacao(comportamento: 'negar' | 'liberar') {
@@ -260,18 +340,17 @@ describe('PWA do motorista', () => {
     expect(chamadas.mock.calls.some(([entrada]) => urlDe(entrada).endsWith('/api/autenticacao/login'))).toBe(false);
   });
 
-  /** Critério de aceite da Fase 11: o fluxo básico inteiro usando só a PWA. */
+  /** Critério de aceite da Fase 11, agora com toda ação pela fila do aparelho. */
   it('motorista completa o fluxo básico só pela PWA', async () => {
-    const { estado, comandos } = servidorDoMotorista();
+    const { estado, comandos, chamadas } = servidorDoMotorista();
     await montar('/');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Iniciar rota' }));
 
     // Próxima entrega: a primeira da rota.
     expect(await screen.findByRole('heading', { level: 3, name: 'Próxima entrega' })).toBeVisible();
-    fireEvent.click(await screen.findByRole('link', { name: 'Abrir entrega' }));
+    await abrirPrimeiraEntrega();
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Carla Nunes' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
     await waitFor(() => {
       expect(estado.entregas.e1!.status).toBe('ProximaDoDestino');
@@ -298,14 +377,14 @@ describe('PWA do motorista', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Encerrar rota' }));
     expect(await screen.findByText('Nenhuma rota para você agora.')).toBeVisible();
 
-    expect(comandos).toEqual([
-      'POST /api/motorista/rotas/r1/inicio',
-      'POST /api/motorista/entregas/e1/chegada',
-      'POST /api/motorista/entregas/e1/conclusao',
-      'POST /api/motorista/entregas/e2/tentativa-frustrada',
-      'POST /api/motorista/rotas/r1/conclusao',
-    ]);
+    await waitFor(() => {
+      expect(comandos).toEqual(['IniciarRota r1', 'RegistrarChegada e1', 'ConcluirEntrega e1', 'RegistrarTentativaFrustrada e2', 'ConcluirRota r1']);
+    });
     expect(estado.entregas.e2).toMatchObject({ status: 'TentativaFrustrada', motivo: 'LocalFechado' });
+
+    // Nenhuma ação crítica pelo comando direto: só pela sincronização, com identificador do aparelho.
+    const caminhos = chamadas.mock.calls.map(([entrada]) => new URL(urlDe(entrada)).pathname);
+    expect(caminhos.filter((caminho) => /\/(inicio|chegada|conclusao|tentativa-frustrada)$/.test(caminho))).toEqual([]);
   });
 
   it('lista de paradas mostra a ordem da rota e abre o detalhe', async () => {
@@ -350,24 +429,6 @@ describe('PWA do motorista', () => {
 
     // Busca pelo texto: com rota em andamento, o aviso de localização também é um alerta na tela.
     expect(await screen.findByText(/passada para outro motorista/)).toBeVisible();
-  });
-
-  it('comando recusado mostra o motivo e atualiza a tela', async () => {
-    const { estado } = servidorDoMotorista({
-      rota: 'EmAndamento',
-      extras: {
-        'POST /api/motorista/entregas/e1/chegada': () => {
-          estado.entregas.e1!.status = 'Cancelada';
-          return json({ codigo: 'transicao_invalida' }, 409);
-        },
-      },
-    });
-    await montar('/entregas/e1');
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Cheguei ao destino' }));
-
-    expect(await screen.findByText(/não vale mais para a situação atual/)).toBeVisible();
-    expect(await screen.findByText('Resultado registrado: Cancelada.')).toBeVisible();
   });
 
   it('falha da operação mostra aviso e deixa tentar de novo', async () => {
@@ -462,5 +523,186 @@ describe('PWA do motorista', () => {
     await montar('/nao/existe');
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Tela não encontrada' })).toBeVisible();
+  });
+});
+
+describe('PWA do motorista sem conexão', () => {
+  it('offline e reconexão: ações ficam guardadas e seguem num único lote, na ordem', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    conexao(servidor, false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
+    // A tela reflete a ação na hora, sem servidor.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Cheguei ao destino' })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Entrega concluída' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar entrega concluída' }));
+
+    // Rota do dia pela cópia guardada, com a conclusão aplicada: a próxima é a segunda.
+    expect(await screen.findByText('Bruno Alves')).toBeVisible();
+    expect(await screen.findByText('2 ações guardadas no aparelho, aguardando envio')).toBeVisible();
+    expect(servidor.lotes).toEqual([]);
+
+    conexao(servidor, true);
+
+    await waitFor(() => {
+      expect(servidor.comandos).toEqual(['RegistrarChegada e1', 'ConcluirEntrega e1']);
+    });
+    expect(servidor.lotes).toHaveLength(1);
+    expect(servidor.lotes[0]!.map((operacao) => operacao.tipo)).toEqual(['RegistrarChegada', 'ConcluirEntrega']);
+    await waitFor(() => {
+      expect(screen.queryByText(/aguardando envio/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('fechar o aplicativo sem internet: reabre com a rota guardada e envia a fila quando a conexão volta', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    const primeiraAbertura = await montar('/');
+    await abrirPrimeiraEntrega();
+
+    conexao(servidor, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+
+    // O navegador fecha: memória, sessão e cache de consultas se vão; o IndexedDB fica.
+    primeiraAbertura.unmount();
+    await montar('/');
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Rota do dia' })).toBeVisible();
+    expect(await screen.findByText(/mostrando o que foi guardado/)).toBeVisible();
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+    expect(await screen.findByText('No destino')).toBeVisible();
+
+    conexao(servidor, true);
+
+    await waitFor(() => {
+      expect(servidor.comandos).toEqual(['RegistrarChegada e1']);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/aguardando envio/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('resposta perdida: a repetição recebe o mesmo resultado e nada é aplicado duas vezes', async () => {
+    let perder = true;
+    const servidor = servidorDoMotorista({
+      rota: 'EmAndamento',
+      perderResposta: () => {
+        const agora = perder;
+        perder = false;
+        return agora;
+      },
+    });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
+    await waitFor(() => {
+      expect(servidor.lotes).toHaveLength(1);
+    });
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+
+    // Nova tentativa, como ao voltar a conexão.
+    conexao(servidor, true);
+
+    await waitFor(() => {
+      expect(servidor.lotes).toHaveLength(2);
+    });
+    expect(servidor.lotes[1]![0]!.operacaoDoClienteId).toBe(servidor.lotes[0]![0]!.operacaoDoClienteId);
+    expect(servidor.respostas[1]).toMatchObject({ desfecho: 'Aplicada', repetida: true });
+    expect(servidor.comandos).toEqual(['RegistrarChegada e1']);
+    await waitFor(() => {
+      expect(screen.queryByText(/aguardando envio/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('ação já sincronizada não é enviada de novo', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
+    await waitFor(() => {
+      expect(servidor.comandos).toEqual(['RegistrarChegada e1']);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/aguardando envio/)).not.toBeInTheDocument();
+    });
+
+    conexao(servidor, true);
+    conexao(servidor, true);
+    await new Promise((resolver) => setTimeout(resolver, 50));
+
+    expect(servidor.lotes).toHaveLength(1);
+  });
+
+  it('conflito real: cancelamento feito enquanto o motorista estava sem internet não é sobrescrito', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    conexao(servidor, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Entrega concluída' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar entrega concluída' }));
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+
+    // Enquanto isso, a operação cancela a entrega.
+    servidor.estado.entregas.e1!.status = 'Cancelada';
+    conexao(servidor, true);
+
+    expect(await screen.findByText(/A situação mudou antes de a ação chegar/)).toBeVisible();
+    expect(screen.getByText('Conclusão da entrega de Carla Nunes')).toBeVisible();
+    expect(servidor.estado.entregas.e1!.status).toBe('Cancelada');
+    expect(servidor.comandos).toEqual([]);
+
+    // Estado recuperável: a tela passa a mostrar o cancelamento, e o motorista confirma que viu.
+    fireEvent.click(screen.getByRole('link', { name: /Ver todas as paradas/ }));
+    expect(await screen.findByText(/Cancelada · janela/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Entendi' }));
+    await waitFor(() => {
+      expect(screen.queryByText(/A situação mudou antes de a ação chegar/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('sair com ações não enviadas avisa que elas ficam guardadas', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    conexao(servidor, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Cheguei ao destino' }));
+    expect(await screen.findByText('1 ação guardada no aparelho, aguardando envio')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sair' }));
+
+    expect(await screen.findByText('Há 1 ação ainda não enviada.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Sair mesmo assim' })).toBeVisible();
+  });
+
+  it('saída feita sem internet é confirmada no servidor antes de reabrir a sessão', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    const primeiraAbertura = await montar('/');
+    await screen.findByRole('heading', { level: 2, name: 'Rota do dia' });
+
+    conexao(servidor, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Sair' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Entrar no aplicativo' })).toBeVisible();
+
+    primeiraAbertura.unmount();
+    conexao(servidor, true);
+    servidor.chamadas.mockClear();
+    await montar('/');
+
+    // O cookie ainda renovaria a sessão no servidor; o aparelho encerra antes, e pede login.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Entrar no aplicativo' })).toBeVisible();
+    const caminhos = servidor.chamadas.mock.calls.map(([entrada]) => new URL(urlDe(entrada)).pathname);
+    expect(caminhos).toContain('/api/motorista/autenticacao/sair');
+    expect(caminhos).not.toContain('/api/motorista/autenticacao/renovar');
   });
 });
