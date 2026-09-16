@@ -2,11 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Cadastros;
+using TorreLogistica.Application.Comprovantes;
 using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Ocorrencias;
 using TorreLogistica.Application.Rotas;
 using TorreLogistica.Domain.Abstracoes.Erros;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
+using TorreLogistica.Domain.Comprovantes;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Ocorrencias;
@@ -37,6 +39,7 @@ public sealed class ExecucaoPeloMotorista(
     GestaoDeRotas rotas,
     GestaoDeEntregas entregas,
     GestaoDeOcorrencias ocorrencias,
+    GestaoDeComprovantes comprovantes,
     ILogger<ExecucaoPeloMotorista> log)
 {
     /// <summary>Saída para a rota: rota em andamento e entregas atribuídas em rota.</summary>
@@ -107,12 +110,95 @@ public sealed class ExecucaoPeloMotorista(
             (entrega, agora) => entrega.RegistrarChegada(suporte.UsuarioId, identificadores.Novo(), agora),
             cancelamento);
 
-    /// <summary>Entrega feita.</summary>
-    public Task<EntregaResumo> ConcluirEntregaAsync(Guid entregaId, CancellationToken cancelamento) =>
-        AplicarNaEntregaAsync(
+    /// <summary>
+    /// Entrega feita. Com a política de prova obrigatória ligada, exige comprovante já registrado.
+    /// </summary>
+    public async Task<EntregaResumo> ConcluirEntregaAsync(Guid entregaId, CancellationToken cancelamento)
+    {
+        if (comprovantes.Politica.ExigirNaConclusao
+            && !await comprovantes.ExisteParaEntregaAsync(entregaId, cancelamento).ConfigureAwait(false))
+        {
+            throw ExcecaoDeDominio.RegraViolada(
+                "comprovante_obrigatorio",
+                "Esta operação exige comprovante de entrega. Registre a prova antes de concluir.");
+        }
+
+        return await AplicarNaEntregaAsync(
             entregaId,
             (entrega, agora) => entrega.Concluir(suporte.UsuarioId, identificadores.Novo(), agora),
-            cancelamento);
+            cancelamento).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Conclui a entrega registrando a prova no mesmo commit: status, evento da timeline e comprovante.
+    /// </summary>
+    /// <remarks>
+    /// Repetir é seguro: a entrega já concluída não gera evento novo, e o comprovante é único por entrega —
+    /// a segunda gravação encontra o que já existe e devolve o mesmo resultado, sem duplicar prova.
+    /// </remarks>
+    public async Task<EntregaResumo> ConcluirComComprovanteAsync(Guid entregaId, DadosDoComprovante dados, CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(dados);
+
+        var contexto = suporte.Contexto;
+        var motorista = await MotoristaDaSessaoAsync(cancelamento).ConfigureAwait(false);
+        var entrega = await EntregaDoMotoristaAsync(entregaId, motorista, cancelamento).ConfigureAwait(false);
+
+        if (await comprovantes.ExisteParaEntregaAsync(entregaId, cancelamento).ConfigureAwait(false))
+        {
+            // Prova já registrada: só garante que a entrega está concluída, sem criar outro comprovante.
+            return await ConcluirEntregaAsync(entregaId, cancelamento).ConfigureAwait(false);
+        }
+
+        var rotaId = await contexto.Paradas
+            .AsNoTracking()
+            .Where(parada => parada.EntregaId == entregaId && parada.Ativa)
+            .Select(parada => (Guid?)parada.RotaId)
+            .FirstOrDefaultAsync(cancelamento)
+            .ConfigureAwait(false);
+
+        var comprovante = await comprovantes.MontarAsync(entregaId, rotaId, motorista.Id, dados, cancelamento).ConfigureAwait(false);
+        var evento = entrega.Concluir(suporte.UsuarioId, identificadores.Novo(), suporte.Agora);
+
+        contexto.Comprovantes.Add(comprovante);
+        if (evento is not null)
+        {
+            contexto.EventosDaEntrega.Add(evento);
+        }
+
+        try
+        {
+            await suporte.SalvarAsync(
+                cancelamento,
+                (NomesDeRestricoes.SequenciaDoEventoDaEntrega, ConflitoDeVersao),
+                (NomesDeRestricoes.ComprovantePorEntrega, () => ExcecaoDeDominio.Conflito(
+                    "comprovante_ja_registrado", "Esta entrega já tem comprovante registrado."))).ConfigureAwait(false);
+        }
+        catch (ExcecaoDeDominio duplicado) when (duplicado.Codigo == "comprovante_ja_registrado")
+        {
+            // Outra requisição gravou a prova primeiro: o resultado dela vale, e este envio não duplica nada.
+            return await entregas.ObterAsync(entregaId, cancelamento).ConfigureAwait(false);
+        }
+
+        log.LogInformation(
+            "Entrega {EntregaId} ({CodigoDaEntrega}) concluída com comprovante {ComprovanteId} ({Arquivos} arquivo(s)) pelo motorista {MotoristaId}.",
+            entrega.Id, entrega.Codigo, comprovante.Id, comprovante.Arquivos.Count, motorista.Id);
+
+        return await entregas.ObterAsync(entregaId, cancelamento).ConfigureAwait(false);
+    }
+
+    /// <summary>Autoriza o envio de um arquivo do comprovante da própria entrega.</summary>
+    public async Task<AutorizacaoDeEnvio> AutorizarArquivoDoComprovanteAsync(
+        Guid entregaId,
+        TipoDeArquivoDoComprovante tipo,
+        string? tipoDeConteudo,
+        CancellationToken cancelamento)
+    {
+        var motorista = await MotoristaDaSessaoAsync(cancelamento).ConfigureAwait(false);
+        await EntregaDoMotoristaAsync(entregaId, motorista, cancelamento).ConfigureAwait(false);
+
+        return await comprovantes.AutorizarEnvioAsync(entregaId, tipo, tipoDeConteudo, cancelamento).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Tentativa sem sucesso, com motivo tipado e descrição opcional.

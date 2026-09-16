@@ -8,6 +8,7 @@ using TorreLogistica.Application.Abstracoes.TempoReal;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Comprovantes;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
@@ -138,6 +139,12 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<Ocorrencia> Ocorrencias => Set<Ocorrencia>();
+
+    /// <inheritdoc />
+    public DbSet<Comprovante> Comprovantes => Set<Comprovante>();
+
+    /// <inheritdoc />
+    public DbSet<ArquivoDoComprovante> ArquivosDoComprovante => Set<ArquivoDoComprovante>();
 
     /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
@@ -804,6 +811,10 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(operacao => operacao.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<Ocorrencia>()
             .HasQueryFilter(ocorrencia => ocorrencia.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Comprovante>()
+            .HasQueryFilter(comprovante => comprovante.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<ArquivoDoComprovante>()
+            .HasQueryFilter(arquivo => arquivo.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

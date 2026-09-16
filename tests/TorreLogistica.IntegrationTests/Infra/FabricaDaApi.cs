@@ -32,6 +32,10 @@ public sealed class FabricaDaApi(
     /// <summary>Eventos de log emitidos pela API durante o teste.</summary>
     public SinkEmMemoria Logs { get; } = new();
 
+    /// <summary>Diretório do storage de objeto deste teste.</summary>
+    public string DiretorioDoArmazenamento { get; } =
+        Path.Combine(Path.GetTempPath(), "torre-armazenamento", Guid.CreateVersion7().ToString("N"));
+
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -55,6 +59,10 @@ public sealed class FabricaDaApi(
                 ["Torre:LimiteDeRequisicoes:RenovacoesPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:EnviosDePosicaoPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:SincronizacoesPorMinuto"] = "100000",
+
+                // Storage de objeto em disco, isolado por teste e apagado no fim.
+                ["Torre:Armazenamento:Diretorio"] = DiretorioDoArmazenamento,
+                ["Torre:Armazenamento:EnderecoBase"] = "http://localhost",
 
                 // O banco é compartilhado pela suíte: a reavaliação periódica de uma API varreria as rotas
                 // em andamento de todos os testes. Os testes de previsão configuram o intervalo deles.
@@ -87,6 +95,24 @@ public sealed class FabricaDaApi(
 
             servicosDeTeste?.Invoke(servicos);
         });
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+
+        if (disposing && Directory.Exists(DiretorioDoArmazenamento))
+        {
+            try
+            {
+                Directory.Delete(DiretorioDoArmazenamento, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Arquivo ainda em uso por um handle do teste: o diretório é temporário e some com o sistema.
+            }
+        }
     }
 
     /// <summary>Cliente sem armazenamento automático de cookie: os testes controlam o cabeçalho.</summary>

@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 13 — Ocorrências e Tentativas de Entrega concluída.**
+> **Estado: Fase 14 — Proof of Delivery concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -13,7 +13,9 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > resposta perdida não duplica, e cancelamento feito enquanto o motorista estava offline não é
 > sobrescrito. Agora também as **ocorrências da última milha**: motivo tipado para cada falha, ocorrência
 > somente-inserção com severidade, hora, lugar e autor, e alerta crítico na torre quando a mercadoria ou a
-> segurança entram no caminho. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> segurança entram no caminho. Agora também a **prova de entrega**: quem recebeu, quando, onde e a foto —
+> com o arquivo fora do banco, subindo direto ao storage por URL assinada de curta duração e saindo de lá do
+> mesmo jeito, nunca por link público. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -84,10 +86,10 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 527 |
+| Unidade | 571 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 394 |
-| Frontend (3 aplicações) | 78 |
+| Integração (PostgreSQL + PostGIS real) | 462 |
+| Frontend (3 aplicações) | 113 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
@@ -123,6 +125,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0020](./docs/adr/0020-pwa-do-motorista.md) | PWA do motorista: leitura própria, ações grandes e GPS só em primeiro plano |
 | [0021](./docs/adr/0021-operacao-offline.md) | Operação offline: fila no aparelho e registro da operação na mesma transação do efeito |
 | [0022](./docs/adr/0022-ocorrencias-e-tentativas.md) | Ocorrências somente-inserção, com motivo tipado, severidade e alerta crítico |
+| [0023](./docs/adr/0023-prova-de-entrega.md) | Prova de entrega: comprovante somente-inserção e arquivo só por URL assinada |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

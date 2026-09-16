@@ -57,6 +57,11 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("GET", "/api/alertas", Status(200, 200, 200, 401, 401)),
         ("GET", "/api/ocorrencias", Status(200, 200, 200, 401, 401)),
 
+        // O alvo é uma conta, não uma entrega: quem pode ler recebe 404, igual a inexistente.
+        ("GET", "/api/entregas/{alvo}/comprovante", Status(404, 404, 404, 401, 401)),
+        ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante", Status(401, 401, 401, 404, 401)),
+        ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante/autorizacao", Status(401, 401, 401, 404, 401)),
+
         // O alvo é uma conta, não uma entrega: quem pode registrar recebe 404, igual a inexistente.
         ("POST", "/api/entregas/{alvo}/ocorrencias", Status(404, 404, 404, 401, 401)),
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/ocorrencia", Status(401, 401, 401, 404, 401)),
@@ -124,6 +129,16 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ("PUT", _) => new { perfil = "Supervisor" },
             ("POST", "/api/alertas/{alvo}/resolucao") => new { observacao = "Tratado pelo telefone." },
             ("POST", "/api/entregas/{alvo}/ocorrencias") => new { tipo = "ProblemaComVeiculo" },
+            ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante") => new
+            {
+                recebidoPor = "Quem Recebeu",
+                arquivos = Array.Empty<object>(),
+            },
+            ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante/autorizacao") => new
+            {
+                tipo = "Foto",
+                tipoDeConteudo = "image/jpeg",
+            },
             ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/ocorrencia") => new { tipo = "ProblemaComVeiculo" },
             ("POST", "/api/motoristas") => RoteirosDeCadastro.Obter("motorista").Corpo(),
             ("POST", "/api/veiculos") => RoteirosDeCadastro.Obter("veiculo").Corpo(),
@@ -236,6 +251,13 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/alertas/"] = "operacao:leitura",
             ["GET /api/alertas/{id:guid}"] = "operacao:leitura",
             ["POST /api/alertas/{id:guid}/resolucao"] = "entregas:operacao",
+            ["POST /api/motorista/entregas/{id:guid}/comprovante"] = "motorista",
+            ["POST /api/motorista/entregas/{id:guid}/comprovante/autorizacao"] = "motorista",
+            ["GET /api/entregas/{id:guid}/comprovante"] = "operacao:leitura",
+
+            // Storage: a credencial é a assinatura da URL, emitida por quem já passou pela autorização.
+            ["PUT /api/arquivos/{**chave}"] = "anonimo",
+            ["GET /api/arquivos/{**chave}"] = "anonimo",
             ["GET /api/ocorrencias/"] = "operacao:leitura",
             ["GET /api/ocorrencias/{id:guid}"] = "operacao:leitura",
             ["GET /api/entregas/{id:guid}/ocorrencias/"] = "operacao:leitura",

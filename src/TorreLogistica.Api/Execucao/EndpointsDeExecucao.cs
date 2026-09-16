@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using TorreLogistica.Api.Autenticacao;
+using TorreLogistica.Application.Comprovantes;
 using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Ocorrencias;
+using TorreLogistica.Domain.Comprovantes;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Sincronizacao;
@@ -23,6 +25,28 @@ public sealed record RequisicaoDeOcorrenciaDoMotorista(
     double? Latitude,
     double? Longitude,
     DateTimeOffset? OcorridaEm);
+
+/// <summary>Pedido de autorização para enviar um arquivo do comprovante.</summary>
+public sealed record RequisicaoDeAutorizacaoDeArquivo(
+    [property: Required(ErrorMessage = "Informe o tipo do arquivo.")] TipoDeArquivoDoComprovante? Tipo,
+    [property: Required(ErrorMessage = "Informe o tipo de conteúdo.")]
+    [property: StringLength(60)] string? TipoDeConteudo);
+
+/// <summary>Arquivo já enviado ao storage, informado no registro do comprovante.</summary>
+public sealed record RequisicaoDeArquivoDoComprovante(
+    [property: Required(ErrorMessage = "Informe o tipo do arquivo.")] TipoDeArquivoDoComprovante? Tipo,
+    [property: Required(ErrorMessage = "Informe a chave do arquivo.")]
+    [property: StringLength(PoliticaDeComprovante.TamanhoMaximoDaChave)] string? Chave);
+
+/// <summary>Registro do comprovante, que conclui a entrega.</summary>
+public sealed record RequisicaoDeComprovante(
+    [property: Required(ErrorMessage = "Informe quem recebeu.")]
+    [property: StringLength(PoliticaDeComprovante.TamanhoMaximoDoRecebedor)] string? RecebidoPor,
+    [property: StringLength(PoliticaDeComprovante.TamanhoMaximoDaObservacao)] string? Observacao,
+    double? Latitude,
+    double? Longitude,
+    [property: MaxLength(PoliticaDeComprovante.QuantidadeMaximaDeArquivos, ErrorMessage = "Arquivos demais no comprovante.")]
+    RequisicaoDeArquivoDoComprovante[]? Arquivos);
 
 /// <summary>Uma operação feita no aparelho. Campos anuláveis para recusar item a item.</summary>
 public sealed record RequisicaoDeOperacao(
@@ -99,6 +123,26 @@ public static class EndpointsDeExecucao
                 execucao.RegistrarTentativaFrustradaAsync(id, requisicao.Motivo!.Value, requisicao.Observacao, cancelamento))
             .RequireAuthorization(Politicas.Motorista)
             .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeTentativaFrustrada>>();
+
+        // Prova de entrega: primeiro o aparelho pede autorização e envia o arquivo direto ao storage;
+        // depois confirma, e a conclusão da entrega entra no mesmo commit do comprovante.
+        grupo.MapPost("/entregas/{id:guid}/comprovante/autorizacao", (Guid id, RequisicaoDeAutorizacaoDeArquivo requisicao, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
+                execucao.AutorizarArquivoDoComprovanteAsync(id, requisicao.Tipo!.Value, requisicao.TipoDeConteudo, cancelamento))
+            .RequireAuthorization(Politicas.Motorista)
+            .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeAutorizacaoDeArquivo>>();
+
+        grupo.MapPost("/entregas/{id:guid}/comprovante", (Guid id, RequisicaoDeComprovante requisicao, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
+                execucao.ConcluirComComprovanteAsync(
+                    id,
+                    new DadosDoComprovante(
+                        requisicao.RecebidoPor,
+                        requisicao.Observacao,
+                        requisicao.Latitude,
+                        requisicao.Longitude,
+                        [.. (requisicao.Arquivos ?? []).Select(arquivo => new ArquivoEnviado(arquivo.Tipo!.Value, arquivo.Chave!))]),
+                    cancelamento))
+            .RequireAuthorization(Politicas.Motorista)
+            .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeComprovante>>();
 
         grupo.MapPost("/entregas/{id:guid}/ocorrencia", async (Guid id, RequisicaoDeOcorrenciaDoMotorista requisicao, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
             {

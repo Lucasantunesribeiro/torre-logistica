@@ -134,7 +134,7 @@ Não antecipar:
 | 11 | PWA do Motorista | ⬜ |
 | 12 | Offline, Sincronização e Idempotência | ✅ |
 | 13 | Ocorrências e Tentativas de Entrega | ✅ |
-| 14 | Proof of Delivery | ⬜ |
+| 14 | Proof of Delivery | ✅ |
 | 15 | Rastreamento Público | ⬜ |
 | 16 | API de Integração e Importação | ⬜ |
 | 17 | Webhooks e Backbone Assíncrono | ⬜ |
@@ -2686,6 +2686,134 @@ foi registrada**, **onde** (coordenada, quando o aparelho informou), **quem** re
 
 ---
 
+## Fase 14 concluída — 2026-09-16
+
+### Dados do comprovante
+
+| Pedido no roadmap | Como ficou |
+|---|---|
+| nome de quem recebeu | `recebido_por`, obrigatório |
+| timestamp | `registrado_em` (servidor) e `enviado_em` por arquivo (gravação no storage) |
+| posição | `localizacao` `geography(Point,4326)`, quando o aparelho informa |
+| foto | arquivo do tipo `Foto`, no storage |
+| assinatura | tipo `Assinatura` aceito pela API; captura na tela ainda não existe no aplicativo |
+| observação | `observacao`, opcional |
+
+Mais o que a prova exige e o roadmap não listou: autor, motorista, rota, tipo de conteúdo real, tamanho real
+e **SHA-256** de cada arquivo.
+
+### Storage
+
+`IObjectStorage` com três operações: autorizar envio, autorizar leitura, obter metadados. Arquivo **não**
+entra no PostgreSQL e não passa pela API de negócio — o limite de corpo de 1 MB do Kestrel continua valendo.
+
+O adaptador desta fase é **disco local com URL assinada servida pela própria API**. O roadmap diz "em
+produção, direção provável: S3 ou compatível", e o [ADR 0007](./docs/adr/0007-storage-de-comprovantes-fora-do-banco.md)
+registra que essa escolha é da **Fase 25**. Criar bucket agora seria recurso pago sem autorização e decisão
+de fase futura; a abstração existe justamente para que a troca não alcance domínio, aplicação nem cliente.
+
+### Upload
+
+```text
+1. POST /api/motorista/entregas/{id}/comprovante/autorizacao   → URL assinada curta
+2. PUT  /api/arquivos/{chave}?expiraEm&assinatura&tipoDeConteudo&tamanhoMaximo   → direto ao storage
+3. POST /api/motorista/entregas/{id}/comprovante   → confere objetos, grava metadados e conclui a entrega
+4. GET  /api/entregas/{id}/comprovante   → metadados + URLs assinadas de leitura
+```
+
+A assinatura HMAC cobre operação, chave, tipo de conteúdo, tamanho máximo e expiração: trocar qualquer campo
+invalida a URL. Os metadados gravados são os que o **storage** apurou, nunca os declarados pelo cliente.
+
+### Segurança
+
+Nada é público. Os endpoints de arquivo são anônimos por desenho — a credencial é a assinatura, emitida só
+depois de autenticação, autorização e verificação de tenant, como numa URL pré-assinada de S3. Sem assinatura
+válida e no prazo: 403, sem revelar se o objeto existe. Chave com travessia de diretório é recusada.
+
+### Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| upload | `ConclusaoComProvaGuardaMetadadosEServeArquivoSoPorUrlAssinada` (autorização → PUT → registro → leitura, com hash conferido) |
+| tipo/tamanho | `TipoOuTamanhoForaDoAutorizadoEhRecusado` (tipo não aceito 422; tipo diferente do autorizado 415; acima do limite 413) e `ComprovanteTestes` no domínio |
+| expiração | `UrlAssinadaExpiraEAssinaturaAdulteradaNaoVale` (relógio avançado; assinatura trocada) |
+| tenant isolation | `ComprovanteDeOutraOrganizacaoNaoApareceNemPodeSerRegistrado` (404 igual a inexistente; arquivo de outra entrega recusado) |
+| arquivo inexistente | `ArquivoInexistenteEChaveComTravessiaSaoRecusados` e `arquivo_nao_enviado` no registro |
+| retry idempotente | `RepetirORegistroNaoDuplicaAProva` (um comprovante, um evento `Entregue`) |
+| conclusão sem evidência quando a política exigir | `ComprovanteObrigatorioTestes.ConclusaoSemProvaEhRecusadaEComProvaPassa` |
+
+### Critério de aceite
+
+> Entrega concluída pode ser provada sem tornar arquivos públicos.
+
+✅ O comprovante guarda quem recebeu, quando, onde e com que evidência; o arquivo só sai do storage por URL
+assinada de curta duração, emitida a quem já passou pela autorização — e o teste do caminho feliz confere que
+o conteúdo baixado é byte a byte o que subiu, enquanto a mesma URL sem assinatura responde 403.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 571 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 462 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **1.168** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| `GET /api/arquivos/{chave}` sem assinatura respondia **400**, não 403 | `ConclusaoComProvaGuardaMetadadosEServeArquivoSoPorUrlAssinada` | os parâmetros da assinatura passaram a ser opcionais no contrato: ausentes, a resposta é a mesma de assinatura inválida. O 400 do binding contava que a rota existe e o que ela espera — a matriz de autorização e o ADR 0023 já prometiam 403, e o código não cumpria |
+| `ArquivoConfirmado` expunha `init` público no domínio | `TiposDoDominioNaoExpoemSetterPublico` | virou classe selada com propriedades somente-leitura |
+| Teste de travessia não exercitava o endpoint | `ArquivoInexistenteEChaveComTravessiaSaoRecusados` | o cliente HTTP normalizava `..` antes do envio e a requisição nem chegava à rota; passou a usar a barra escapada |
+| Teste de tenant não exercitava a validação | `ComprovanteDeOutraOrganizacaoNaoApareceNemPodeSerRegistrado` | registrava a prova legítima antes e caía no atalho de idempotência, que não monta comprovante nenhum; a tentativa com chave de outra organização passou a vir primeiro |
+
+### Security Gate 14
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Nada público | ✅ | leitura só por URL assinada curta; sem assinatura, 403 |
+| Autorização e tenant | ✅ | registrar é do motorista da entrega; ler é do console; comprovante de outra organização responde como inexistente |
+| Upload | ✅ | tipo e tamanho conferidos contra o autorizado; corte no limite; `Content-Type` diferente do autorizado é 415 |
+| Path traversal | ✅ | chave validada segmento a segmento; `..` recusado |
+| Integridade | ✅ | SHA-256 gravado; tabelas somente-inserção por trigger |
+| Limite de corpo | ✅ | 1 MB na API de negócio; só a rota de arquivo aceita o tamanho autorizado |
+| Cache e exposição | ✅ | `Cache-Control: no-store` e `Content-Disposition: attachment` no download |
+| Segredos | ✅ | chave de assinatura do storage vem de configuração; efêmera só em desenvolvimento e teste |
+| Custo | ✅ | nenhum recurso de nuvem criado: storage em disco local, S3 fica para a Fase 25 |
+
+### Decisões
+
+[ADR 0023](./docs/adr/0023-prova-de-entrega.md), implementando o [ADR 0007](./docs/adr/0007-storage-de-comprovantes-fora-do-banco.md).
+
+- **Comprovante somente-inserção e único por entrega.**
+- **Registro e conclusão no mesmo commit.**
+- **Storage local nesta fase**, S3 na Fase 25, atrás de `IObjectStorage`.
+- **Endpoints de arquivo anônimos por desenho**, com a assinatura como credencial.
+- **Metadados vindos do storage**, não do cliente.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Captura de assinatura na tela | API já aceita o tipo; a tela entra com o console e a UX final |
+| Antivírus e remoção de EXIF | Fase 20 (segurança e privacidade) |
+| Retenção e ciclo de vida do objeto | Fase 20, como o ADR 0007 registrou |
+| Storage para várias instâncias | Fase 25, trocando o adaptador |
+| CI nunca executada | exige `git push`, não autorizado |
+
+### Commit
+
+`feat: prova de entrega com comprovante e storage por url assinada (Fase 14)`
+
+---
+
 # FASE 12 — OFFLINE, SINCRONIZAÇÃO E IDEMPOTÊNCIA
 
 ## Objetivo
@@ -3837,9 +3965,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 13 — Ocorrências e Tentativas de Entrega** (2026-09-15) |
-| Próxima fase | **Fase 14 — Proof of Delivery** |
-| Testes verdes | 1.132 — 558 unidade, 22 arquitetura, 440 integração, 112 frontend |
+| Última fase concluída | **Fase 14 — Proof of Delivery** (2026-09-16) |
+| Próxima fase | **Fase 15 — Rastreamento Público** |
+| Testes verdes | 1.168 — 571 unidade, 22 arquitetura, 462 integração, 113 frontend |
 
 Comando para continuar:
 

@@ -3,11 +3,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using TorreLogistica.Application.Abstracoes.Armazenamento;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Seguranca;
+using TorreLogistica.Application.Comprovantes;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
+using TorreLogistica.Infrastructure.Armazenamento;
 using TorreLogistica.Infrastructure.Configuracao;
 using TorreLogistica.Infrastructure.Desenvolvimento;
 using TorreLogistica.Infrastructure.Identificadores;
@@ -54,6 +57,25 @@ public static class ConfiguracaoDeServicosDaInfrastructure
         servicos
             .AddOptions<OpcoesDeSemeaduraDeDesenvolvimento>()
             .Bind(configuracao.GetSection(OpcoesDeSemeaduraDeDesenvolvimento.Secao));
+
+        // Storage de objeto (ADR 0007): nesta fase, disco local com URL assinada servida pela própria API.
+        // A troca por S3 ou compatível é da Fase 25 e não passa do adaptador.
+        servicos
+            .AddOptions<OpcoesDeArmazenamento>()
+            .Bind(configuracao.GetSection(OpcoesDeArmazenamento.Secao))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        servicos.AddSingleton<IValidateOptions<OpcoesDeArmazenamento>, ValidacaoDeOpcoesDeArmazenamento>();
+        servicos.AddSingleton<AssinaturaDeUrlDeArmazenamento>();
+        servicos.AddSingleton<ArmazenamentoLocalDeObjetos>();
+        servicos.AddSingleton<IObjectStorage>(provedor => provedor.GetRequiredService<ArmazenamentoLocalDeObjetos>());
+
+        servicos
+            .AddOptions<OpcoesDeComprovantes>()
+            .Bind(configuracao.GetSection(OpcoesDeComprovantes.Secao))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         servicos.TryAddTimeProvider();
         servicos.AddSingleton<IRelogio, RelogioDoSistema>();

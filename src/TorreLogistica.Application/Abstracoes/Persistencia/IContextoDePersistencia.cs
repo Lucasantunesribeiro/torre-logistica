@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
+using TorreLogistica.Domain.Comprovantes;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
@@ -119,6 +120,12 @@ public interface IContextoDePersistencia
 
     /// <summary>Ocorrências da operação, filtradas pelo tenant. Somente-inserção.</summary>
     DbSet<Ocorrencia> Ocorrencias { get; }
+
+    /// <summary>Comprovantes de entrega, filtrados pelo tenant. Somente-inserção.</summary>
+    DbSet<Comprovante> Comprovantes { get; }
+
+    /// <summary>Arquivos dos comprovantes (metadados), filtrados pelo tenant. Somente-inserção.</summary>
+    DbSet<ArquivoDoComprovante> ArquivosDoComprovante { get; }
 
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }

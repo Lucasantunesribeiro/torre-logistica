@@ -5,8 +5,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using TorreLogistica.Api.Alertas;
+using TorreLogistica.Api.Arquivos;
 using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Cadastros;
+using TorreLogistica.Api.Comprovantes;
 using TorreLogistica.Api.Correlacao;
 using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Entregas;
@@ -204,6 +206,8 @@ try
     aplicacao.MapearEndpointsDeRastreamento();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeOcorrencias();
+    aplicacao.MapearEndpointsDeComprovantes();
+    aplicacao.MapearEndpointsDeArquivos();
     aplicacao.MapearEndpointsDeAlertas();
     aplicacao.MapearTempoRealDaOperacao();
 

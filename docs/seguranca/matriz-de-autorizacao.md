@@ -1,6 +1,6 @@
 # Matriz de autorização
 
-> Estado: Fase 13. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
+> Estado: Fase 14. Esta tabela é espelhada em `tests/TorreLogistica.IntegrationTests/AutorizacaoTestes.cs`,
 > que falha se a matriz e o roteamento real divergirem — em qualquer direção.
 
 ## Endpoints e respostas por perfil
@@ -58,6 +58,9 @@
 | `GET /api/alertas` e `GET /api/alertas/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `POST /api/alertas/{id}/resolucao` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
 | `GET /api/ocorrencias`, `GET /api/ocorrencias/{id}` e `GET /api/entregas/{id}/ocorrencias` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `GET /api/entregas/{id}/comprovante` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura`; devolve URLs assinadas curtas |
+| `POST /api/motorista/entregas/{id}/comprovante` e `.../comprovante/autorizacao` | **401** | **401** | **401** | 200 | 401 | `motorista`; só entrega do motorista da sessão |
+| `PUT` e `GET /api/arquivos/{chave}` | — | — | — | — | — | anônimo **por desenho**: a credencial é a assinatura da URL (ADR 0023); sem assinatura válida e no prazo, 403 |
 | `POST /api/entregas/{id}/ocorrencias` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao`; recusa tipo `TentativaDeEntrega` |
 | `POST /api/motorista/entregas/{id}/ocorrencia` | **401** | **401** | **401** | 201 | 401 | `motorista`; só entrega do motorista da sessão |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |

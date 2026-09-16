@@ -69,4 +69,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Uma operação do aparelho por motorista: a mesma operação repetida não executa de novo.</summary>
     public const string OperacaoDoCliente = "ux_operacoes_do_cliente_operacao";
+
+    /// <summary>Um comprovante por entrega: repetir a conclusão não cria outra prova.</summary>
+    public const string ComprovantePorEntrega = "ux_comprovantes_entrega_id";
+
+    /// <summary>Uma chave de objeto por arquivo: o mesmo arquivo não é registrado duas vezes.</summary>
+    public const string ChaveDoArquivoDoComprovante = "ux_arquivos_do_comprovante_chave";
 }

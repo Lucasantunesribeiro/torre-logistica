@@ -588,6 +588,30 @@ ocorrencias (somente-inserção): tipo · severidade · motivo tipado · observa
 
 Decisões e limitações em [ADR 0022](./adr/0022-ocorrencias-e-tentativas.md).
 
+## Fase 14 — Prova de entrega
+
+```text
+aparelho: POST /api/motorista/entregas/{id}/comprovante/autorizacao  (tipo + tipo de conteúdo)
+  → IObjectStorage.AutorizarEnvio → URL assinada curta (HMAC sobre operação, chave, tipo, tamanho, expiração)
+aparelho: PUT /api/arquivos/{chave}?expiraEm&assinatura&tipoDeConteudo&tamanhoMaximo   (direto ao storage)
+  → confere tipo e tamanho autorizados, corta no limite, calcula SHA-256
+aparelho: POST /api/motorista/entregas/{id}/comprovante  (quem recebeu, observação, posição, arquivos)
+  → confere cada objeto no storage → comprovantes + arquivos_do_comprovante + evento Entregue, no mesmo commit
+console: GET /api/entregas/{id}/comprovante → metadados + URLs assinadas de leitura (curta)
+```
+
+| Peça | Regra |
+|---|---|
+| Binário | nunca no PostgreSQL; nunca pela API de negócio (limite de corpo de 1 MB continua valendo) |
+| Metadados | tipo, chave, tipo de conteúdo, tamanho, SHA-256 e instante — vindos do storage, não do cliente |
+| Unicidade | um comprovante por entrega; repetir o registro devolve o mesmo estado, sem duplicar prova |
+| Integridade | `comprovantes` e `arquivos_do_comprovante` são somente-inserção por trigger |
+| Autorização | registrar é do motorista da entrega; ler é do console; arquivo só por URL assinada no prazo |
+| Política | `Torre:Comprovantes:ExigirNaConclusao` recusa conclusão sem prova (`422 comprovante_obrigatorio`) |
+| Storage desta fase | disco local com URL assinada servida pela API; S3 ou compatível é decisão da Fase 25 |
+
+Decisões e limitações em [ADR 0023](./adr/0023-prova-de-entrega.md), que implementa o [ADR 0007](./adr/0007-storage-de-comprovantes-fora-do-banco.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem

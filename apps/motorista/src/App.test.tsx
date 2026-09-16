@@ -83,6 +83,7 @@ function servidorDoMotorista(
   };
   const rede = { ativa: true };
   const comandos: string[] = [];
+  const comprovantes: Record<string, unknown>[] = [];
   const lotes: OperacaoRecebida[][] = [];
   const respostas: ResultadoFalso[] = [];
   const registradas = new Map<string, ResultadoFalso>();
@@ -112,6 +113,22 @@ function servidorDoMotorista(
   };
 
   const resolvida = (status: string) => ['Entregue', 'TentativaFrustrada', 'Reagendada', 'Cancelada'].includes(status);
+
+  const autorizacaoDeArquivo = (id: string) =>
+    json({
+      arquivoId: `arq-${id}`,
+      chave: `prova-${id}.jpg`,
+      url: `http://api.teste.local/api/arquivos/prova-${id}.jpg?expiraEm=99&assinatura=abc`,
+      expiraEm: '2026-09-16T12:10:00Z',
+      cabecalhosObrigatorios: { 'Content-Type': 'image/jpeg' },
+      tamanhoMaximoEmBytes: 5_242_880,
+    });
+
+  const registrarComprovante = (id: string, sequencia: number, corpo: unknown) => {
+    comprovantes.push({ entregaId: id, ...(corpo as Record<string, unknown>) });
+    estado.entregas[id]!.status = 'Entregue';
+    return json(entregaJson(id, sequencia));
+  };
   const emExecucao = (status: string) => status === 'EmRota' || status === 'ProximaDoDestino';
 
   /** Devolve o código do conflito, ou null quando aplicou. */
@@ -193,6 +210,13 @@ function servidorDoMotorista(
     'GET /api/motorista/entregas/e1': () => json(entregaJson('e1', 1)),
     'GET /api/motorista/entregas/e2': () => json(entregaJson('e2', 2)),
     'POST /api/motorista/posicoes': () => json({ recebidas: 1, aceitas: 1, duplicadas: 0, rejeitadas: 0 }),
+    // Storage: o arquivo sobe direto, fora da API de negócio.
+    'PUT /api/arquivos/prova-e1.jpg': () => json({ chave: 'prova-e1.jpg', tamanhoEmBytes: 8, hashSha256: 'a'.repeat(64) }, 201),
+    'PUT /api/arquivos/prova-e2.jpg': () => json({ chave: 'prova-e2.jpg', tamanhoEmBytes: 8, hashSha256: 'b'.repeat(64) }, 201),
+    'POST /api/motorista/entregas/e1/comprovante/autorizacao': () => autorizacaoDeArquivo('e1'),
+    'POST /api/motorista/entregas/e2/comprovante/autorizacao': () => autorizacaoDeArquivo('e2'),
+    'POST /api/motorista/entregas/e1/comprovante': (corpo) => registrarComprovante('e1', 1, corpo),
+    'POST /api/motorista/entregas/e2/comprovante': (corpo) => registrarComprovante('e2', 2, corpo),
     'POST /api/motorista/sincronizacao': (corpo) => {
       const { operacoes } = corpo as { operacoes: OperacaoRecebida[] };
       lotes.push(operacoes);
@@ -241,7 +265,7 @@ function servidorDoMotorista(
   });
 
   vi.stubGlobal('fetch', chamadas);
-  return { estado, comandos, lotes, respostas, chamadas, rede };
+  return { estado, comandos, comprovantes, lotes, respostas, chamadas, rede };
 }
 
 type Servidor = ReturnType<typeof servidorDoMotorista>;
@@ -277,6 +301,13 @@ async function montar(rotaInicial = '/') {
 async function abrirPrimeiraEntrega() {
   fireEvent.click(await screen.findByRole('link', { name: 'Abrir entrega' }));
   expect(await screen.findByRole('heading', { level: 2, name: 'Carla Nunes' })).toBeVisible();
+}
+
+/** Conclui pela tela, preenchendo a prova quando há conexão. */
+async function concluirComProva(recebidoPor = 'Carla Nunes') {
+  fireEvent.click(await screen.findByRole('button', { name: 'Entrega concluída' }));
+  fireEvent.change(await screen.findByLabelText('Quem recebeu'), { target: { value: recebidoPor } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirmar entrega concluída' }));
 }
 
 function simularGeolocalizacao(comportamento: 'negar' | 'liberar') {
@@ -356,9 +387,8 @@ describe('PWA do motorista', () => {
       expect(estado.entregas.e1!.status).toBe('ProximaDoDestino');
     });
 
-    // Concluir pede confirmação.
-    fireEvent.click(await screen.findByRole('button', { name: 'Entrega concluída' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar entrega concluída' }));
+    // Concluir pede confirmação e, com conexão, a prova de quem recebeu.
+    await concluirComProva();
 
     // De volta à rota: a próxima é a segunda.
     expect(await screen.findByText('Bruno Alves')).toBeVisible();
@@ -377,9 +407,11 @@ describe('PWA do motorista', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Encerrar rota' }));
     expect(await screen.findByText('Nenhuma rota para você agora.')).toBeVisible();
 
+    // Com conexão, a conclusão vai com a prova, por HTTP; o resto continua passando pela fila do aparelho.
     await waitFor(() => {
-      expect(comandos).toEqual(['IniciarRota r1', 'RegistrarChegada e1', 'ConcluirEntrega e1', 'RegistrarTentativaFrustrada e2', 'ConcluirRota r1']);
+      expect(comandos).toEqual(['IniciarRota r1', 'RegistrarChegada e1', 'RegistrarTentativaFrustrada e2', 'ConcluirRota r1']);
     });
+    expect(estado.entregas.e1!.status).toBe('Entregue');
     expect(estado.entregas.e2).toMatchObject({ status: 'TentativaFrustrada', motivo: 'LocalFechado' });
 
     // Nenhuma ação crítica pelo comando direto: só pela sincronização, com identificador do aparelho.
@@ -487,8 +519,7 @@ describe('PWA do motorista', () => {
     expect(await screen.findByText(/Localização bloqueada/)).toBeVisible();
     expect(geolocalizacao.watchPosition).toHaveBeenCalled();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Entrega concluída' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar entrega concluída' }));
+    await concluirComProva();
 
     await waitFor(() => {
       expect(estado.entregas.e1!.status).toBe('Entregue');
@@ -564,6 +595,7 @@ describe('PWA do motorista sem conexão', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Entrega concluída' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar entrega concluída' }));
 
+    // Sem internet a prova não sobe: a conclusão vai pela fila, como qualquer outra ação.
     // Rota do dia pela cópia guardada, com a conclusão aplicada: a próxima é a segunda.
     expect(await screen.findByText('Bruno Alves')).toBeVisible();
     expect(await screen.findByText('2 ações guardadas no aparelho, aguardando envio')).toBeVisible();
@@ -660,6 +692,38 @@ describe('PWA do motorista sem conexão', () => {
     await new Promise((resolver) => setTimeout(resolver, 50));
 
     expect(servidor.lotes).toHaveLength(1);
+  });
+
+  it('com conexão, a conclusão leva a prova: quem recebeu e a foto', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/');
+    await abrirPrimeiraEntrega();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Entrega concluída' }));
+
+    // Sem o nome de quem recebeu, a conclusão não sai.
+    const confirmar = await screen.findByRole('button', { name: 'Confirmar entrega concluída' });
+    expect(confirmar).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Quem recebeu'), { target: { value: 'Carla Nunes' } });
+    fireEvent.change(screen.getByLabelText('Foto da entrega (opcional)'), {
+      target: { files: [new File(['conteudo'], 'prova.jpg', { type: 'image/jpeg' })] },
+    });
+    fireEvent.click(confirmar);
+
+    await waitFor(() => {
+      expect(servidor.comprovantes).toHaveLength(1);
+    });
+    expect(servidor.comprovantes[0]).toMatchObject({
+      entregaId: 'e1',
+      recebidoPor: 'Carla Nunes',
+      arquivos: [{ tipo: 'Foto', chave: 'prova-e1.jpg' }],
+    });
+    expect(servidor.estado.entregas.e1!.status).toBe('Entregue');
+
+    // O arquivo sobe direto ao storage, não pela API de negócio.
+    const caminhos = servidor.chamadas.mock.calls.map(([entrada]) => new URL(urlDe(entrada)).pathname);
+    expect(caminhos).toContain('/api/arquivos/prova-e1.jpg');
   });
 
   it('conflito real: cancelamento feito enquanto o motorista estava sem internet não é sobrescrito', async () => {

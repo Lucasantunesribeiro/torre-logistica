@@ -162,6 +162,29 @@ export interface PosicaoParaEnvio {
   readonly direcaoEmGraus: number | null;
 }
 
+const esquemaDaAutorizacaoDeArquivo = z.object({
+  arquivoId: z.string(),
+  chave: z.string(),
+  url: z.string(),
+  expiraEm: z.string(),
+  cabecalhosObrigatorios: z.record(z.string(), z.string()),
+  tamanhoMaximoEmBytes: z.number().int(),
+});
+
+export type AutorizacaoDeArquivo = z.infer<typeof esquemaDaAutorizacaoDeArquivo>;
+
+/** Tipos de arquivo que a operação aceita como prova. */
+export const TIPOS_DE_IMAGEM_ACEITOS = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+/** Comprovante como o aplicativo o envia. */
+export interface ComprovanteParaEnvio {
+  readonly recebidoPor: string;
+  readonly observacao: string | null;
+  readonly latitude: number | null;
+  readonly longitude: number | null;
+  readonly arquivos: readonly { readonly tipo: 'Foto' | 'Assinatura'; readonly chave: string }[];
+}
+
 /** Resposta fora do formato combinado: tratada como erro da operação, nunca como dado. */
 export class RespostaInesperada extends Error {
   constructor() {
@@ -198,6 +221,33 @@ export const apiDoMotorista = {
       body: JSON.stringify({ operacoes }),
     }),
 
+  // Prova de entrega: a API só autoriza e registra; o arquivo vai direto ao storage pela URL assinada.
+  autorizarArquivoDoComprovante: (entregaId: string, tipo: 'Foto' | 'Assinatura', tipoDeConteudo: string) =>
+    ler(`/api/motorista/entregas/${encodeURIComponent(entregaId)}/comprovante/autorizacao`, esquemaDaAutorizacaoDeArquivo, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, tipoDeConteudo }),
+    }),
+
+  enviarArquivo: async (autorizacao: AutorizacaoDeArquivo, arquivo: Blob) => {
+    const resposta = await fetch(autorizacao.url, {
+      method: 'PUT',
+      headers: autorizacao.cabecalhosObrigatorios,
+      body: arquivo,
+    });
+
+    if (!resposta.ok) {
+      throw await erroDaResposta(resposta);
+    }
+  },
+
+  registrarComprovante: (entregaId: string, comprovante: ComprovanteParaEnvio) =>
+    ler(`/api/motorista/entregas/${encodeURIComponent(entregaId)}/comprovante`, esquemaDeEntrega, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(comprovante),
+    }),
+
   enviarPosicoes: (posicoes: readonly PosicaoParaEnvio[]) =>
     ler('/api/motorista/posicoes', esquemaDoLote, {
       method: 'POST',
@@ -229,6 +279,15 @@ export function mensagemDeErro(erro: unknown): string {
       return 'A entrega foi alterada ao mesmo tempo. A tela foi atualizada; confira e tente de novo.';
     case 'rota_com_entregas_pendentes':
       return 'Ainda há entregas sem resultado nesta rota.';
+    case 'comprovante_obrigatorio':
+    case 'comprovante_sem_arquivo':
+      return 'Esta operação exige comprovante com foto. Tire a foto para concluir.';
+    case 'tipo_de_arquivo_nao_aceito':
+      return 'Formato de foto não aceito. Use a câmera do aparelho.';
+    case 'arquivo_grande_demais':
+      return 'A foto ficou grande demais. Tire outra com menos qualidade.';
+    case 'assinatura_invalida':
+      return 'O envio da foto demorou e precisou ser refeito. Tente de novo.';
     default:
       break;
   }
