@@ -15,6 +15,7 @@ public sealed record OperacaoEnviada(
     TipoDeOperacaoDoCliente? Tipo,
     Guid? AlvoId,
     MotivoDeTentativaFrustrada? Motivo,
+    string? Observacao,
     DateTimeOffset? CriadaEm);
 
 /// <summary>Desfecho de uma operação na sincronização.</summary>
@@ -60,9 +61,9 @@ public sealed record ResultadoDaSincronizacao(IReadOnlyList<ResultadoDeOperacaoS
 /// </para>
 /// <para>
 /// O comando em si é o mesmo do caminho online (<see cref="ExecucaoPeloMotorista"/>): mesma máquina de
-/// estados, mesmas regras de propriedade. Operação feita offline não tem atalho: se a entrega foi
-/// cancelada ou passada a outro motorista enquanto o aparelho estava sem conexão, o desfecho é conflito, e
-/// a mudança da operação prevalece.
+/// estados, mesmas regras de propriedade, mesma ocorrência registrada na tentativa sem sucesso. Operação
+/// feita offline não tem atalho: se a entrega foi cancelada ou passada a outro motorista enquanto o aparelho
+/// estava sem conexão, o desfecho é conflito, e a mudança da operação prevalece.
 /// </para>
 /// </remarks>
 public sealed class SincronizacaoDoMotorista(
@@ -140,16 +141,17 @@ public sealed class SincronizacaoDoMotorista(
 
         var contexto = suporte.Contexto;
         var recebidaEm = suporte.Agora;
+        var pedido = new PedidoDaOperacao(id, tipo, alvoId, enviada.Motivo, enviada.Observacao, criadaEm);
 
         var registrada = await BuscarAsync(motoristaId, id, cancelamento).ConfigureAwait(false);
         if (registrada is not null)
         {
-            return DoRegistro(registrada, tipo, alvoId, enviada.Motivo);
+            return DoRegistro(registrada, pedido);
         }
 
         try
         {
-            OperacaoDoCliente.Validar(id, tipo, alvoId, enviada.Motivo, criadaEm, recebidaEm);
+            OperacaoDoCliente.Validar(id, tipo, alvoId, enviada.Motivo, enviada.Observacao, criadaEm, recebidaEm);
         }
         catch (ExcecaoDeDominio invalida)
         {
@@ -162,18 +164,17 @@ public sealed class SincronizacaoDoMotorista(
             var jaRegistrada = await contexto.ExecutarEmTransacaoAsync(
                 async cancelamentoDaTentativa =>
                 {
-                    var repeticao = await RepeticaoNaFilaAsync(motoristaId, id, tipo, alvoId, enviada.Motivo, cancelamentoDaTentativa)
-                        .ConfigureAwait(false);
+                    var repeticao = await RepeticaoNaFilaAsync(motoristaId, pedido, cancelamentoDaTentativa).ConfigureAwait(false);
                     if (repeticao is not null)
                     {
                         return repeticao;
                     }
 
                     contexto.OperacoesDoCliente.Add(OperacaoDoCliente.Registrar(
-                        suporte.NovoIdentificador(), suporte.OrganizacaoId, motoristaId, id, tipo, alvoId, enviada.Motivo, criadaEm, recebidaEm,
-                        ResultadoDaOperacaoDoCliente.Aplicada));
+                        suporte.NovoIdentificador(), suporte.OrganizacaoId, motoristaId, id, tipo, alvoId, enviada.Motivo, enviada.Observacao,
+                        criadaEm, recebidaEm, ResultadoDaOperacaoDoCliente.Aplicada));
 
-                    await ExecutarAsync(tipo, alvoId, enviada.Motivo, cancelamentoDaTentativa).ConfigureAwait(false);
+                    await ExecutarAsync(pedido, cancelamentoDaTentativa).ConfigureAwait(false);
 
                     // Comando que encontra o efeito já aplicado não grava nada; o registro da operação, sim.
                     await contexto.SaveChangesAsync(cancelamentoDaTentativa).ConfigureAwait(false);
@@ -190,24 +191,19 @@ public sealed class SincronizacaoDoMotorista(
         }
         catch (ExcecaoDeDominio recusa)
         {
-            return await RegistrarDesfechoNegativoAsync(recusa, motoristaId, id, tipo, alvoId, enviada.Motivo, criadaEm, recebidaEm, cancelamento)
-                .ConfigureAwait(false);
+            return await RegistrarDesfechoNegativoAsync(recusa, motoristaId, pedido, recebidaEm, cancelamento).ConfigureAwait(false);
         }
         catch (DbUpdateException duplicada) when (contexto.EhViolacaoDeUnicidade(duplicada, NomesDeRestricoes.OperacaoDoCliente))
         {
             // Outra requisição com a mesma operação gravou primeiro; esta transação foi desfeita inteira.
-            return await RepetidaAsync(motoristaId, id, tipo, alvoId, enviada.Motivo, cancelamento).ConfigureAwait(false);
+            return await RepetidaAsync(motoristaId, pedido, cancelamento).ConfigureAwait(false);
         }
     }
 
     private async Task<ResultadoDeOperacaoSincronizada> RegistrarDesfechoNegativoAsync(
         ExcecaoDeDominio recusa,
         Guid motoristaId,
-        Guid id,
-        TipoDeOperacaoDoCliente tipo,
-        Guid alvoId,
-        MotivoDeTentativaFrustrada? motivo,
-        DateTimeOffset criadaEm,
+        PedidoDaOperacao pedido,
         DateTimeOffset recebidaEm,
         CancellationToken cancelamento)
     {
@@ -221,16 +217,15 @@ public sealed class SincronizacaoDoMotorista(
             var jaRegistrada = await contexto.ExecutarEmTransacaoAsync(
                 async cancelamentoDaTentativa =>
                 {
-                    var repeticao = await RepeticaoNaFilaAsync(motoristaId, id, tipo, alvoId, motivo, cancelamentoDaTentativa)
-                        .ConfigureAwait(false);
+                    var repeticao = await RepeticaoNaFilaAsync(motoristaId, pedido, cancelamentoDaTentativa).ConfigureAwait(false);
                     if (repeticao is not null)
                     {
                         return repeticao;
                     }
 
                     contexto.OperacoesDoCliente.Add(OperacaoDoCliente.Registrar(
-                        suporte.NovoIdentificador(), suporte.OrganizacaoId, motoristaId, id, tipo, alvoId, motivo, criadaEm, recebidaEm,
-                        resultado, recusa.Codigo, recusa.Message));
+                        suporte.NovoIdentificador(), suporte.OrganizacaoId, motoristaId, pedido.Id, pedido.Tipo, pedido.AlvoId, pedido.Motivo,
+                        pedido.Observacao, pedido.CriadaEm, recebidaEm, resultado, recusa.Codigo, recusa.Message));
                     await contexto.SaveChangesAsync(cancelamentoDaTentativa).ConfigureAwait(false);
                     return null;
                 },
@@ -243,33 +238,27 @@ public sealed class SincronizacaoDoMotorista(
         }
         catch (DbUpdateException duplicada) when (contexto.EhViolacaoDeUnicidade(duplicada, NomesDeRestricoes.OperacaoDoCliente))
         {
-            return await RepetidaAsync(motoristaId, id, tipo, alvoId, motivo, cancelamento).ConfigureAwait(false);
+            return await RepetidaAsync(motoristaId, pedido, cancelamento).ConfigureAwait(false);
         }
 
         log.LogInformation(
             "Operação {OperacaoDoClienteId} ({Tipo}) do motorista {MotoristaId}: {Resultado} {Codigo}.",
-            id, tipo, motoristaId, resultado, recusa.Codigo);
+            pedido.Id, pedido.Tipo, motoristaId, resultado, recusa.Codigo);
 
         return new ResultadoDeOperacaoSincronizada(
-            id,
+            pedido.Id,
             resultado == ResultadoDaOperacaoDoCliente.Conflito ? DesfechoDaSincronizacao.Conflito : DesfechoDaSincronizacao.Recusada,
             false,
             recusa.Codigo,
             recusa.Message);
     }
 
-    private async Task<ResultadoDeOperacaoSincronizada> RepetidaAsync(
-        Guid motoristaId,
-        Guid id,
-        TipoDeOperacaoDoCliente tipo,
-        Guid alvoId,
-        MotivoDeTentativaFrustrada? motivo,
-        CancellationToken cancelamento)
+    private async Task<ResultadoDeOperacaoSincronizada> RepetidaAsync(Guid motoristaId, PedidoDaOperacao pedido, CancellationToken cancelamento)
     {
-        var registrada = await BuscarAsync(motoristaId, id, cancelamento).ConfigureAwait(false)
+        var registrada = await BuscarAsync(motoristaId, pedido.Id, cancelamento).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Violação de unicidade sem registro correspondente.");
 
-        return DoRegistro(registrada, tipo, alvoId, motivo);
+        return DoRegistro(registrada, pedido);
     }
 
     /// <summary>
@@ -278,16 +267,13 @@ public sealed class SincronizacaoDoMotorista(
     /// </summary>
     private async Task<ResultadoDeOperacaoSincronizada?> RepeticaoNaFilaAsync(
         Guid motoristaId,
-        Guid id,
-        TipoDeOperacaoDoCliente tipo,
-        Guid alvoId,
-        MotivoDeTentativaFrustrada? motivo,
+        PedidoDaOperacao pedido,
         CancellationToken cancelamento)
     {
         await suporte.Contexto.SerializarSincronizacaoDoMotoristaAsync(motoristaId, cancelamento).ConfigureAwait(false);
 
-        var registrada = await BuscarAsync(motoristaId, id, cancelamento).ConfigureAwait(false);
-        return registrada is null ? null : DoRegistro(registrada, tipo, alvoId, motivo);
+        var registrada = await BuscarAsync(motoristaId, pedido.Id, cancelamento).ConfigureAwait(false);
+        return registrada is null ? null : DoRegistro(registrada, pedido);
     }
 
     private Task<OperacaoDoCliente?> BuscarAsync(Guid motoristaId, Guid id, CancellationToken cancelamento) =>
@@ -295,13 +281,9 @@ public sealed class SincronizacaoDoMotorista(
             .AsNoTracking()
             .SingleOrDefaultAsync(operacao => operacao.MotoristaId == motoristaId && operacao.OperacaoDoClienteId == id, cancelamento);
 
-    private static ResultadoDeOperacaoSincronizada DoRegistro(
-        OperacaoDoCliente registrada,
-        TipoDeOperacaoDoCliente tipo,
-        Guid alvoId,
-        MotivoDeTentativaFrustrada? motivo)
+    private static ResultadoDeOperacaoSincronizada DoRegistro(OperacaoDoCliente registrada, PedidoDaOperacao pedido)
     {
-        if (!registrada.MesmoPedido(tipo, alvoId, motivo))
+        if (!registrada.MesmoPedido(pedido.Tipo, pedido.AlvoId, pedido.Motivo, pedido.Observacao))
         {
             return new ResultadoDeOperacaoSincronizada(
                 registrada.OperacaoDoClienteId,
@@ -321,16 +303,26 @@ public sealed class SincronizacaoDoMotorista(
         return new ResultadoDeOperacaoSincronizada(registrada.OperacaoDoClienteId, desfecho, true, registrada.Codigo, registrada.Mensagem);
     }
 
-    private Task ExecutarAsync(TipoDeOperacaoDoCliente tipo, Guid alvoId, MotivoDeTentativaFrustrada? motivo, CancellationToken cancelamento) =>
-        tipo switch
+    private Task ExecutarAsync(PedidoDaOperacao pedido, CancellationToken cancelamento) =>
+        pedido.Tipo switch
         {
-            TipoDeOperacaoDoCliente.IniciarRota => execucao.IniciarRotaAsync(alvoId, cancelamento),
-            TipoDeOperacaoDoCliente.ConcluirRota => execucao.ConcluirRotaAsync(alvoId, cancelamento),
-            TipoDeOperacaoDoCliente.RegistrarChegada => execucao.RegistrarChegadaAsync(alvoId, cancelamento),
-            TipoDeOperacaoDoCliente.ConcluirEntrega => execucao.ConcluirEntregaAsync(alvoId, cancelamento),
-            TipoDeOperacaoDoCliente.RegistrarTentativaFrustrada => execucao.RegistrarTentativaFrustradaAsync(alvoId, motivo!.Value, cancelamento),
-            _ => throw new ArgumentOutOfRangeException(nameof(tipo), tipo, "Tipo de operação desconhecido."),
+            TipoDeOperacaoDoCliente.IniciarRota => execucao.IniciarRotaAsync(pedido.AlvoId, cancelamento),
+            TipoDeOperacaoDoCliente.ConcluirRota => execucao.ConcluirRotaAsync(pedido.AlvoId, cancelamento),
+            TipoDeOperacaoDoCliente.RegistrarChegada => execucao.RegistrarChegadaAsync(pedido.AlvoId, cancelamento),
+            TipoDeOperacaoDoCliente.ConcluirEntrega => execucao.ConcluirEntregaAsync(pedido.AlvoId, cancelamento),
+            TipoDeOperacaoDoCliente.RegistrarTentativaFrustrada =>
+                execucao.RegistrarTentativaFrustradaAsync(pedido.AlvoId, pedido.Motivo!.Value, pedido.Observacao, cancelamento),
+            _ => throw new ArgumentOutOfRangeException(nameof(pedido), pedido.Tipo, "Tipo de operação desconhecido."),
         };
+
+    /// <summary>O que o aparelho pediu, já conferido campo a campo.</summary>
+    private sealed record PedidoDaOperacao(
+        Guid Id,
+        TipoDeOperacaoDoCliente Tipo,
+        Guid AlvoId,
+        MotivoDeTentativaFrustrada? Motivo,
+        string? Observacao,
+        DateTimeOffset CriadaEm);
 }
 
 /// <summary>Métricas de sincronização offline, no medidor <see cref="NomeDoMedidor"/>.</summary>

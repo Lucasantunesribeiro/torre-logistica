@@ -255,10 +255,26 @@ public static class DescricaoDoAlerta
             TipoDeAlerta.TentativasExcedidas =>
                 $"{raiz.GetProperty("tentativas").GetInt32()} tentativa(s) sem sucesso (limite {raiz.GetProperty("limite").GetInt32()})"
                 + (Texto(raiz, "ultimoMotivo") is { } motivo ? $"; último motivo: {motivo}." : "."),
-            TipoDeAlerta.OcorrenciaCritica => "Ocorrência crítica registrada.",
+            TipoDeAlerta.OcorrenciaCritica => Texto(raiz, "tipo") is { } tipoDaOcorrencia
+                ? $"Ocorrência crítica registrada: {RotuloDaOcorrencia(tipoDaOcorrencia)}"
+                    + (Texto(raiz, "motivo") is { } motivoDaTentativa ? $" ({motivoDaTentativa})." : ".")
+                    + (raiz.TryGetProperty("comObservacao", out var comObservacao) && comObservacao.ValueKind == JsonValueKind.True
+                        ? " Há descrição registrada na ocorrência."
+                        : string.Empty)
+                : "Ocorrência crítica registrada.",
             _ => tipo.ToString(),
         };
     }
+
+    private static string RotuloDaOcorrencia(string tipo) => tipo switch
+    {
+        "TentativaDeEntrega" => "tentativa de entrega",
+        "ProblemaComVeiculo" => "problema com o veículo",
+        "ProblemaComMercadoria" => "problema com a mercadoria",
+        "AcidenteOuIncidente" => "acidente ou incidente",
+        "DificuldadeDeAcesso" => "dificuldade de acesso",
+        _ => "outro",
+    };
 
     private static string? Texto(JsonElement raiz, string nome) =>
         raiz.TryGetProperty(nome, out var valor) && valor.ValueKind == JsonValueKind.String ? valor.GetString() : null;

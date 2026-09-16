@@ -55,6 +55,11 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("GET", "/api/motoristas/{alvo}/posicao-atual", Status(404, 404, 404, 401, 401)),
         ("GET", "/api/entregas/{alvo}/previsao", Status(404, 404, 404, 401, 401)),
         ("GET", "/api/alertas", Status(200, 200, 200, 401, 401)),
+        ("GET", "/api/ocorrencias", Status(200, 200, 200, 401, 401)),
+
+        // O alvo é uma conta, não uma entrega: quem pode registrar recebe 404, igual a inexistente.
+        ("POST", "/api/entregas/{alvo}/ocorrencias", Status(404, 404, 404, 401, 401)),
+        ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/ocorrencia", Status(401, 401, 401, 404, 401)),
 
         // O alvo é uma conta, não um alerta: quem pode resolver recebe 404, igual a inexistente.
         ("POST", "/api/alertas/{alvo}/resolucao", Status(404, 404, 404, 401, 401)),
@@ -118,6 +123,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             },
             ("PUT", _) => new { perfil = "Supervisor" },
             ("POST", "/api/alertas/{alvo}/resolucao") => new { observacao = "Tratado pelo telefone." },
+            ("POST", "/api/entregas/{alvo}/ocorrencias") => new { tipo = "ProblemaComVeiculo" },
+            ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/ocorrencia") => new { tipo = "ProblemaComVeiculo" },
             ("POST", "/api/motoristas") => RoteirosDeCadastro.Obter("motorista").Corpo(),
             ("POST", "/api/veiculos") => RoteirosDeCadastro.Obter("veiculo").Corpo(),
             ("POST", "/api/hubs") => RoteirosDeCadastro.Obter("hub").Corpo(),
@@ -221,6 +228,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["POST /api/motorista/entregas/{id:guid}/tentativa-frustrada"] = "motorista",
             ["POST /api/motorista/posicoes"] = "motorista",
             ["POST /api/motorista/sincronizacao"] = "motorista",
+            ["POST /api/motorista/entregas/{id:guid}/ocorrencia"] = "motorista",
             ["GET /api/motoristas/{id:guid}/posicao-atual"] = "operacao:leitura",
             ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
             ["GET /api/entregas/{id:guid}/geofence"] = "operacao:leitura",
@@ -228,6 +236,10 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/alertas/"] = "operacao:leitura",
             ["GET /api/alertas/{id:guid}"] = "operacao:leitura",
             ["POST /api/alertas/{id:guid}/resolucao"] = "entregas:operacao",
+            ["GET /api/ocorrencias/"] = "operacao:leitura",
+            ["GET /api/ocorrencias/{id:guid}"] = "operacao:leitura",
+            ["GET /api/entregas/{id:guid}/ocorrencias/"] = "operacao:leitura",
+            ["POST /api/entregas/{id:guid}/ocorrencias/"] = "entregas:operacao",
             ["* /tempo-real/operacao"] = "console",
             ["* /tempo-real/operacao/negotiate"] = "console",
         };

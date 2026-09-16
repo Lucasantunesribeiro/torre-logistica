@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
 using TorreLogistica.Domain.Sincronizacao;
@@ -21,6 +22,7 @@ internal sealed class OperacaoDoClienteConfiguracao : IEntityTypeConfiguration<O
         builder.Property(operacao => operacao.Id).ValueGeneratedNever();
         builder.Property(operacao => operacao.Tipo).HasConversion<string>().HasMaxLength(40).IsRequired();
         builder.Property(operacao => operacao.Motivo).HasConversion<string>().HasMaxLength(40);
+        builder.Property(operacao => operacao.Observacao).HasMaxLength(Entrega.TamanhoMaximoDaDescricaoDaTentativa);
         builder.Property(operacao => operacao.Resultado).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(operacao => operacao.Codigo).HasMaxLength(60);
         builder.Property(operacao => operacao.Mensagem).HasMaxLength(PoliticaDeOperacaoDoCliente.TamanhoMaximoDaMensagem);

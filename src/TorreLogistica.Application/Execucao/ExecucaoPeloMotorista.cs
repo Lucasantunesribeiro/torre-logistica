@@ -3,11 +3,13 @@ using Microsoft.Extensions.Logging;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Cadastros;
 using TorreLogistica.Application.Entregas;
+using TorreLogistica.Application.Ocorrencias;
 using TorreLogistica.Application.Rotas;
 using TorreLogistica.Domain.Abstracoes.Erros;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Rotas;
 
 namespace TorreLogistica.Application.Execucao;
@@ -34,6 +36,7 @@ public sealed class ExecucaoPeloMotorista(
     IGeradorDeIdentificador identificadores,
     GestaoDeRotas rotas,
     GestaoDeEntregas entregas,
+    GestaoDeOcorrencias ocorrencias,
     ILogger<ExecucaoPeloMotorista> log)
 {
     /// <summary>Saída para a rota: rota em andamento e entregas atribuídas em rota.</summary>
@@ -111,15 +114,72 @@ public sealed class ExecucaoPeloMotorista(
             (entrega, agora) => entrega.Concluir(suporte.UsuarioId, identificadores.Novo(), agora),
             cancelamento);
 
-    /// <summary>Tentativa sem sucesso.</summary>
-    public Task<EntregaResumo> RegistrarTentativaFrustradaAsync(
+    /// <summary>
+    /// Tentativa sem sucesso, com motivo tipado e descrição opcional.
+    /// </summary>
+    /// <remarks>
+    /// A tentativa é o único caso em que ocorrência e mudança de status andam juntas: o status, o evento da
+    /// timeline e a ocorrência entram no mesmo commit. Repetir a tentativa já registrada não gera nem evento
+    /// nem ocorrência nova.
+    /// </remarks>
+    public async Task<EntregaResumo> RegistrarTentativaFrustradaAsync(
         Guid entregaId,
         MotivoDeTentativaFrustrada motivo,
-        CancellationToken cancelamento) =>
-        AplicarNaEntregaAsync(
-            entregaId,
-            (entrega, agora) => entrega.RegistrarTentativaFrustrada(motivo, suporte.UsuarioId, identificadores.Novo(), agora),
-            cancelamento);
+        string? observacao,
+        CancellationToken cancelamento)
+    {
+        var motorista = await MotoristaDaSessaoAsync(cancelamento).ConfigureAwait(false);
+        var entrega = await EntregaDoMotoristaAsync(entregaId, motorista, cancelamento).ConfigureAwait(false);
+        var agora = suporte.Agora;
+
+        if (entrega.RegistrarTentativaFrustrada(motivo, suporte.UsuarioId, identificadores.Novo(), agora, observacao) is { } evento)
+        {
+            var ocorrencia = await ocorrencias.MontarAsync(
+                entrega,
+                new DadosDeOcorrencia(TipoDeOcorrencia.TentativaDeEntrega, null, motivo, observacao, null, null, agora),
+                OrigemDaOcorrencia.Motorista,
+                motorista.Id,
+                cancelamento).ConfigureAwait(false);
+
+            suporte.Contexto.EventosDaEntrega.Add(evento);
+            suporte.Contexto.Ocorrencias.Add(ocorrencia);
+            await SalvarAsync(cancelamento).ConfigureAwait(false);
+
+            log.LogInformation(
+                "Entrega {EntregaId} ({CodigoDaEntrega}): tentativa sem sucesso ({Motivo}) pelo motorista {MotoristaId}; ocorrência {OcorrenciaId} ({Severidade}).",
+                entrega.Id, entrega.Codigo, motivo, motorista.Id, ocorrencia.Id, ocorrencia.Severidade);
+        }
+
+        return await entregas.ObterAsync(entregaId, cancelamento).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ocorrência do motorista que não muda o status da entrega: veículo, mercadoria, incidente, acesso.
+    /// </summary>
+    public async Task<OcorrenciaResumo> RegistrarOcorrenciaAsync(Guid entregaId, DadosDeOcorrencia dados, CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(dados);
+
+        ExcecaoDeDominio.LancarSe(
+            dados.Tipo == TipoDeOcorrencia.TentativaDeEntrega,
+            "tentativa_tem_rota_propria",
+            "A tentativa de entrega é registrada em \"tentativa-frustrada\", porque muda o status da entrega.");
+
+        var motorista = await MotoristaDaSessaoAsync(cancelamento).ConfigureAwait(false);
+        var entrega = await EntregaDoMotoristaAsync(entregaId, motorista, cancelamento).ConfigureAwait(false);
+
+        var ocorrencia = await ocorrencias.MontarAsync(entrega, dados, OrigemDaOcorrencia.Motorista, motorista.Id, cancelamento)
+            .ConfigureAwait(false);
+
+        suporte.Contexto.Ocorrencias.Add(ocorrencia);
+        await SalvarAsync(cancelamento).ConfigureAwait(false);
+
+        log.LogInformation(
+            "Ocorrência {OcorrenciaId} ({Tipo}, {Severidade}) registrada na entrega {EntregaId} pelo motorista {MotoristaId}.",
+            ocorrencia.Id, ocorrencia.Tipo, ocorrencia.Severidade, entrega.Id, motorista.Id);
+
+        return await ocorrencias.ObterAsync(ocorrencia.Id, cancelamento).ConfigureAwait(false);
+    }
 
     private async Task<EntregaResumo> AplicarNaEntregaAsync(
         Guid entregaId,

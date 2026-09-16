@@ -133,7 +133,7 @@ Não antecipar:
 | 10 | Motor de Alertas Operacionais | ⬜ |
 | 11 | PWA do Motorista | ⬜ |
 | 12 | Offline, Sincronização e Idempotência | ✅ |
-| 13 | Ocorrências e Tentativas de Entrega | ⬜ |
+| 13 | Ocorrências e Tentativas de Entrega | ✅ |
 | 14 | Proof of Delivery | ⬜ |
 | 15 | Rastreamento Público | ⬜ |
 | 16 | API de Integração e Importação | ⬜ |
@@ -2554,6 +2554,138 @@ anteriores, sem falha de teste.
 
 ---
 
+## Fase 13 concluída — 2026-09-15
+
+### Motivos tipados
+
+| Pedido no roadmap | Como ficou |
+|---|---|
+| DestinatarioAusente | `DestinatarioAusente` |
+| EnderecoNaoEncontrado | `EnderecoNaoLocalizado` (nome já gravado desde a Fase 5) |
+| Recusado | `RecusadaPeloDestinatario` (idem) |
+| LocalFechado | `LocalFechado` |
+| ProblemaComVeiculo | **novo** |
+| ProblemaComMercadoria | **novo** |
+| Outro | **novo**, único que exige descrição |
+
+Os cinco motivos anteriores não foram renomeados: já estão gravados como texto em `eventos_da_entrega`, em
+`operacoes_do_cliente` e nas filas dos aparelhos. Renomear exigiria migração de dados e quebraria aparelho com
+fila pendente, sem ganho de significado ([ADR 0022](./docs/adr/0022-ocorrencias-e-tentativas.md)). Continua
+existindo `AcessoImpedido`, anterior ao roadmap desta fase.
+
+### Ocorrências
+
+Tabela `ocorrencias`, somente-inserção por trigger, com tudo que a fase pediu:
+
+| Pedido | Campo |
+|---|---|
+| tipo | `tipo`: TentativaDeEntrega, ProblemaComVeiculo, ProblemaComMercadoria, AcidenteOuIncidente, DificuldadeDeAcesso, Outro |
+| severidade | `severidade`: Baixa, Media, Alta, Critica — do catálogo por tipo e motivo, ou informada |
+| observação | `observacao`, complementar; exigida só em tipo/motivo `Outro` |
+| horário | `ocorrida_em` (quando aconteceu) **e** `registrada_em` (quando o servidor gravou) |
+| localização quando apropriado | `localizacao` `geography(Point,4326)`, opcional |
+| autor | `autor_usuario_id` e `origem` (Motorista ou Operação); mais rota e motorista envolvidos |
+
+### Regras
+
+- **Tentativa frustrada produz timeline**: status, evento `TentativaFrustrada` e ocorrência entram no mesmo
+  commit, pelo comando do motorista. Repetir não gera evento nem ocorrência nova.
+- **Texto livre nunca é a única estrutura**: o motivo é tipado e obrigatório; a descrição só é exigida quando o
+  vocabulário diz `Outro` — garantido no domínio, no `CHECK` do banco e na PWA (o botão só habilita com a
+  descrição preenchida).
+- A ocorrência que não muda status tem rota própria, no console e no aplicativo; cada rota recusa o que é da
+  outra (`tentativa_pelo_motorista`, `tentativa_tem_rota_propria`).
+- **Alerta `OcorrenciaCritica`**, definido na Fase 10, ganhou produtor: ocorrência crítica com a entrega ainda
+  em aberto abre alerta Crítica; resolve sozinho quando a entrega sai da operação.
+
+### Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| cada motivo | `CadaMotivoDaTentativaRegistraOcorrenciaComSeveridadeETimeline` (7 motivos, pela API real, com severidade e timeline); `OcorrenciaTestes` no domínio |
+| reagendamento | `FalhaDeEntregaDeixaRastreabilidadeOperacionalCompleta` (tentativa crítica → reagendamento → timeline completa); `ReagendamentoValidaJanelaEIsolamento` |
+| limite de tentativas | `TentativasExcedidasAbreEResolveQuandoAEntregaEhCancelada`; `TentativasExcedidasAteAEntregaSairDaOperacao` |
+| ocorrência crítica | `OcorrenciaCriticaAbreAlertaEResolveQuandoAEntregaSaiDaOperacao` (API + motor de alertas); `OcorrenciaCriticaAbreEnquantoAEntregaContinuaNaOperacao` (regra) |
+| autorização | matriz (`GET /api/ocorrencias`, `POST /api/entregas/{id}/ocorrencias`, `POST /api/motorista/entregas/{id}/ocorrencia`); `OcorrenciaDeOutraOrganizacaoNaoApareceNemPodeSerRegistrada` |
+
+Além do pedido: descrição obrigatória em `Outro` (API e PWA), ocorrência do motorista que não muda status,
+filtros por tipo e severidade, registro somente-inserção (UPDATE, DELETE, TRUNCATE), descrição fora da timeline
+e fora da evidência do alerta, e a descrição viajando na fila offline como parte da identidade da operação.
+
+### Critério de aceite
+
+> Falha de entrega deixa rastreabilidade operacional clara.
+
+✅ Cada falha responde, sem abrir o banco: **o que** (tipo e motivo tipados), **quando aconteceu** e **quando
+foi registrada**, **onde** (coordenada, quando o aparelho informou), **quem** registrou e por qual canal,
+**com que gravidade**, e **o que mudou na entrega** (timeline e status). O teste
+`FalhaDeEntregaDeixaRastreabilidadeOperacionalCompleta` percorre isso ponta a ponta.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 558 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 440 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 75 | ✅ |
+| Frontend — `rastreamento` | 13 | ✅ |
+| **Total** | **1.132** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Security Gate 13
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autoridade e canal | ✅ | console registra pelo `entregas:operacao`; motorista, só nas próprias entregas; cada canal recusa o tipo do outro |
+| Isolamento | ✅ | ocorrência em entrega de outra organização responde como inexistente, e nada é gravado |
+| Integridade do registro | ✅ | trigger `insufficient_privilege` em UPDATE, DELETE e TRUNCATE |
+| Coerência no banco | ✅ | `CHECK` de motivo por tipo e de descrição obrigatória em `Outro` |
+| Privacidade | ✅ | descrição não entra na timeline (só `comDescricao`) nem na evidência do alerta; coordenada não vai ao tempo real |
+| Entrada | ✅ | tipo e severidade só por nome exato; descrição limitada a 500; instante entre 7 dias atrás e 2 min no futuro |
+| Segredos | ✅ | gitleaks v8.30.1: 0 achados |
+| Dependências | ✅ | nenhum pacote novo; `npm audit`: 0; 9 projetos sem pacote vulnerável ou preterido |
+
+### Defeitos e ajustes durante a fase
+
+1. **Endpoint novo sem `using`.** O `Program.cs` mapeava `MapearEndpointsDeOcorrencias` sem importar o
+   namespace; o build acusou e a importação entrou.
+2. **`exactOptionalPropertyTypes` recusou a descrição opcional.** O tipo do pedido da fila declarava
+   `observacao?: string`, e a tela passava `string | undefined`. O tipo passou a declarar `| undefined`.
+3. **Testes da fila e da projeção sem o campo novo.** O payload da operação ganhou `observacao`, e os dois
+   testes que montavam payload à mão foram atualizados.
+
+### Decisões
+
+[ADR 0022](./docs/adr/0022-ocorrencias-e-tentativas.md); matriz atualizada em
+[`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md).
+
+- **Ocorrência é entidade própria e somente-inserção**, e não mais um tipo de evento da timeline.
+- **Motivos acrescentados, nenhum renomeado**, para não migrar dado gravado nem quebrar fila de aparelho.
+- **Severidade do catálogo**, com possibilidade de informar outra.
+- **Tentativa continua sendo comando**, porque muda status; ocorrência que não muda status tem rota própria.
+- **Texto livre fora da timeline e fora do alerta**, por privacidade e porque timeline não se apaga.
+
+### Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Foto ou anexo na ocorrência | Fase 14, com a prova de entrega |
+| Ocorrência sem conexão (fora a tentativa) | exige rede; a tentativa, que é a crítica da rota, já vai pela fila |
+| Fluxo de tratamento da ocorrência (atribuir, encerrar com parecer) | quem tem ciclo de vida é o alerta |
+| Tela de ocorrências no console | Fase 18 |
+| Retenção de `ocorrencias` | com as políticas de retenção |
+| CI nunca executada | exige `git push`, não autorizado |
+
+### Commit
+
+`feat: ocorrencias da ultima milha com motivo tipado, severidade e alerta critico (Fase 13)`
+
+---
+
 # FASE 12 — OFFLINE, SINCRONIZAÇÃO E IDEMPOTÊNCIA
 
 ## Objetivo
@@ -3705,9 +3837,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 12 — Offline, Sincronização e Idempotência** (2026-09-15) |
-| Próxima fase | **Fase 13 — Ocorrências e Tentativas de Entrega** |
-| Testes verdes | 1.080 — 538 unidade, 22 arquitetura, 409 integração, 111 frontend |
+| Última fase concluída | **Fase 13 — Ocorrências e Tentativas de Entrega** (2026-09-15) |
+| Próxima fase | **Fase 14 — Proof of Delivery** |
+| Testes verdes | 1.132 — 558 unidade, 22 arquitetura, 440 integração, 112 frontend |
 
 Comando para continuar:
 

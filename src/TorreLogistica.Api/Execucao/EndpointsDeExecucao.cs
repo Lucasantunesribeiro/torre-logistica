@@ -1,14 +1,28 @@
 using System.ComponentModel.DataAnnotations;
 using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Application.Execucao;
+using TorreLogistica.Application.Ocorrencias;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Sincronizacao;
 
 namespace TorreLogistica.Api.Execucao;
 
-/// <summary>Tentativa de entrega sem sucesso.</summary>
+/// <summary>
+/// Tentativa de entrega sem sucesso: motivo tipado obrigatório; descrição só é exigida no motivo "Outro".
+/// </summary>
 public sealed record RequisicaoDeTentativaFrustrada(
-    [property: Required(ErrorMessage = "Informe o motivo.")] MotivoDeTentativaFrustrada? Motivo);
+    [property: Required(ErrorMessage = "Informe o motivo.")] MotivoDeTentativaFrustrada? Motivo,
+    [property: StringLength(Entrega.TamanhoMaximoDaDescricaoDaTentativa)] string? Observacao);
+
+/// <summary>Ocorrência registrada pelo motorista, sem mudar o status da entrega.</summary>
+public sealed record RequisicaoDeOcorrenciaDoMotorista(
+    [property: Required(ErrorMessage = "Informe o tipo da ocorrência.")] TipoDeOcorrencia? Tipo,
+    SeveridadeDaOcorrencia? Severidade,
+    [property: StringLength(Ocorrencia.TamanhoMaximoDaObservacao)] string? Observacao,
+    double? Latitude,
+    double? Longitude,
+    DateTimeOffset? OcorridaEm);
 
 /// <summary>Uma operação feita no aparelho. Campos anuláveis para recusar item a item.</summary>
 public sealed record RequisicaoDeOperacao(
@@ -16,6 +30,7 @@ public sealed record RequisicaoDeOperacao(
     TipoDeOperacaoDoCliente? Tipo,
     Guid? AlvoId,
     MotivoDeTentativaFrustrada? Motivo,
+    [property: StringLength(Entrega.TamanhoMaximoDaDescricaoDaTentativa)] string? Observacao,
     DateTimeOffset? CriadaEm);
 
 /// <summary>Lote de operações feitas no aparelho, na ordem em que aconteceram.</summary>
@@ -33,6 +48,10 @@ public sealed record RequisicaoDeSincronizacao(
 /// Cada mudança de status tem a própria rota com o nome do que aconteceu — saída, chegada,
 /// conclusão, tentativa sem sucesso. Não existe rota que receba um status: o motorista informa o
 /// fato, e a máquina de estados decide se ele é possível.
+/// </para>
+/// <para>
+/// A ocorrência que não muda status — veículo, mercadoria, incidente, acesso — tem rota própria: ela
+/// registra o fato sem mexer na entrega.
 /// </para>
 /// <para>
 /// Só a sessão de motorista entra aqui; token do console não é credencial neste canal (401).
@@ -77,16 +96,37 @@ public static class EndpointsDeExecucao
             .RequireAuthorization(Politicas.Motorista);
 
         grupo.MapPost("/entregas/{id:guid}/tentativa-frustrada", (Guid id, RequisicaoDeTentativaFrustrada requisicao, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
-                execucao.RegistrarTentativaFrustradaAsync(id, requisicao.Motivo!.Value, cancelamento))
+                execucao.RegistrarTentativaFrustradaAsync(id, requisicao.Motivo!.Value, requisicao.Observacao, cancelamento))
             .RequireAuthorization(Politicas.Motorista)
             .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeTentativaFrustrada>>();
+
+        grupo.MapPost("/entregas/{id:guid}/ocorrencia", async (Guid id, RequisicaoDeOcorrenciaDoMotorista requisicao, ExecucaoPeloMotorista execucao, CancellationToken cancelamento) =>
+            {
+                var registrada = await execucao
+                    .RegistrarOcorrenciaAsync(
+                        id,
+                        new DadosDeOcorrencia(
+                            requisicao.Tipo!.Value,
+                            requisicao.Severidade,
+                            null,
+                            requisicao.Observacao,
+                            requisicao.Latitude,
+                            requisicao.Longitude,
+                            requisicao.OcorridaEm),
+                        cancelamento)
+                    .ConfigureAwait(false);
+
+                return Results.Created($"/api/ocorrencias/{registrada.Id}", registrada);
+            })
+            .RequireAuthorization(Politicas.Motorista)
+            .AddEndpointFilter<FiltroDeValidacao<RequisicaoDeOcorrenciaDoMotorista>>();
 
         // Caminho do aplicativo para toda ação crítica: cada operação com o identificador do aparelho,
         // aplicada exatamente uma vez. Responde 200 com o desfecho de cada operação, na ordem do envio.
         grupo.MapPost("/sincronizacao", (RequisicaoDeSincronizacao requisicao, SincronizacaoDoMotorista sincronizacao, CancellationToken cancelamento) =>
                 sincronizacao.ProcessarAsync(
                     [.. requisicao.Operacoes!.Select(operacao => new OperacaoEnviada(
-                        operacao.OperacaoDoClienteId, operacao.Tipo, operacao.AlvoId, operacao.Motivo, operacao.CriadaEm))],
+                        operacao.OperacaoDoClienteId, operacao.Tipo, operacao.AlvoId, operacao.Motivo, operacao.Observacao, operacao.CriadaEm))],
                     cancelamento))
             .RequireAuthorization(Politicas.Motorista)
             .RequireRateLimiting(PoliticasDeLimite.Sincronizacao)

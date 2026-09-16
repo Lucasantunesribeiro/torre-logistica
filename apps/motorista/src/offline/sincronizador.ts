@@ -127,6 +127,7 @@ function paraEnvio(operacao: OperacaoLocal): OperacaoParaEnvio {
     tipo: operacao.tipo,
     alvoId: operacao.payload.alvoId,
     motivo: operacao.payload.motivo,
+    observacao: operacao.payload.observacao,
     criadaEm: operacao.criadaEm,
   };
 }

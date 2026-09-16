@@ -37,9 +37,16 @@ describe('sincronizador da fila do aparelho', () => {
 
     expect(envio).toHaveBeenCalledTimes(1);
     expect(envio.mock.calls[0]![0]).toEqual([
-      { operacaoDoClienteId: saida.id, tipo: 'IniciarRota', alvoId: 'r1', motivo: null, criadaEm: saida.criadaEm },
-      { operacaoDoClienteId: chegada.id, tipo: 'RegistrarChegada', alvoId: 'e1', motivo: null, criadaEm: chegada.criadaEm },
-      { operacaoDoClienteId: tentativa.id, tipo: 'RegistrarTentativaFrustrada', alvoId: 'e1', motivo: 'LocalFechado', criadaEm: tentativa.criadaEm },
+      { operacaoDoClienteId: saida.id, tipo: 'IniciarRota', alvoId: 'r1', motivo: null, observacao: null, criadaEm: saida.criadaEm },
+      { operacaoDoClienteId: chegada.id, tipo: 'RegistrarChegada', alvoId: 'e1', motivo: null, observacao: null, criadaEm: chegada.criadaEm },
+      {
+        operacaoDoClienteId: tentativa.id,
+        tipo: 'RegistrarTentativaFrustrada',
+        alvoId: 'e1',
+        motivo: 'LocalFechado',
+        observacao: null,
+        criadaEm: tentativa.criadaEm,
+      },
     ]);
     expect(saida.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(await operacoesDoUsuario('u1')).toEqual(

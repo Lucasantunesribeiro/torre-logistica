@@ -4,14 +4,16 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 12 — Offline, Sincronização e Idempotência concluída.**
+> **Estado: Fase 13 — Ocorrências e Tentativas de Entrega concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
 > motorista e, agora, a **operação sem conexão**: toda ação do motorista nasce no aparelho com
 > identificador próprio, fica guardada sem internet e é aplicada exatamente uma vez quando a conexão volta —
 > resposta perdida não duplica, e cancelamento feito enquanto o motorista estava offline não é
-> sobrescrito. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> sobrescrito. Agora também as **ocorrências da última milha**: motivo tipado para cada falha, ocorrência
+> somente-inserção com severidade, hora, lugar e autor, e alerta crítico na torre quando a mercadoria ou a
+> segurança entram no caminho. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -120,6 +122,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0019](./docs/adr/0019-motor-de-alertas-operacionais.md) | Motor de alertas: regras tipadas, uma chave por problema e ciclo de vida com reabertura |
 | [0020](./docs/adr/0020-pwa-do-motorista.md) | PWA do motorista: leitura própria, ações grandes e GPS só em primeiro plano |
 | [0021](./docs/adr/0021-operacao-offline.md) | Operação offline: fila no aparelho e registro da operação na mesma transação do efeito |
+| [0022](./docs/adr/0022-ocorrencias-e-tentativas.md) | Ocorrências somente-inserção, com motivo tipado, severidade e alerta crítico |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

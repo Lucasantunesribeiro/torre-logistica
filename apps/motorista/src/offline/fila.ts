@@ -17,7 +17,7 @@ export interface OperacaoLocal {
   readonly id: string;
   readonly usuarioId: string;
   readonly tipo: TipoDeOperacao;
-  readonly payload: { readonly alvoId: string; readonly motivo: MotivoDeTentativa | null };
+  readonly payload: { readonly alvoId: string; readonly motivo: MotivoDeTentativa | null; readonly observacao: string | null };
   /** Frase para o motorista reconhecer a ação ("Conclusão da entrega de Carla Nunes"). */
   readonly descricao: string;
   readonly criadaEm: string;
@@ -37,6 +37,8 @@ export interface PedidoDeOperacao {
   readonly tipo: TipoDeOperacao;
   readonly alvoId: string;
   readonly motivo?: MotivoDeTentativa;
+  /** Descrição do motivo, exigida quando o motivo é "Outro". */
+  readonly observacao?: string | undefined;
   readonly descricao: string;
 }
 
@@ -72,11 +74,18 @@ function porOrdem(a: OperacaoLocal, b: OperacaoLocal): number {
 export async function enfileirar(usuarioId: string, pedido: PedidoDeOperacao, agora: number = Date.now()): Promise<OperacaoLocal> {
   ultimaOrdem = Math.max(agora, ultimaOrdem + 1);
 
+  // Descrição em branco é ausência de descrição, e não texto vazio guardado no aparelho.
+  const descricaoDoMotivo = pedido.observacao?.trim();
+
   const operacao: OperacaoLocal = {
     id: uuidv7(agora),
     usuarioId,
     tipo: pedido.tipo,
-    payload: { alvoId: pedido.alvoId, motivo: pedido.motivo ?? null },
+    payload: {
+      alvoId: pedido.alvoId,
+      motivo: pedido.motivo ?? null,
+      observacao: descricaoDoMotivo !== undefined && descricaoDoMotivo.length > 0 ? descricaoDoMotivo : null,
+    },
     descricao: pedido.descricao,
     criadaEm: new Date(agora).toISOString(),
     ordem: ultimaOrdem,

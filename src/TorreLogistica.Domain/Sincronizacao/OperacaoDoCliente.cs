@@ -98,6 +98,9 @@ public sealed class OperacaoDoCliente
     /// <summary>Motivo, na tentativa sem sucesso.</summary>
     public MotivoDeTentativaFrustrada? Motivo { get; private set; }
 
+    /// <summary>Descrição do motivo, quando o aparelho a enviou.</summary>
+    public string? Observacao { get; private set; }
+
     /// <summary>Quando o motorista fez a ação no aparelho.</summary>
     public DateTimeOffset CriadaNoAparelhoEm { get; private set; }
 
@@ -119,9 +122,14 @@ public sealed class OperacaoDoCliente
         TipoDeOperacaoDoCliente tipo,
         Guid alvoId,
         MotivoDeTentativaFrustrada? motivo,
+        string? observacao,
         DateTimeOffset criadaNoAparelhoEm,
         DateTimeOffset recebidaEm)
     {
+        ExcecaoDeDominio.LancarSe(
+            observacao is not null && tipo != TipoDeOperacaoDoCliente.RegistrarTentativaFrustrada,
+            "observacao_nao_se_aplica",
+            "Só a tentativa sem sucesso leva descrição.");
         ExcecaoDeDominio.LancarSe(
             operacaoDoClienteId == Guid.Empty || operacaoDoClienteId.Version != 7,
             "identificador_de_operacao_invalido",
@@ -160,6 +168,7 @@ public sealed class OperacaoDoCliente
         TipoDeOperacaoDoCliente tipo,
         Guid alvoId,
         MotivoDeTentativaFrustrada? motivo,
+        string? observacao,
         DateTimeOffset criadaNoAparelhoEm,
         DateTimeOffset recebidaEm,
         ResultadoDaOperacaoDoCliente resultado,
@@ -175,10 +184,11 @@ public sealed class OperacaoDoCliente
             (resultado == ResultadoDaOperacaoDoCliente.Aplicada) != string.IsNullOrWhiteSpace(codigo),
             "resultado_invalido",
             "Conflito e recusa exigem código; operação aplicada não tem.");
-        Validar(operacaoDoClienteId, tipo, alvoId, motivo, criadaNoAparelhoEm, recebidaEm);
+        Validar(operacaoDoClienteId, tipo, alvoId, motivo, observacao, criadaNoAparelhoEm, recebidaEm);
 
         return new OperacaoDoCliente
         {
+            Observacao = observacao,
             Id = id,
             OrganizacaoId = organizacaoId,
             MotoristaId = motoristaId,
@@ -200,6 +210,6 @@ public sealed class OperacaoDoCliente
     /// A repetição pede o mesmo que o registro. Mesmo identificador com outro conteúdo é outra coisa, e não
     /// herda o desfecho.
     /// </summary>
-    public bool MesmoPedido(TipoDeOperacaoDoCliente tipo, Guid alvoId, MotivoDeTentativaFrustrada? motivo) =>
-        Tipo == tipo && AlvoId == alvoId && Motivo == motivo;
+    public bool MesmoPedido(TipoDeOperacaoDoCliente tipo, Guid alvoId, MotivoDeTentativaFrustrada? motivo, string? observacao) =>
+        Tipo == tipo && AlvoId == alvoId && Motivo == motivo && string.Equals(Observacao, observacao, StringComparison.Ordinal);
 }

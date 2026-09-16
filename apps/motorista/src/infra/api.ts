@@ -22,7 +22,16 @@ export const MOTIVOS_DE_TENTATIVA = [
   'RecusadaPeloDestinatario',
   'LocalFechado',
   'AcessoImpedido',
+  'ProblemaComVeiculo',
+  'ProblemaComMercadoria',
+  'Outro',
 ] as const;
+
+/** O único motivo que exige descrição: o vocabulário fechado não diz o que houve. */
+export const MOTIVO_QUE_EXIGE_DESCRICAO = 'Outro';
+
+/** Tamanho máximo da descrição, igual ao da API. */
+export const TAMANHO_MAXIMO_DA_DESCRICAO = 500;
 
 const esquemaDeMotivo = z.enum(MOTIVOS_DE_TENTATIVA);
 
@@ -127,6 +136,7 @@ export interface OperacaoParaEnvio {
   readonly tipo: TipoDeOperacao;
   readonly alvoId: string;
   readonly motivo: MotivoDeTentativa | null;
+  readonly observacao: string | null;
   readonly criadaEm: string;
 }
 

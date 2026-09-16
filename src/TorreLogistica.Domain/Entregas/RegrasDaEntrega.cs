@@ -92,7 +92,13 @@ public enum MotivoDeCancelamento
     Outro = 4,
 }
 
-/// <summary>Por que a tentativa de entrega não deu certo.</summary>
+/// <summary>
+/// Por que a tentativa de entrega não deu certo.
+/// </summary>
+/// <remarks>
+/// Vocabulário fechado: o motorista escolhe um destes, e texto livre é complemento — nunca a única
+/// estrutura. <see cref="Outro"/> é a única entrada que exige descrição.
+/// </remarks>
 public enum MotivoDeTentativaFrustrada
 {
     /// <summary>Ninguém para receber.</summary>
@@ -109,6 +115,15 @@ public enum MotivoDeTentativaFrustrada
 
     /// <summary>Acesso impedido (portaria, área restrita).</summary>
     AcessoImpedido = 5,
+
+    /// <summary>O veículo impediu a entrega (quebra, pane, pneu).</summary>
+    ProblemaComVeiculo = 6,
+
+    /// <summary>A mercadoria impediu a entrega (avaria, falta, troca).</summary>
+    ProblemaComMercadoria = 7,
+
+    /// <summary>Outro motivo, descrito em texto.</summary>
+    Outro = 8,
 }
 
 /// <summary>Tipos de evento da timeline da entrega.</summary>

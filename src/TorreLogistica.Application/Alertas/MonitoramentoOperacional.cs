@@ -8,6 +8,7 @@ using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
@@ -99,6 +100,15 @@ public sealed class MonitoramentoOperacional(
             .ToDictionaryAsync(previsao => previsao.EntregaId, cancelamento)
             .ConfigureAwait(false);
 
+        // A crítica mais recente de cada entrega: é ela que a torre precisa ver.
+        var criticas = await contexto.Ocorrencias
+            .AsNoTracking()
+            .Where(ocorrencia => ids.Contains(ocorrencia.EntregaId) && ocorrencia.Severidade == SeveridadeDaOcorrencia.Critica)
+            .GroupBy(ocorrencia => ocorrencia.EntregaId)
+            .Select(grupo => grupo.OrderByDescending(ocorrencia => ocorrencia.OcorridaEm).ThenByDescending(ocorrencia => ocorrencia.Id).First())
+            .ToDictionaryAsync(ocorrencia => ocorrencia.EntregaId, cancelamento)
+            .ConfigureAwait(false);
+
         var constatacoes = new List<Constatacao>();
 
         foreach (var entrega in entregas)
@@ -109,6 +119,7 @@ public sealed class MonitoramentoOperacional(
             constatacoes.Add(RegrasDeAlerta.RiscoDeAtraso(entrega.Id, rota.Id, previsao, explicacao));
             constatacoes.Add(RegrasDeAlerta.EntregaAtrasada(entrega.Id, rota.Id, previsao, explicacao));
             constatacoes.Add(RegrasDeAlerta.TentativasExcedidas(entrega, rota.Id, valores.LimiteDeTentativas));
+            constatacoes.Add(RegrasDeAlerta.OcorrenciaCritica(entrega, rota.Id, criticas.GetValueOrDefault(entrega.Id)));
         }
 
         if (rota.MotoristaId is { } motoristaId && rota.IniciadaEm is { } iniciadaEm)

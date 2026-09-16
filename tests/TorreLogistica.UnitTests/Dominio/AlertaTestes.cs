@@ -3,6 +3,7 @@ using TorreLogistica.Domain.Abstracoes.Erros;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Previsao;
 
 namespace TorreLogistica.UnitTests.Dominio;
@@ -214,6 +215,40 @@ public sealed class RegrasDeAlertaTestes
     }
 
     [Fact]
+    public void OcorrenciaCriticaAbreEnquantoAEntregaContinuaNaOperacao()
+    {
+        var entrega = EntregaComTentativaFrustrada();
+        var critica = Ocorrencia.Registrar(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            entrega.Id,
+            _rota,
+            _motorista,
+            TipoDeOcorrencia.ProblemaComMercadoria,
+            null,
+            null,
+            "Duas caixas molhadas.",
+            null,
+            Agora.AddMinutes(20),
+            OrigemDaOcorrencia.Motorista,
+            Guid.CreateVersion7(),
+            Agora.AddMinutes(20));
+
+        var comOcorrencia = RegrasDeAlerta.OcorrenciaCritica(entrega, _rota, critica);
+        Assert.True(comOcorrencia.Condicao);
+        Assert.Contains("\"tipo\":\"ProblemaComMercadoria\"", comOcorrencia.Evidencia, StringComparison.Ordinal);
+        Assert.Contains("\"comObservacao\":true", comOcorrencia.Evidencia, StringComparison.Ordinal);
+
+        // A observação em si nunca vai para a evidência do alerta.
+        Assert.DoesNotContain("molhadas", comOcorrencia.Evidencia, StringComparison.OrdinalIgnoreCase);
+
+        // Sem ocorrência crítica não há alerta; e a entrega que sai da operação resolve o alerta.
+        Assert.False(RegrasDeAlerta.OcorrenciaCritica(entrega, _rota, null).Condicao);
+        entrega.Cancelar(MotivoDeCancelamento.SolicitacaoDoCliente, null, null, Guid.CreateVersion7(), Agora.AddMinutes(30));
+        Assert.False(RegrasDeAlerta.OcorrenciaCritica(entrega, _rota, critica).Condicao);
+    }
+
+    [Fact]
     public void RiscoEAtrasoVemDaPrevisaoAtiva()
     {
         var entregaId = Guid.CreateVersion7();
@@ -299,6 +334,14 @@ public sealed class DescricaoDoAlertaTestes
         Assert.Equal(
             "2 tentativa(s) sem sucesso (limite 2); último motivo: DestinatarioAusente.",
             DescricaoDoAlerta.Montar(TipoDeAlerta.TentativasExcedidas, """{"tentativas":2,"limite":2,"ultimoMotivo":"DestinatarioAusente"}"""));
+        Assert.Equal(
+            "Ocorrência crítica registrada: problema com a mercadoria. Há descrição registrada na ocorrência.",
+            DescricaoDoAlerta.Montar(TipoDeAlerta.OcorrenciaCritica,
+                """{"tipo":"ProblemaComMercadoria","motivo":null,"comObservacao":true}"""));
+        Assert.Equal(
+            "Ocorrência crítica registrada: tentativa de entrega (ProblemaComMercadoria).",
+            DescricaoDoAlerta.Montar(TipoDeAlerta.OcorrenciaCritica,
+                """{"tipo":"TentativaDeEntrega","motivo":"ProblemaComMercadoria","comObservacao":false}"""));
         Assert.StartsWith(
             "O alvo deste alerta saiu da avaliação",
             DescricaoDoAlerta.Montar(TipoDeAlerta.MotoristaOffline, """{"foraDaAvaliacaoDaRota":true}"""),

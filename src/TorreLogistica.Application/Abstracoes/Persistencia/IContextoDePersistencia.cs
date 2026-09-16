@@ -6,6 +6,7 @@ using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
@@ -115,6 +116,9 @@ public interface IContextoDePersistencia
 
     /// <summary>Operações feitas no aparelho do motorista, pelo identificador do aparelho. Somente-inserção.</summary>
     DbSet<OperacaoDoCliente> OperacoesDoCliente { get; }
+
+    /// <summary>Ocorrências da operação, filtradas pelo tenant. Somente-inserção.</summary>
+    DbSet<Ocorrencia> Ocorrencias { get; }
 
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }

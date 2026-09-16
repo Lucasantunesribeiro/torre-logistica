@@ -50,6 +50,9 @@ export const ROTULOS_DO_MOTIVO: Record<MotivoDeTentativa, string> = {
   RecusadaPeloDestinatario: 'Recusada pelo destinatário',
   LocalFechado: 'Local fechado',
   AcessoImpedido: 'Acesso impedido (portaria, área restrita)',
+  ProblemaComVeiculo: 'Problema com o veículo',
+  ProblemaComMercadoria: 'Problema com a mercadoria',
+  Outro: 'Outro motivo (descreva)',
 };
 
 export function estaPendente(status: StatusDaEntrega): boolean {

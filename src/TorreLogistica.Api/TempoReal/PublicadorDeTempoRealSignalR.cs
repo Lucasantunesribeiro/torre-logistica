@@ -33,6 +33,7 @@ public sealed class PublicadorDeTempoRealSignalR(
                 RiscoDaEntregaAlterado risco => (EventosDeTempoReal.RiscoDaEntregaAlterado, risco),
                 AlertaCriado alerta => (EventosDeTempoReal.AlertaCriado, alerta),
                 AlertaResolvido resolvido => (EventosDeTempoReal.AlertaResolvido, resolvido),
+                OcorrenciaCriada ocorrencia => (EventosDeTempoReal.OcorrenciaCriada, ocorrencia),
                 _ => throw new ArgumentOutOfRangeException(nameof(notificacoes), notificacao.GetType().Name, "Aviso de tempo real desconhecido."),
             };
 

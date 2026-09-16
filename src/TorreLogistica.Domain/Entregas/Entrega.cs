@@ -82,6 +82,9 @@ public sealed class Entrega
     /// <summary>Tamanho máximo da descrição do cancelamento.</summary>
     public const int TamanhoMaximoDaDescricaoDoCancelamento = 280;
 
+    /// <summary>Tamanho máximo da descrição de uma tentativa sem sucesso.</summary>
+    public const int TamanhoMaximoDaDescricaoDaTentativa = 500;
+
     private static readonly JsonSerializerOptions OpcoesDeJson = new(JsonSerializerDefaults.Web);
 
     private Entrega()
@@ -430,15 +433,28 @@ public sealed class Entrega
         return RegistrarEvento(TipoDeEventoDaEntrega.Entregue, new { }, autorUsuarioId, idDoEvento, instante);
     }
 
-    /// <summary>Tentativa sem sucesso: <c>EmRota</c> ou <c>ProximaDoDestino</c> → <c>TentativaFrustrada</c>.</summary>
+    /// <summary>
+    /// Tentativa sem sucesso: <c>EmRota</c> ou <c>ProximaDoDestino</c> → <c>TentativaFrustrada</c>.
+    /// </summary>
+    /// <remarks>
+    /// O motivo é tipado e obrigatório; a descrição só é exigida quando o motivo é <c>Outro</c>, e não entra
+    /// na timeline — ela vive na ocorrência, com autor, hora e lugar. A timeline registra que houve descrição.
+    /// </remarks>
     /// <returns>O evento, ou <see langword="null"/> se a tentativa já estava registrada.</returns>
     public EventoDaEntrega? RegistrarTentativaFrustrada(
         MotivoDeTentativaFrustrada motivo,
         Guid? autorUsuarioId,
         Guid idDoEvento,
-        DateTimeOffset agora)
+        DateTimeOffset agora,
+        string? descricao = null)
     {
         ExcecaoDeDominio.LancarSe(!Enum.IsDefined(motivo), "motivo_invalido", "Motivo de tentativa inválido.");
+
+        var texto = TextoNormalizado.Opcional(descricao, TamanhoMaximoDaDescricaoDaTentativa, "descricao_invalida", "A descrição da tentativa");
+        ExcecaoDeDominio.LancarSe(
+            motivo == MotivoDeTentativaFrustrada.Outro && texto is null,
+            "motivo_exige_descricao",
+            "Descreva o que impediu a entrega quando o motivo for \"Outro\".");
 
         if (Status == StatusDaEntrega.TentativaFrustrada)
         {
@@ -452,7 +468,7 @@ public sealed class Entrega
 
         return RegistrarEvento(
             TipoDeEventoDaEntrega.TentativaFrustrada,
-            new { motivo = motivo.ToString(), tentativa = TentativasFrustradas },
+            new { motivo = motivo.ToString(), tentativa = TentativasFrustradas, comDescricao = texto is not null },
             autorUsuarioId,
             idDoEvento,
             instante);

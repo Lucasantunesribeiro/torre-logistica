@@ -15,7 +15,7 @@ function operacao(
     id: `${tipo}-${alvoId}`,
     usuarioId: 'u1',
     tipo,
-    payload: { alvoId, motivo: extra.motivo ?? null },
+    payload: { alvoId, motivo: extra.motivo ?? null, observacao: null },
     descricao: tipo,
     criadaEm: '2026-09-15T12:05:00Z',
     ordem: 1,

@@ -1,5 +1,6 @@
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Previsao;
 
 namespace TorreLogistica.Application.Abstracoes.TempoReal;
@@ -58,6 +59,20 @@ public sealed record AlertaCriado(
     bool Reaberto,
     int Sequencia,
     DateTimeOffset OcorridoEm) : NotificacaoDaOperacao(OrganizacaoId);
+
+/// <summary>Uma ocorrência foi registrada (<c>IncidentCreated</c>).</summary>
+/// <remarks>Sem observação nem coordenada: o texto e o lugar vêm da API, com a autorização de quem consulta.</remarks>
+public sealed record OcorrenciaCriada(
+    Guid OrganizacaoId,
+    Guid OcorrenciaId,
+    Guid EntregaId,
+    Guid? RotaId,
+    Guid? MotoristaId,
+    TipoDeOcorrencia Tipo,
+    SeveridadeDaOcorrencia Severidade,
+    MotivoDeTentativaFrustrada? MotivoDaTentativa,
+    OrigemDaOcorrencia Origem,
+    DateTimeOffset OcorridaEm) : NotificacaoDaOperacao(OrganizacaoId);
 
 /// <summary>Um alerta foi resolvido (<c>AlertResolved</c>).</summary>
 public sealed record AlertaResolvido(

@@ -2,6 +2,7 @@ using System.Text.Json;
 using TorreLogistica.Domain.Abstracoes.Erros;
 using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Previsao;
 
 namespace TorreLogistica.Domain.Alertas;
@@ -24,7 +25,7 @@ public enum TipoDeAlerta
     /// <summary>A entrega acumulou tentativas sem sucesso até o limite.</summary>
     TentativasExcedidas = 5,
 
-    /// <summary>Ocorrência crítica registrada — produzido com as ocorrências (Fase 13).</summary>
+    /// <summary>A entrega tem ocorrência crítica registrada e continua em aberto.</summary>
     OcorrenciaCritica = 6,
 }
 
@@ -303,6 +304,36 @@ public static class RegrasDeAlerta
                 limite,
                 ultimoMotivo = entrega.MotivoDaUltimaTentativa?.ToString(),
                 ultimaTentativaEm = entrega.UltimaTentativaFrustradaEm,
+                statusDaEntrega = entrega.Status.ToString(),
+            });
+    }
+
+    /// <summary>
+    /// A entrega tem ocorrência crítica registrada e ainda não saiu da operação.
+    /// </summary>
+    /// <remarks>
+    /// Ocorrência é fato, e fato não se desfaz: o alerta fecha quando a entrega termina — entregue, cancelada
+    /// ou reagendada para outro dia —, não porque alguém apagou a ocorrência. A evidência leva tipo, motivo e
+    /// instante; o texto da observação fica na API, com a autorização de quem consulta.
+    /// </remarks>
+    public static Constatacao OcorrenciaCritica(Entrega entrega, Guid? rotaId, Ocorrencia? maisRecente)
+    {
+        ArgumentNullException.ThrowIfNull(entrega);
+
+        return Constatacao.Criar(
+            TipoDeAlerta.OcorrenciaCritica,
+            entrega.Id,
+            null,
+            rotaId,
+            maisRecente is not null && !RegrasDaEntrega.EhFinal(entrega.Status) && entrega.Status != StatusDaEntrega.Reagendada,
+            new
+            {
+                ocorrenciaId = maisRecente?.Id,
+                tipo = maisRecente?.Tipo.ToString(),
+                motivo = maisRecente?.MotivoDaTentativa?.ToString(),
+                origem = maisRecente?.Origem.ToString(),
+                ocorridaEm = maisRecente?.OcorridaEm,
+                comObservacao = maisRecente?.Observacao is not null,
                 statusDaEntrega = entrega.Status.ToString(),
             });
     }

@@ -12,6 +12,7 @@ using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
@@ -134,6 +135,9 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<OperacaoDoCliente> OperacoesDoCliente => Set<OperacaoDoCliente>();
+
+    /// <inheritdoc />
+    public DbSet<Ocorrencia> Ocorrencias => Set<Ocorrencia>();
 
     /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
@@ -363,6 +367,7 @@ public class TorreLogisticaDbContext(
         var avisos = RecolherAvisosDeEntrega();
         avisos.AddRange(RecolherAvisosDeRisco());
         avisos.AddRange(RecolherAvisosDeAlerta());
+        avisos.AddRange(RecolherAvisosDeOcorrencia());
         var sessoesRevogadas = RecolherSessoesRevogadas();
         var recalculos = RecolherRecalculosPorEntrega();
 
@@ -454,6 +459,26 @@ public class TorreLogisticaDbContext(
                 }),
         ];
     }
+
+    /// <summary>Ocorrências registradas nesta gravação.</summary>
+    private List<NotificacaoDaOperacao> RecolherAvisosDeOcorrencia() =>
+    [
+        .. ChangeTracker.Entries<Ocorrencia>()
+            .Where(entrada => entrada.State == EntityState.Added)
+            .Select(entrada => entrada.Entity)
+            .OrderBy(ocorrencia => ocorrencia.OcorridaEm)
+            .Select(ocorrencia => new OcorrenciaCriada(
+                ocorrencia.OrganizacaoId,
+                ocorrencia.Id,
+                ocorrencia.EntregaId,
+                ocorrencia.RotaId,
+                ocorrencia.MotoristaId,
+                ocorrencia.Tipo,
+                ocorrencia.Severidade,
+                ocorrencia.MotivoDaTentativa,
+                ocorrencia.Origem,
+                ocorrencia.OcorridaEm)),
+    ];
 
     private List<Guid> RecolherSessoesRevogadas() =>
     [
@@ -777,6 +802,8 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(evento => evento.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<OperacaoDoCliente>()
             .HasQueryFilter(operacao => operacao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Ocorrencia>()
+            .HasQueryFilter(ocorrencia => ocorrencia.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

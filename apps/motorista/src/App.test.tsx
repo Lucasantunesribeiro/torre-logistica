@@ -387,6 +387,26 @@ describe('PWA do motorista', () => {
     expect(caminhos.filter((caminho) => /\/(inicio|chegada|conclusao|tentativa-frustrada)$/.test(caminho))).toEqual([]);
   });
 
+  it('motivo "Outro" só é registrado com descrição, e ela segue na operação', async () => {
+    const servidor = servidorDoMotorista({ rota: 'EmAndamento' });
+    await montar('/entregas/e1/ocorrencia');
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Registrar ocorrência' })).toBeVisible();
+    fireEvent.click(screen.getByLabelText('Outro motivo (descreva)'));
+
+    const registrar = screen.getByRole('button', { name: 'Registrar tentativa sem sucesso' });
+    expect(registrar).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Descreva o que aconteceu'), { target: { value: 'Rua interditada por obra.' } });
+    expect(registrar).toBeEnabled();
+    fireEvent.click(registrar);
+
+    await waitFor(() => {
+      expect(servidor.comandos).toEqual(['RegistrarTentativaFrustrada e1']);
+    });
+    expect(servidor.lotes[0]![0]).toMatchObject({ motivo: 'Outro', observacao: 'Rua interditada por obra.' });
+  });
+
   it('lista de paradas mostra a ordem da rota e abre o detalhe', async () => {
     servidorDoMotorista({ rota: 'EmAndamento' });
     await montar('/rotas/r1/paradas');

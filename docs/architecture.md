@@ -562,10 +562,37 @@ PWA: Aplicada → Synced · Conflito → Conflict · Recusada → Failed · rede
 
 Decisões e limitações em [ADR 0021](./adr/0021-operacao-offline.md).
 
+## Fase 13 — Ocorrências e tentativas de entrega
+
+```text
+motorista: tentativa sem sucesso (muda status)
+  → POST /api/motorista/entregas/{id}/tentativa-frustrada  (motivo tipado + descrição só em "Outro")
+  → mesmo commit: status TentativaFrustrada + evento da timeline + ocorrencia (TentativaDeEntrega)
+motorista: ocorrência que não muda status
+  → POST /api/motorista/entregas/{id}/ocorrencia  (veículo, mercadoria, incidente, acesso)
+operação: POST /api/entregas/{id}/ocorrencias · consulta: GET /api/ocorrencias · GET /api/entregas/{id}/ocorrencias
+ocorrencias (somente-inserção): tipo · severidade · motivo tipado · observação · localização ·
+             ocorrida_em × registrada_em · origem (motorista/operação) · autor
+  → severidade Critica → RegrasDeAlerta.OcorrenciaCritica → alerta Critica, resolvido quando a entrega sai da operação
+  → commit → IncidentCreated (sem texto e sem coordenada)
+```
+
+| Peça | Regra |
+|---|---|
+| Motivos tipados | DestinatarioAusente, EnderecoNaoLocalizado, RecusadaPeloDestinatario, LocalFechado, AcessoImpedido, ProblemaComVeiculo, ProblemaComMercadoria, Outro |
+| Texto livre | complemento, nunca única estrutura; exigido só em tipo `Outro` ou motivo `Outro` (regra no domínio e `CHECK` no banco) |
+| Severidade | do catálogo por tipo e motivo (mercadoria e incidente nascem críticos); quem registra pode informar outra |
+| Rastro | o que, quando aconteceu, quando foi registrado, onde, quem registrou e por qual canal |
+| Privacidade | a observação não entra na timeline (só `comDescricao`) nem na evidência do alerta; coordenada não vai ao tempo real |
+| Offline | a tentativa vai pela fila do aparelho com a descrição; ela faz parte da identidade da operação |
+
+Decisões e limitações em [ADR 0022](./adr/0022-ocorrencias-e-tentativas.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhuma ocorrência nem mapa na tela: chegam nas Fases 13 e 18. O alerta de ocorrência crítica tem tipo,
-severidade e ciclo de vida, e nasce com as ocorrências. Não há alerta de desvio de rota — exige traçado
+Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem
+fluxo próprio de tratamento — quem tem ciclo de vida é o alerta. A ocorrência que não muda status ainda não
+passa pela fila offline: exige conexão. Não há alerta de desvio de rota — exige traçado
 planejado, que o provedor simulado não produz. Não há notificação fora do console (e-mail, push). Não há provedor de rotas real — o
 simulado não sabe de ruas nem de trânsito, e escolher fornecedor tem custo —, nem limiar de SLA por
 organização ou cliente, nem classificação de chegada antes da janela. Não há backplane para mais de uma

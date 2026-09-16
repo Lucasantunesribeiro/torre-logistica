@@ -212,6 +212,47 @@ public sealed class AlertasTestes(ContainerPostgis banco) : TesteDePrevisao(banc
         Assert.Equal("Cancelada", resolvido.GetProperty("alerta").GetProperty("evidencia").GetProperty("statusDaEntrega").GetString());
     }
 
+    /// <summary>Fase 13: a ocorrência crítica do motorista vira alerta crítico na torre.</summary>
+    [Fact]
+    public async Task OcorrenciaCriticaAbreAlertaEResolveQuandoAEntregaSaiDaOperacao()
+    {
+        using var http = Cliente();
+        var inicio = Tempo.GetUtcNow();
+        var cenario = await CenarioAsync(http, inicio.AddMinutes(10), inicio.AddHours(6), 0);
+        var entrega = cenario.Entregas[0];
+
+        using (var registro = await EnviarAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{entrega}/ocorrencia", cenario.TokenDoMotorista, new
+        {
+            tipo = "ProblemaComMercadoria",
+            observacao = "Caixa violada, produto exposto.",
+        }))
+        {
+            Assert.Equal(HttpStatusCode.Created, registro.StatusCode);
+        }
+
+        // Ocorrência não dispara recálculo: quem percebe é a reavaliação periódica.
+        Tempo.Advance(TimeSpan.FromMinutes(1));
+        var operador = await EntrarComoOperadorAsync(http, cenario);
+        var alerta = await EsperarAlertaAbertoAsync(http, operador, "OcorrenciaCritica", entrega, espera: EsperaDaReavaliacao);
+
+        Assert.Equal("Critica", alerta.GetProperty("severidade").GetString());
+        Assert.Equal(
+            "Ocorrência crítica registrada: problema com a mercadoria. Há descrição registrada na ocorrência.",
+            alerta.GetProperty("descricao").GetString());
+        Assert.DoesNotContain("violada", alerta.GetRawText(), StringComparison.OrdinalIgnoreCase);
+
+        // A entrega sai da operação pelo caminho que a máquina de estados permite a partir de EmRota:
+        // a conclusão. O alerta resolve sozinho, porque a condição deixou de valer.
+        var tokenDoMotorista = (await EntrarAsync(http, cenario.Organizacao.Com(Perfil.Motorista))).TokenDeAcesso;
+        await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{entrega}/conclusao", tokenDoMotorista);
+        Tempo.Advance(TimeSpan.FromMinutes(1));
+        operador = await EntrarComoOperadorAsync(http, cenario);
+
+        var resolvido = await EsperarEstadoAsync(http, operador, alerta.GetProperty("id").GetGuid(), "Resolvido", EsperaDaReavaliacao);
+        Assert.Equal("Automatica", resolvido.GetProperty("alerta").GetProperty("formaDeResolucao").GetString());
+        Assert.Equal("Entregue", resolvido.GetProperty("alerta").GetProperty("evidencia").GetProperty("statusDaEntrega").GetString());
+    }
+
     /// <summary>Parado fora do destino: a permanência sai do histórico de posições, pelo PostGIS.</summary>
     [Fact]
     public async Task MotoristaParadoAbreAlertaPelaPermanenciaCalculadaNoPostgis()

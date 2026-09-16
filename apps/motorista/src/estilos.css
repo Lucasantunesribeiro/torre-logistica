@@ -311,6 +311,22 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.campo {
+  display: block;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+
+textarea {
+  font: inherit;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  resize: vertical;
+}
+
 .motivos input {
   width: 1.5rem;
   height: 1.5rem;

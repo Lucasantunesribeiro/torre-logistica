@@ -3,19 +3,21 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { Aviso, Carregando } from '../componentes/Aviso';
 import { MENSAGEM_DE_FALHA_AO_GUARDAR } from '../componentes/EstadoDaSincronizacao';
-import { MOTIVOS_DE_TENTATIVA } from '../infra/api';
+import { MOTIVO_QUE_EXIGE_DESCRICAO, MOTIVOS_DE_TENTATIVA, TAMANHO_MAXIMO_DA_DESCRICAO } from '../infra/api';
 import type { MotivoDeTentativa } from '../infra/api';
 import { ROTULOS_DA_ENTREGA, ROTULOS_DO_MOTIVO } from '../infra/formatos';
 import { useEntrega, useRegistrarAcao } from '../offline/ProvedorDeSincronizacao';
 
 /**
- * Ocorrência que impediu a entrega, com motivo tipado — nunca texto livre como única informação. Registra a
- * tentativa sem sucesso na timeline da entrega, com ou sem internet.
+ * Ocorrência que impediu a entrega, com motivo tipado — nunca texto livre como única informação. A descrição
+ * é complemento; só é exigida em "Outro motivo", quando a lista não diz o que houve. Registra a tentativa sem
+ * sucesso na timeline da entrega, com ou sem internet.
  */
 export function RegistrarOcorrencia() {
   const { entregaId = '' } = useParams();
   const navegar = useNavigate();
   const [motivo, setMotivo] = useState<MotivoDeTentativa | null>(null);
+  const [observacao, setObservacao] = useState('');
 
   const entrega = useEntrega(entregaId);
   const acao = useRegistrarAcao();
@@ -42,6 +44,9 @@ export function RegistrarOcorrencia() {
 
   const dados = entrega.dados;
   const aceita = dados.status === 'EmRota' || dados.status === 'ProximaDoDestino';
+  const exigeDescricao = motivo === MOTIVO_QUE_EXIGE_DESCRICAO;
+  const descricaoPreenchida = observacao.trim().length > 0;
+  const podeRegistrar = motivo !== null && (!exigeDescricao || descricaoPreenchida) && !acao.registrando;
 
   return (
     <section>
@@ -55,12 +60,13 @@ export function RegistrarOcorrencia() {
           className="cartao"
           onSubmit={(evento) => {
             evento.preventDefault();
-            if (motivo) {
+            if (motivo && (!exigeDescricao || descricaoPreenchida)) {
               void acao.executar(
                 {
                   tipo: 'RegistrarTentativaFrustrada',
                   alvoId: dados.id,
                   motivo,
+                  observacao: observacao.trim() || undefined,
                   descricao: `Tentativa sem sucesso na entrega de ${dados.destinatario.nome}`,
                 },
                 () => {
@@ -88,7 +94,21 @@ export function RegistrarOcorrencia() {
             ))}
           </fieldset>
 
-          <button type="submit" className="acao acao--perigo" disabled={!motivo || acao.registrando}>
+          <label className="campo" htmlFor="observacao">
+            {exigeDescricao ? 'Descreva o que aconteceu' : 'Quer acrescentar alguma coisa? (opcional)'}
+          </label>
+          <textarea
+            id="observacao"
+            name="observacao"
+            rows={3}
+            maxLength={TAMANHO_MAXIMO_DA_DESCRICAO}
+            value={observacao}
+            onChange={(evento) => {
+              setObservacao(evento.target.value);
+            }}
+          />
+
+          <button type="submit" className="acao acao--perigo" disabled={!podeRegistrar}>
             {acao.registrando ? 'Registrando…' : 'Registrar tentativa sem sucesso'}
           </button>
 
