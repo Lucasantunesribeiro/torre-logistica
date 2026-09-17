@@ -641,6 +641,35 @@ destinatário: GET /api/publico/rastreamento/{token}            (anônimo, limit
 
 Decisões e limitações em [ADR 0024](./adr/0024-rastreamento-publico.md).
 
+## Fase 16 — API de integração e importação
+
+```text
+console (administrador): POST /api/integracoes        → chave tlog.<identificador>.<segredo>, mostrada UMA vez
+                         POST /api/integracoes/{id}/revogacao
+
+ERP: POST /api/integracoes/v1/entregas                (Authorization: Bearer <chave>, Idempotency-Key)
+  → chave conferida pelo identificador público + SHA-256 do segredo
+  → idempotência por chave (com hash do corpo) e por identificador de origem
+  → registro de idempotência e vínculo de origem no MESMO commit da entrega
+ERP: GET  /api/integracoes/v1/entregas/{id}           (acompanha sem abrir o console)
+ERP: POST /api/integracoes/v1/importacoes/previa      (confere o CSV sem gravar)
+ERP: POST /api/integracoes/v1/importacoes             (chave por linha = hash do arquivo + número)
+```
+
+| Peça | Regra |
+|---|---|
+| Credencial | esquema próprio, sem sessão, sem perfil e sem canal; vale até ser revogada |
+| Segredo | 32 bytes sorteados, guardados como SHA-256 — não com hasher de senha, que só puniria o integrador |
+| Autor | integração não é pessoa: a timeline registra autor vazio e a auditoria guarda qual credencial agiu |
+| Versão | `/v1/` no caminho: o ERP do cliente não atualiza junto com o nosso frontend |
+| Replay | mesma chave e mesmo corpo devolvem 200 com a entrega anterior; corpo diferente é 409 |
+| Fila reprocessada | mesmo identificador de origem com chave nova devolve 200, sem criar outra entrega |
+| Idempotência somente-inserção | `requisicoes_de_integracao` e `referencias_externas_de_entrega` são protegidas por trigger |
+| CSV | leitor próprio (sem dependência nova); prévia recusa o lote inteiro antes de gravar; reenvio do arquivo não duplica |
+| Limite | `limite-integracao`, por credencial — um integrador afobado não atinge os outros |
+
+Decisões e limitações em [ADR 0025](./adr/0025-api-de-integracao.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem

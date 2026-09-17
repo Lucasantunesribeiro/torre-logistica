@@ -19,6 +19,15 @@ public static class EsquemasDeAutenticacao
     /// <summary>Esquema da PWA do motorista.</summary>
     public const string Motorista = "Motorista";
 
+    /// <summary>
+    /// Esquema dos sistemas externos: chave de API, e não sessão.
+    /// </summary>
+    /// <remarks>
+    /// Separado dos outros dois de propósito. A credencial de integração não abre o console nem a PWA, e
+    /// um token de pessoa não vale como credencial de máquina: cada esquema só reconhece o que é seu.
+    /// </remarks>
+    public const string Integracao = "Integracao";
+
     /// <summary>Esquema que valida o canal.</summary>
     public static string Para(CanalDeAcesso canal) => canal switch
     {
@@ -53,6 +62,15 @@ public static class ReivindicacoesDaTorre
 
     /// <summary>Canal da sessão.</summary>
     public const string Canal = "canal";
+
+    /// <summary>
+    /// Credencial de integração que autenticou a requisição.
+    /// </summary>
+    /// <remarks>
+    /// Aparece no lugar de <see cref="Usuario"/>, nunca junto: quem age é um sistema, e a timeline
+    /// registra autor vazio enquanto a auditoria guarda qual integração foi.
+    /// </remarks>
+    public const string Integracao = "integracao";
 }
 
 /// <summary>Políticas de autorização.</summary>
@@ -79,6 +97,9 @@ public static class Politicas
 
     /// <summary>Conta de motorista autenticada pela PWA.</summary>
     public const string Motorista = "motorista";
+
+    /// <summary>Credencial de sistema externo. Não dá acesso a nada do console nem da PWA.</summary>
+    public const string Integracao = "integracao";
 }
 
 /// <summary>Políticas de limite de requisições.</summary>
@@ -98,4 +119,7 @@ public static class PoliticasDeLimite
 
     /// <summary>Consulta do rastreamento público, por endereço de origem.</summary>
     public const string RastreamentoPublico = "limite-rastreamento-publico";
+
+    /// <summary>API de integração, por credencial autenticada.</summary>
+    public const string Integracao = "limite-integracao";
 }

@@ -86,6 +86,11 @@ public sealed class SuporteDeCadastro(
     /// <summary>Conta autenticada que executa a ação.</summary>
     public Guid UsuarioId => usuarioAtual.UsuarioId;
 
+    /// <summary>
+    /// Conta autenticada, ou <see langword="null"/> quando quem age é uma integração.
+    /// </summary>
+    public Guid? AutorUsuarioId => usuarioAtual.AutorUsuarioId;
+
     /// <summary>Instante atual.</summary>
     public DateTimeOffset Agora => relogio.AgoraUtc;
 
@@ -99,7 +104,7 @@ public sealed class SuporteDeCadastro(
             relogio.AgoraUtc,
             usuarioAtual.OrganizacaoIdAutenticada,
             TiposDeEventoDeAuditoria.DeCadastro(recurso, acao),
-            usuarioAtual.UsuarioId,
+            usuarioAtual.AutorUsuarioId,
             recurso,
             alvoId,
             dados));

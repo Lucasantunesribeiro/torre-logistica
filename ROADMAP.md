@@ -136,7 +136,7 @@ Não antecipar:
 | 13 | Ocorrências e Tentativas de Entrega | ✅ |
 | 14 | Proof of Delivery | ✅ |
 | 15 | Rastreamento Público | ✅ |
-| 16 | API de Integração e Importação | ⬜ |
+| 16 | API de Integração e Importação | ✅ |
 | 17 | Webhooks e Backbone Assíncrono | ⬜ |
 | 18 | Console Operacional e Mapa | ⬜ |
 | 19 | Indicadores e Analytics | ⬜ |
@@ -3183,9 +3183,111 @@ Importação com:
 - credencial revogada;
 - rate limiting.
 
-## Critérios de aceite
+## O que foi feito
 
-Um ERP fictício consegue integrar sem depender da UI.
+```text
+console (administrador): POST /api/integracoes            → chave tlog.<identificador>.<segredo>, mostrada UMA vez
+                         POST /api/integracoes/{id}/revogacao
+
+ERP: POST /api/integracoes/v1/entregas                    (Authorization: Bearer <chave>, Idempotency-Key)
+ERP: GET  /api/integracoes/v1/entregas/{id}               (acompanha sem abrir o console)
+ERP: POST /api/integracoes/v1/importacoes/previa          (confere o arquivo sem gravar)
+ERP: POST /api/integracoes/v1/importacoes                 (chave por linha = hash do arquivo + número)
+```
+
+A credencial é de máquina: esquema de autenticação próprio, sem sessão, sem perfil e sem canal. O
+principal carrega a organização e o identificador da integração, e **nenhuma** reivindicação de usuário —
+por isso a entrega criada por um ERP nasce com autor vazio na timeline, enquanto a auditoria guarda qual
+credencial agiu.
+
+## Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| replay | `ReenvioDaMesmaChaveNaoCriaOutraEntrega` (200 em vez de 201; uma linha em `requisicoes_de_integracao`) |
+| payload conflitante | `MesmaChaveComCorpoDiferenteEhConflito` (409) |
+| importação | `ImportacaoConfereOArquivoAntesDeGravarEReenvioNaoDuplica` (prévia acusa; lote com erro não grava nada; reenvio do arquivo não duplica) e `PreviaDaImportacaoTestes` na unidade (cabeçalho, coluna, tipo, identificador repetido, limite de linhas) |
+| tenant | `CredencialDeUmaOrganizacaoNaoAlcancaOutra` (404 idêntico ao de identificador inventado, e nada criado) |
+| credencial revogada | `CredencialRevogadaEDesconhecidaRespondemIgual` (401 idêntico nos três casos) |
+| rate limiting | política `limite-integracao` por credencial, com 429 e `Retry-After` |
+| fila reprocessada | `MesmoIdentificadorDeOrigemComChaveNovaDevolveAEntregaQueJaExiste` |
+| separação de autoridade | `TokenDoConsoleNaoValeNaApiExternaENemOContrario` e as linhas novas de `AutorizacaoTestes` |
+| só hash persistido | `SoOHashDoSegredoEhGuardado` (confere contra o SHA-256 do segredo e procura a chave na linha inteira) |
+| registro imutável | `RegistroDeIdempotenciaEhSomenteInsercao` (trigger recusa `UPDATE`) |
+| formato da chave | `SegredosDeIntegracaoTestes` e `LeitorDeCsvTestes` na unidade |
+
+## Critério de aceite
+
+> Um ERP fictício consegue integrar sem depender da UI.
+
+✅ Com uma chave emitida pelo administrador, o ERP cria entregas, acompanha o que criou e importa lotes por
+arquivo — sem console, sem sessão e sem risco de duplicar pedido em retentativa ou fila reprocessada.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 646 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 507 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.292** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| Separador `_` da chave de API colidia com o alfabeto Base64Url | `SegredosDeIntegracaoTestes.GeraChaveComPrefixoIdentificadorESegredo` reprovou já na primeira execução | separador virou `.`; o defeito quebraria **apenas as chaves cujo segredo sorteasse `_`** — falha intermitente, que apareceria só para parte dos integradores, em produção |
+| `throw;` usado como expressão dentro de `??` | compilação | o rethrow virou um `if` explícito, e o caso "bateu em índice que não é destes dois" passou a ser tratado à parte |
+| Teste de tenant esperava 422 | `CredencialDeUmaOrganizacaoNaoAlcancaOutra` | o correto é 404 idêntico ao de identificador inventado, que é o padrão do projeto; a asserção ficou mais forte, comparando as duas respostas |
+| Auxiliares de teste sem estado de instância e `OkAsync` inexistente na base | analisador CA1822 e compilação | auxiliares tornados estáticos e `OkAsync` escrito na própria classe, como nas demais |
+
+## Security Gate 16
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Credencial separada da identidade humana | ✅ | esquema próprio; token de pessoa não vale na API externa e a chave não vale no console |
+| Segredo | ✅ | 32 bytes sorteados; só o SHA-256 é persistido; check de 32 bytes no banco |
+| Chave reconhecível em vazamento | ✅ | prefixo fixo `tlog.`, que varredura de segredos consegue casar |
+| Resposta neutra | ✅ | chave desconhecida, segredo errado e credencial revogada devolvem o mesmo 401 |
+| Autorização | ✅ | emitir e revogar exige administrador; supervisor e operador recebem 403 |
+| Tenant | ✅ | recurso de outra organização responde como inexistente, e nada é criado |
+| Idempotência | ✅ | única por chave e por identificador de origem, gravada no mesmo commit do efeito |
+| Registro imutável | ✅ | `requisicoes_de_integracao` e `referencias_externas_de_entrega` somente-inserção por trigger |
+| Rate limiting | ✅ | por credencial, e não por endereço — datacenter compartilhado não penaliza terceiros |
+| Upload | ✅ | limite de 1 MB do Kestrel, teto de linhas no arquivo e cabeçalho fixo; o leitor só interpreta colunas conhecidas |
+| Segredos | ✅ | a chave nunca entra em log nem em auditoria; a auditoria guarda só o identificador público |
+| Custo | ✅ | nenhuma dependência nova, nenhum recurso de nuvem |
+
+## Decisões
+
+[ADR 0025](./docs/adr/0025-api-de-integracao.md).
+
+- **Credencial de máquina em esquema próprio**, sem sessão nem perfil.
+- **Chave com parte pública e parte secreta**; SHA-256, não hasher de senha.
+- **Autor opcional** em `IContextoDoUsuario`: integração não é pessoa, e usuário de serviço criaria conta fantasma.
+- **Idempotência em duas camadas**, com o registro no mesmo commit da entrega — por um gancho transacional,
+  já que aninhar transação é recusado pelo provedor.
+- **Leitor de CSV próprio**, com prévia obrigatória e chave derivada do hash do arquivo.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Tela de credenciais no console | entra com o console, na Fase 18 |
+| Webhooks de saída | é a Fase 17 |
+| Atualizar e cancelar entrega pela API externa | fora do pedido desta fase; o ERP cria e acompanha |
+| Importação tudo-ou-nada num único commit | exigiria refatorar a criação de entrega; a prévia e a idempotência por linha dão a mesma garantia prática |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: api de integracao com credencial de maquina e idempotencia (Fase 16)`
 
 ---
 
@@ -4064,9 +4166,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 15 — Rastreamento Público** (2026-09-16) |
-| Próxima fase | **Fase 16 — API de Integração e Importação** |
-| Testes verdes | 1.225 — 606 unidade, 22 arquitetura, 480 integração, 117 frontend |
+| Última fase concluída | **Fase 16 — API de Integração e Importação** (2026-09-17) |
+| Próxima fase | **Fase 17 — Webhooks e Backbone Assíncrono** |
+| Testes verdes | 1.292 — 646 unidade, 22 arquitetura, 507 integração, 117 frontend |
 
 Comando para continuar:
 

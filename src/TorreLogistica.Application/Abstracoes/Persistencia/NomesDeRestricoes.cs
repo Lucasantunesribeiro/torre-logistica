@@ -81,4 +81,13 @@ public static class NomesDeRestricoes
 
     /// <summary>Um link de rastreamento ativo por entrega: emitir outro revoga o anterior.</summary>
     public const string TokenDeRastreamentoAtivoPorEntrega = "ux_tokens_de_rastreamento_entrega_ativo";
+
+    /// <summary>Parte pública da chave de integração: é por ela que a credencial apresentada acha a linha.</summary>
+    public const string IdentificadorPublicoDaIntegracao = "ux_integracoes_identificador_publico";
+
+    /// <summary>Uma chave de idempotência por integração: o reenvio não repete o efeito.</summary>
+    public const string ChaveDeIdempotenciaPorIntegracao = "ux_requisicoes_de_integracao_chave";
+
+    /// <summary>Um identificador de origem por integração: o mesmo pedido do ERP não vira duas entregas.</summary>
+    public const string ReferenciaExternaPorIntegracao = "ux_referencias_externas_identificador";
 }

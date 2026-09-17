@@ -59,6 +59,8 @@ public sealed class FabricaDaApi(
                 ["Torre:LimiteDeRequisicoes:RenovacoesPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:EnviosDePosicaoPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:SincronizacoesPorMinuto"] = "100000",
+                ["Torre:LimiteDeRequisicoes:ConsultasPublicasPorMinuto"] = "100000",
+                ["Torre:LimiteDeRequisicoes:RequisicoesDeIntegracaoPorMinuto"] = "100000",
 
                 // Storage de objeto em disco, isolado por teste e apagado no fim.
                 ["Torre:Armazenamento:Diretorio"] = DiretorioDoArmazenamento,

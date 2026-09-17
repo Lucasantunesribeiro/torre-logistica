@@ -13,6 +13,7 @@ using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Integracoes;
 using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
@@ -148,6 +149,15 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<TokenDeRastreamento> TokensDeRastreamento => Set<TokenDeRastreamento>();
+
+    /// <inheritdoc />
+    public DbSet<Integracao> Integracoes => Set<Integracao>();
+
+    /// <inheritdoc />
+    public DbSet<RequisicaoDeIntegracao> RequisicoesDeIntegracao => Set<RequisicaoDeIntegracao>();
+
+    /// <inheritdoc />
+    public DbSet<ReferenciaExternaDaEntrega> ReferenciasExternasDeEntrega => Set<ReferenciaExternaDaEntrega>();
 
     /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
@@ -820,6 +830,12 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(arquivo => arquivo.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<TokenDeRastreamento>()
             .HasQueryFilter(token => token.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<Integracao>()
+            .HasQueryFilter(integracao => integracao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<RequisicaoDeIntegracao>()
+            .HasQueryFilter(requisicao => requisicao.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<ReferenciaExternaDaEntrega>()
+            .HasQueryFilter(referencia => referencia.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

@@ -57,6 +57,13 @@ public sealed class OpcoesDeLimiteDeRequisicoes
     /// </summary>
     [Range(1, 100_000)]
     public int ConsultasPublicasPorMinuto { get; set; } = 30;
+
+    /// <summary>
+    /// Requisições da API de integração por minuto <b>por credencial</b>. Importação em lote de um ERP
+    /// chega em rajada; o limite é por credencial para que um integrador afobado não derrube os outros.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int RequisicoesDeIntegracaoPorMinuto { get; set; } = 120;
 }
 
 /// <summary>

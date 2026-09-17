@@ -63,6 +63,8 @@
 | `PUT` e `GET /api/arquivos/{chave}` | — | — | — | — | — | anônimo **por desenho**: a credencial é a assinatura da URL (ADR 0023); sem assinatura válida e no prazo, 403 |
 | `POST /api/entregas/{id}/link-de-rastreamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao`; o valor emitido aparece uma única vez e revoga o anterior |
 | `GET /api/publico/rastreamento/{token}` | — | — | — | — | — | anônimo **por desenho**: a credencial é o token do link (ADR 0024); token que não abre nada devolve 404 idêntico para todos, e a rota tem limite por endereço |
+| `GET` e `POST /api/integracoes`, `GET /api/integracoes/{id}`, `POST /api/integracoes/{id}/revogacao` | 200/201 | 403 | 403 | **401** | 401 | `usuarios:gestao`: emitir e revogar credencial é decisão de segurança, como criar conta. A chave aparece uma única vez |
+| `/api/integracoes/v1/*` (entregas e importações) | **401** | **401** | **401** | **401** | 401 | esquema **Integracao**: a credencial é a chave de API (ADR 0025). Token de pessoa não vale aqui, e a chave não vale no console; limite por credencial |
 | `POST /api/entregas/{id}/ocorrencias` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao`; recusa tipo `TentativaDeEntrega` |
 | `POST /api/motorista/entregas/{id}/ocorrencia` | **401** | **401** | **401** | 201 | 401 | `motorista`; só entrega do motorista da sessão |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |

@@ -7,6 +7,7 @@ using TorreLogistica.Domain.Comum;
 using TorreLogistica.Domain.Entregas;
 using TorreLogistica.Domain.Frota;
 using TorreLogistica.Domain.Identidade;
+using TorreLogistica.Domain.Integracoes;
 using TorreLogistica.Domain.Ocorrencias;
 using TorreLogistica.Domain.Operacao;
 using TorreLogistica.Domain.Previsao;
@@ -135,6 +136,19 @@ public interface IContextoDePersistencia
     /// login e a renovação: quem resolve a organização é o próprio token apresentado.
     /// </remarks>
     DbSet<TokenDeRastreamento> TokensDeRastreamento { get; }
+
+    /// <summary>Credenciais de sistemas externos, filtradas pelo tenant.</summary>
+    /// <remarks>
+    /// A autenticação da integração acontece antes de existir tenant e usa <c>IgnoreQueryFilters()</c>
+    /// explícito: quem resolve a organização é a própria chave apresentada.
+    /// </remarks>
+    DbSet<Integracao> Integracoes { get; }
+
+    /// <summary>Requisições já processadas por chave de idempotência. Somente-inserção.</summary>
+    DbSet<RequisicaoDeIntegracao> RequisicoesDeIntegracao { get; }
+
+    /// <summary>Vínculo entre o identificador do sistema de origem e a entrega. Somente-inserção.</summary>
+    DbSet<ReferenciaExternaDaEntrega> ReferenciasExternasDeEntrega { get; }
 
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }

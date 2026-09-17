@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -47,7 +48,11 @@ public static class ConfiguracaoDeAutenticacao
 
         servicos.AddAuthentication()
             .AddJwtBearer(EsquemasDeAutenticacao.Operacao)
-            .AddJwtBearer(EsquemasDeAutenticacao.Motorista);
+            .AddJwtBearer(EsquemasDeAutenticacao.Motorista)
+            // Chave de API, não JWT: sistema externo não tem sessão para renovar, e a credencial vale
+            // até ser revogada.
+            .AddScheme<AuthenticationSchemeOptions, Integracoes.ManipuladorDeChaveDeIntegracao>(
+                EsquemasDeAutenticacao.Integracao, _ => { });
 
         foreach (var canal in Enum.GetValues<CanalDeAcesso>())
         {
@@ -82,6 +87,12 @@ public static class ConfiguracaoDeAutenticacao
                 .RequireAuthenticatedUser()
                 .RequireClaim(ReivindicacoesDaTorre.Canal, nameof(CanalDeAcesso.Motorista))
                 .RequireRole(nameof(Perfil.Motorista))
+                .Build())
+            // Sem perfil e sem canal: a credencial de integração não é pessoa. Exigir a reivindicação
+            // própria impede que um token de console ou de motorista sirva aqui.
+            .AddPolicy(Politicas.Integracao, new AuthorizationPolicyBuilder(EsquemasDeAutenticacao.Integracao)
+                .RequireAuthenticatedUser()
+                .RequireClaim(ReivindicacoesDaTorre.Integracao)
                 .Build());
 
         servicos.AddRateLimiter(limites =>
@@ -121,6 +132,11 @@ public static class ConfiguracaoDeAutenticacao
             // que precisa ser contido — tentar tokens em massa é o ataque desta superfície.
             limites.AddPolicy(PoliticasDeLimite.RastreamentoPublico, http => JanelaPorEndereco(
                 http, PoliticasDeLimite.RastreamentoPublico, opcoes => opcoes.ConsultasPublicasPorMinuto));
+
+            // Integração por credencial: dois ERPs atrás do mesmo IP de datacenter não disputam a mesma
+            // janela, e uma credencial abusiva é contida sem atingir as outras.
+            limites.AddPolicy(PoliticasDeLimite.Integracao, http => JanelaPorIntegracao(
+                http, PoliticasDeLimite.Integracao, opcoes => opcoes.RequisicoesDeIntegracaoPorMinuto));
         });
 
         return servicos;
@@ -167,6 +183,29 @@ public static class ConfiguracaoDeAutenticacao
 
         return RateLimitPartition.GetFixedWindowLimiter(
             $"{politica}:{conta}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = limite(opcoes),
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+    }
+
+    private static RateLimitPartition<string> JanelaPorIntegracao(
+        HttpContext http,
+        string politica,
+        Func<OpcoesDeLimiteDeRequisicoes, int> limite)
+    {
+        var opcoes = http.RequestServices.GetRequiredService<IOptions<OpcoesDeLimiteDeRequisicoes>>().Value;
+
+        // O limitador roda depois da autorização (Program.cs): a credencial já foi reconhecida.
+        var credencial = http.User.FindFirstValue(ReivindicacoesDaTorre.Integracao)
+            ?? http.Connection.RemoteIpAddress?.ToString()
+            ?? "desconhecido";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{politica}:{credencial}",
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = limite(opcoes),

@@ -38,6 +38,12 @@ public sealed class ContextoDoUsuarioHttp(IHttpContextAccessor acessor) : IConte
     public Guid UsuarioId => LerIdentificador(ReivindicacoesDaTorre.Usuario);
 
     /// <inheritdoc />
+    public Guid? AutorUsuarioId =>
+        Principal is { } principal && Guid.TryParse(principal.FindFirstValue(ReivindicacoesDaTorre.Usuario), out var valor)
+            ? valor
+            : null;
+
+    /// <inheritdoc />
     public Guid OrganizacaoIdAutenticada => LerIdentificador(ReivindicacoesDaTorre.Organizacao);
 
     /// <inheritdoc />

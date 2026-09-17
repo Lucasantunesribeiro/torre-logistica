@@ -65,6 +65,13 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         // O alvo é uma conta, não uma entrega: quem pode emitir o link recebe 404, igual a inexistente.
         ("POST", "/api/entregas/{alvo}/link-de-rastreamento", Status(404, 404, 404, 401, 401)),
 
+        // Credencial de integração é assunto de administrador, como conta de usuário.
+        ("GET", "/api/integracoes", Status(200, 403, 403, 401, 401)),
+        ("POST", "/api/integracoes", Status(201, 403, 403, 401, 401)),
+
+        // API de máquina: token de pessoa não é credencial aqui, seja qual for o perfil.
+        ("POST", "/api/integracoes/v1/entregas", Status(401, 401, 401, 401, 401)),
+
         // Rastreamento público: sem perfil nenhum na conversa. Token que não abre nada devolve a mesma
         // resposta para todos — inclusive para quem está autenticado no console.
         ("GET", "/api/publico/rastreamento/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Status(404, 404, 404, 404, 404)),
@@ -136,6 +143,8 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ("PUT", _) => new { perfil = "Supervisor" },
             ("POST", "/api/alertas/{alvo}/resolucao") => new { observacao = "Tratado pelo telefone." },
             ("POST", "/api/entregas/{alvo}/ocorrencias") => new { tipo = "ProblemaComVeiculo" },
+            ("POST", "/api/integracoes") => new { nome = "ERP do cliente" },
+            ("POST", "/api/integracoes/v1/entregas") => new { clienteId = Guid.CreateVersion7(), destinatarioId = Guid.CreateVersion7() },
             ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante") => new
             {
                 recebidoPor = "Quem Recebeu",
@@ -269,6 +278,18 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
 
             // Rastreamento público: a credencial é o token do link, e o destinatário não tem conta.
             ["GET /api/publico/rastreamento/{token}"] = "anonimo",
+
+            // Credenciais de integração: emitir e revogar é decisão de segurança, como criar conta.
+            ["POST /api/integracoes/"] = "usuarios:gestao",
+            ["GET /api/integracoes/"] = "usuarios:gestao",
+            ["GET /api/integracoes/{id:guid}"] = "usuarios:gestao",
+            ["POST /api/integracoes/{id:guid}/revogacao"] = "usuarios:gestao",
+
+            // API externa: esquema próprio, sem perfil e sem canal — token de pessoa não vale aqui.
+            ["POST /api/integracoes/v1/entregas"] = "integracao",
+            ["GET /api/integracoes/v1/entregas/{id:guid}"] = "integracao",
+            ["POST /api/integracoes/v1/importacoes"] = "integracao",
+            ["POST /api/integracoes/v1/importacoes/previa"] = "integracao",
             ["GET /api/ocorrencias/"] = "operacao:leitura",
             ["GET /api/ocorrencias/{id:guid}"] = "operacao:leitura",
             ["GET /api/entregas/{id:guid}/ocorrencias/"] = "operacao:leitura",

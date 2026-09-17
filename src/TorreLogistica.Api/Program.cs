@@ -14,6 +14,7 @@ using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Entregas;
 using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Execucao;
+using TorreLogistica.Api.Integracoes;
 using TorreLogistica.Api.Ocorrencias;
 using TorreLogistica.Api.Previsao;
 using TorreLogistica.Api.Rastreamento;
@@ -205,6 +206,7 @@ try
     aplicacao.MapearEndpointsDeExecucao();
     aplicacao.MapearEndpointsDeRastreamento();
     aplicacao.MapearEndpointsDeRastreamentoPublico();
+    aplicacao.MapearEndpointsDeIntegracoes();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeOcorrencias();
     aplicacao.MapearEndpointsDeComprovantes();

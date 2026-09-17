@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 15 — Rastreamento Público concluída.**
+> **Estado: Fase 16 — API de Integração e Importação concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -89,9 +89,9 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 606 |
+| Unidade | 646 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 480 |
+| Integração (PostgreSQL + PostGIS real) | 507 |
 | Frontend (3 aplicações) | 117 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -130,6 +130,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0022](./docs/adr/0022-ocorrencias-e-tentativas.md) | Ocorrências somente-inserção, com motivo tipado, severidade e alerta crítico |
 | [0023](./docs/adr/0023-prova-de-entrega.md) | Prova de entrega: comprovante somente-inserção e arquivo só por URL assinada |
 | [0024](./docs/adr/0024-rastreamento-publico.md) | Rastreamento público: token forte por hash, posição aproximada e resposta neutra |
+| [0025](./docs/adr/0025-api-de-integracao.md) | API de integração: credencial de máquina, `/v1/` no caminho e idempotência em duas camadas |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

@@ -25,6 +25,17 @@ public interface IContextoDoUsuario : IContextoDoTenant
     /// <summary>Conta autenticada. Lança se não houver sessão.</summary>
     Guid UsuarioId { get; }
 
+    /// <summary>
+    /// Conta autenticada, ou <see langword="null"/> quando a autoridade da requisição não é uma pessoa.
+    /// </summary>
+    /// <remarks>
+    /// Uma credencial de integração autentica a organização, não um usuário. O que ela faz entra na
+    /// timeline com autor vazio — "foi o sistema" —, e é a trilha de auditoria que guarda qual integração
+    /// agiu. Operações que só fazem sentido com pessoa por trás continuam usando <see cref="UsuarioId"/>
+    /// e falham alto se forem chamadas sem sessão.
+    /// </remarks>
+    Guid? AutorUsuarioId { get; }
+
     /// <summary>Organização da sessão. Lança se não houver sessão.</summary>
     Guid OrganizacaoIdAutenticada { get; }
 

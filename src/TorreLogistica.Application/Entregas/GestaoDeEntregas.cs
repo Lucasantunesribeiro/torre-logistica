@@ -202,7 +202,21 @@ public sealed class GestaoDeEntregas(
     }
 
     /// <summary>Cria uma entrega com o próximo código humano da organização.</summary>
-    public async Task<EntregaResumo> CriarAsync(DadosDeEntrega dados, CancellationToken cancelamento)
+    /// <param name="dados">Dados da entrega.</param>
+    /// <param name="cancelamento">Cancelamento.</param>
+    /// <param name="aoCriar">
+    /// Trabalho extra a confirmar <b>no mesmo commit</b> da entrega, recebendo o identificador dela.
+    /// </param>
+    /// <remarks>
+    /// O gancho existe porque a transação é aberta aqui dentro, e aninhar outra do lado de fora é recusado
+    /// pelo provedor — a estratégia de nova tentativa precisa reexecutar a unidade inteira. Quem recebe
+    /// entrega de um sistema externo grava por aqui o registro de idempotência e a referência de origem,
+    /// em vez de tentar cercar esta chamada com uma transação própria.
+    /// </remarks>
+    public async Task<EntregaResumo> CriarAsync(
+        DadosDeEntrega dados,
+        CancellationToken cancelamento,
+        Func<Guid, CancellationToken, Task>? aoCriar = null)
     {
         ArgumentNullException.ThrowIfNull(dados);
 
@@ -227,13 +241,20 @@ public sealed class GestaoDeEntregas(
                     suporte.OrganizacaoId,
                     CodigoDaEntrega.Gerar(ano, numero),
                     dadosDaEntrega,
-                    suporte.UsuarioId,
+                    // Opcional de propósito: a entrega pode nascer de uma integração, e aí o autor é o
+                    // sistema de origem, registrado na auditoria — não uma pessoa inventada.
+                    suporte.AutorUsuarioId,
                     suporte.NovoIdentificador(),
                     agora);
 
                 contexto.Entregas.Add(entrega);
                 contexto.EventosDaEntrega.Add(evento);
                 suporte.Auditar(Recurso, AcoesDeEntrega.Criada, entrega.Id, new { codigo = entrega.Codigo });
+
+                if (aoCriar is not null)
+                {
+                    await aoCriar(entrega.Id, cancelamentoDaTentativa).ConfigureAwait(false);
+                }
 
                 await contexto.SaveChangesAsync(cancelamentoDaTentativa).ConfigureAwait(false);
                 return (entrega.Id, entrega.Codigo);
