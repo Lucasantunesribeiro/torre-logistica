@@ -116,6 +116,11 @@ public static class ConfiguracaoDeAutenticacao
 
             limites.AddPolicy(PoliticasDeLimite.Sincronizacao, http => JanelaPorMotorista(
                 http, PoliticasDeLimite.Sincronizacao, opcoes => opcoes.SincronizacoesPorMinuto));
+
+            // Rastreamento público por endereço: não há conta para particionar, e é justamente o endereço
+            // que precisa ser contido — tentar tokens em massa é o ataque desta superfície.
+            limites.AddPolicy(PoliticasDeLimite.RastreamentoPublico, http => JanelaPorEndereco(
+                http, PoliticasDeLimite.RastreamentoPublico, opcoes => opcoes.ConsultasPublicasPorMinuto));
         });
 
         return servicos;

@@ -65,6 +65,7 @@ public static class ConfiguracaoDeServicosDaApplication
 
         servicos.AddScoped<GestaoDeOcorrencias>();
         servicos.AddScoped<GestaoDeComprovantes>();
+        servicos.AddScoped<GestaoDoRastreamentoPublico>();
 
         servicos.AddSingleton<MetricasDeAlertas>();
         servicos.AddScoped<MonitoramentoOperacional>();

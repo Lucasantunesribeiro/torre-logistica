@@ -8,6 +8,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Seguranca;
 using TorreLogistica.Application.Comprovantes;
+using TorreLogistica.Application.Rastreamento;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Infrastructure.Armazenamento;
@@ -74,6 +75,12 @@ public static class ConfiguracaoDeServicosDaInfrastructure
         servicos
             .AddOptions<OpcoesDeComprovantes>()
             .Bind(configuracao.GetSection(OpcoesDeComprovantes.Secao))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        servicos
+            .AddOptions<OpcoesDeRastreamentoPublico>()
+            .Bind(configuracao.GetSection(OpcoesDeRastreamentoPublico.Secao))
             .ValidateDataAnnotations()
             .ValidateOnStart();
 

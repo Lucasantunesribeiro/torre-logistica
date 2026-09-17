@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router';
 
 import { Acompanhamento } from './paginas/Acompanhamento';
 import { RotaDesconhecida } from './paginas/RotaDesconhecida';
+import { SemLink } from './paginas/SemLink';
 
 /**
  * Casca do rastreamento público.
@@ -16,7 +17,8 @@ export function App() {
       <p className="sumario">Torre Logística.</p>
 
       <Routes>
-        <Route path="/" element={<Acompanhamento />} />
+        <Route path="/" element={<SemLink />} />
+        <Route path="/e/:token" element={<Acompanhamento />} />
         <Route path="*" element={<RotaDesconhecida />} />
       </Routes>
     </main>

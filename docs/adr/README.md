@@ -31,6 +31,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0021](./0021-operacao-offline.md) | Operação offline: fila no aparelho, sincronização em lote, exatamente uma vez no servidor | 12 | aceita |
 | [0022](./0022-ocorrencias-e-tentativas.md) | Ocorrências somente-inserção, motivos tipados e alerta de ocorrência crítica | 13 | aceita |
 | [0023](./0023-prova-de-entrega.md) | Prova de entrega: comprovante somente-inserção e storage por URL assinada | 14 | aceita |
+| [0024](./0024-rastreamento-publico.md) | Rastreamento público: link com token forte guardado por hash, posição grossa e resposta neutra | 15 | aceita |
 
 ## Regras
 

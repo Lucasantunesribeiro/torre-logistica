@@ -62,6 +62,13 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante", Status(401, 401, 401, 404, 401)),
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/comprovante/autorizacao", Status(401, 401, 401, 404, 401)),
 
+        // O alvo é uma conta, não uma entrega: quem pode emitir o link recebe 404, igual a inexistente.
+        ("POST", "/api/entregas/{alvo}/link-de-rastreamento", Status(404, 404, 404, 401, 401)),
+
+        // Rastreamento público: sem perfil nenhum na conversa. Token que não abre nada devolve a mesma
+        // resposta para todos — inclusive para quem está autenticado no console.
+        ("GET", "/api/publico/rastreamento/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Status(404, 404, 404, 404, 404)),
+
         // O alvo é uma conta, não uma entrega: quem pode registrar recebe 404, igual a inexistente.
         ("POST", "/api/entregas/{alvo}/ocorrencias", Status(404, 404, 404, 401, 401)),
         ("POST", "/api/motorista/entregas/0198f0e2-0000-7000-8000-000000000001/ocorrencia", Status(401, 401, 401, 404, 401)),
@@ -258,6 +265,10 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             // Storage: a credencial é a assinatura da URL, emitida por quem já passou pela autorização.
             ["PUT /api/arquivos/{**chave}"] = "anonimo",
             ["GET /api/arquivos/{**chave}"] = "anonimo",
+            ["POST /api/entregas/{id:guid}/link-de-rastreamento"] = "entregas:operacao",
+
+            // Rastreamento público: a credencial é o token do link, e o destinatário não tem conta.
+            ["GET /api/publico/rastreamento/{token}"] = "anonimo",
             ["GET /api/ocorrencias/"] = "operacao:leitura",
             ["GET /api/ocorrencias/{id:guid}"] = "operacao:leitura",
             ["GET /api/entregas/{id:guid}/ocorrencias/"] = "operacao:leitura",

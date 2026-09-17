@@ -44,6 +44,7 @@ public sealed class ExecucaoTestes(ContainerPostgis banco) : TesteDeIntegracao(b
             "DELETE /api/rotas/{id:guid}/paradas/{entregaId:guid}",
             "POST /api/entregas/",
             "POST /api/entregas/{id:guid}/cancelamento",
+            "POST /api/entregas/{id:guid}/link-de-rastreamento",
             "POST /api/entregas/{id:guid}/ocorrencias/",
             "POST /api/entregas/{id:guid}/reagendamento",
             "POST /api/motorista/entregas/{id:guid}/chegada",

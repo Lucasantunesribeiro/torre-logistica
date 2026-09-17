@@ -204,6 +204,7 @@ try
     aplicacao.MapearEndpointsDeRotas();
     aplicacao.MapearEndpointsDeExecucao();
     aplicacao.MapearEndpointsDeRastreamento();
+    aplicacao.MapearEndpointsDeRastreamentoPublico();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeOcorrencias();
     aplicacao.MapearEndpointsDeComprovantes();

@@ -75,4 +75,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Uma chave de objeto por arquivo: o mesmo arquivo não é registrado duas vezes.</summary>
     public const string ChaveDoArquivoDoComprovante = "ux_arquivos_do_comprovante_chave";
+
+    /// <summary>Hash do link de rastreamento: é por ele que o token apresentado vira uma entrega.</summary>
+    public const string HashDoTokenDeRastreamento = "ux_tokens_de_rastreamento_hash";
+
+    /// <summary>Um link de rastreamento ativo por entrega: emitir outro revoga o anterior.</summary>
+    public const string TokenDeRastreamentoAtivoPorEntrega = "ux_tokens_de_rastreamento_entrega_ativo";
 }

@@ -135,7 +135,7 @@ Não antecipar:
 | 12 | Offline, Sincronização e Idempotência | ✅ |
 | 13 | Ocorrências e Tentativas de Entrega | ✅ |
 | 14 | Proof of Delivery | ✅ |
-| 15 | Rastreamento Público | ⬜ |
+| 15 | Rastreamento Público | ✅ |
 | 16 | API de Integração e Importação | ⬜ |
 | 17 | Webhooks e Backbone Assíncrono | ⬜ |
 | 18 | Console Operacional e Mapa | ⬜ |
@@ -3030,9 +3030,108 @@ Posição pública deve ser aproximada, atrasada ou ocultada conforme política 
 - resposta neutra para token inválido;
 - proteção de comprovante.
 
-## Critérios de aceite
+## O que foi feito
 
-Destinatário consegue entender onde sua entrega está sem acesso ao sistema interno.
+```text
+console: POST /api/entregas/{id}/link-de-rastreamento          (entregas:operacao)
+  → token de 32 bytes em Base64Url; o banco guarda só o SHA-256
+  → revoga o anterior e grava o novo na mesma transação
+  → devolve o valor UMA vez; perdido, é reemitido, nunca recuperado
+
+destinatário: GET /api/publico/rastreamento/{token}            (anônimo, limite por endereço)
+  → formato implausível é descartado antes do banco
+  → hash do apresentado → organização e entrega → página
+```
+
+A página (`apps/rastreamento`, rota `/e/:token`) mostra código, status, janela, chegada prevista,
+situação do SLA, bairro/cidade/UF, os marcos públicos e, depois da conclusão, a prova de entrega.
+
+## Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| token forte, só hash persistido | `TokenDeRastreamentoTestes` e `BancoGuardaSoOHashEReemitirDerrubaOLinkAnterior` (o hash gravado é conferido contra o SHA-256 do valor emitido; procurar o token na linha inteira não acha nada) |
+| token não enumerável | 32 bytes de entropia; formato implausível recusado antes do banco; limite por endereço |
+| resposta neutra | `TokenQueNaoAbreNadaRespondeSempreAMesmaCoisa` — malformado, desconhecido, revogado e expirado com resposta idêntica campo a campo |
+| privacidade | `LinkMostraAEncomendaESilenciaSobreAOperacao` varre o JSON atrás de campo interno; `PosicaoApareceAproximadaSoEnquantoAEntregaEstaACaminho` prova o arredondamento e o descarte por idade |
+| rate limiting | `RastreamentoPublicoComLimiteBaixoTestes.ConsultaPublicaTemLimitePorEndereco` (inclusive tentativa com outro token, que cai no mesmo limite) |
+| tenant | `OutraOrganizacaoNaoEmiteLinkNemAlcancaAEntrega` (404 idêntico ao inexistente) |
+| proteção do comprovante | `ProvaDaEntregaApareceDepoisDaConclusaoESoPorUrlAssinada` (a mesma chave sem assinatura continua 403) |
+| auditoria sem o segredo | `EmissaoFicaNaAuditoriaSemOValorDoLink` |
+| página | `apps/rastreamento` — link que não abre, falha de rede sem repassar mensagem do servidor, ausência de campo de busca e do próprio token na tela |
+
+## Critério de aceite
+
+> Destinatário consegue entender onde sua entrega está sem acesso ao sistema interno.
+
+✅ Com o link, ele vê onde a encomenda está, quando deve chegar e quem recebeu — sem conta, sem
+sessão e sem enxergar motorista, veículo, rota, endereço completo ou qualquer identificador interno.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 606 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 480 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.225** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| `setState` síncrono dentro do efeito na página pública | ESLint (`react-hooks`) reprovou a build do frontend | o resultado passou a carregar o token que o produziu; some o `setState` de limpeza e, de quebra, trocar de link deixa de exibir por um instante os dados do link anterior |
+| Rota nova não declarada na lista fechada de comandos | `ExecucaoTestes.NaoExisteEndpointGenericoDeStatus` | a rota entrou na lista — o teste existe exatamente para obrigar essa decisão a ser consciente |
+| Teste de vazamento com falso positivo | `LinkMostraAEncomendaESilenciaSobreAOperacao` acusava "rota" dentro do marco legítimo `SaiuParaRota` | passou a procurar nome de campo entre aspas, não substring de valor |
+| Consulta de auditoria com coluna inexistente | `EmissaoFicaNaAuditoriaSemOValorDoLink` | a coluna é `alvo_tipo`, não `recurso` |
+
+## Security Gate 15
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Token forte | ✅ | 32 bytes de `RandomNumberGenerator`, Base64Url, mesmo mecanismo do token de renovação |
+| Só hash persistido | ✅ | `octet_length = 32` por check constraint; teste confere o hash e procura o valor emitido na linha inteira |
+| Token não enumerável | ✅ | espaço de 2^256; formato conferido antes do banco; limite por endereço fecha a força bruta |
+| Resposta neutra | ✅ | quatro motivos distintos, uma resposta só — comparada campo a campo no teste |
+| Autoridade pelo token | ✅ | filtro de tenant ignorado de propósito e substituído por comparação explícita com a organização do token |
+| Privacidade de localização | ✅ | só a caminho, grade de 0,01°, descarte após 15 min; precisão anunciada nunca melhor que a real |
+| Dados fora da página | ✅ | teste varre o JSON por nome de campo (`motoristaId`, `rotaId`, `logradouro`, `cep`, `id`, `dados`…) |
+| Proteção do comprovante | ✅ | URL assinada curta; sem assinatura, 403; desligável por configuração |
+| Cache | ✅ | `Cache-Control: no-store` na resposta pública |
+| Rate limiting | ✅ | `limite-rastreamento-publico` por endereço, com 429 e `Retry-After` |
+| Segredos | ✅ | nenhum; o token nunca entra em log nem em auditoria |
+| Custo | ✅ | nenhum recurso novo, nenhuma dependência nova |
+
+## Decisões
+
+[ADR 0024](./docs/adr/0024-rastreamento-publico.md).
+
+- **Token guardado só como hash**, com a consequência aceita: link perdido é reemitido, não recuperado.
+- **Um link ativo por entrega**, garantido por índice único parcial — reemitir derruba o repassado adiante.
+- **Uma resposta só** para malformado, desconhecido, expirado e revogado.
+- **Posição grossa**: só a caminho, arredondada em ~1,1 km e descartada após 15 minutos.
+- **Sem TanStack Query na página pública**: uma consulta só não paga uma dependência no pacote que o
+  destinatário baixa.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Envio do link ao destinatário (e-mail, SMS) | notificação está fora do escopo declarado (`CLAUDE.md`, seção 5) |
+| Botão de emitir o link na tela | entra com o console, na Fase 18 |
+| Mapa na página pública | Fase 18 traz o mapa; aqui a região é texto, de propósito |
+| Ajuste da grade por operação | a política é constante do domínio; vira configuração se houver caso real |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: rastreamento publico com token por hash e posicao aproximada (Fase 15)`
 
 ---
 
@@ -3965,9 +4064,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 14 — Proof of Delivery** (2026-09-16) |
-| Próxima fase | **Fase 15 — Rastreamento Público** |
-| Testes verdes | 1.168 — 571 unidade, 22 arquitetura, 462 integração, 113 frontend |
+| Última fase concluída | **Fase 15 — Rastreamento Público** (2026-09-16) |
+| Próxima fase | **Fase 16 — API de Integração e Importação** |
+| Testes verdes | 1.225 — 606 unidade, 22 arquitetura, 480 integração, 117 frontend |
 
 Comando para continuar:
 

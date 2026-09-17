@@ -95,4 +95,7 @@ public static class PoliticasDeLimite
 
     /// <summary>Sincronização de operações offline, por motorista autenticado.</summary>
     public const string Sincronizacao = "limite-sincronizacao";
+
+    /// <summary>Consulta do rastreamento público, por endereço de origem.</summary>
+    public const string RastreamentoPublico = "limite-rastreamento-publico";
 }

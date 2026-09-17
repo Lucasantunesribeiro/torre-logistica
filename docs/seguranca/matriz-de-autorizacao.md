@@ -61,6 +61,8 @@
 | `GET /api/entregas/{id}/comprovante` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura`; devolve URLs assinadas curtas |
 | `POST /api/motorista/entregas/{id}/comprovante` e `.../comprovante/autorizacao` | **401** | **401** | **401** | 200 | 401 | `motorista`; só entrega do motorista da sessão |
 | `PUT` e `GET /api/arquivos/{chave}` | — | — | — | — | — | anônimo **por desenho**: a credencial é a assinatura da URL (ADR 0023); sem assinatura válida e no prazo, 403 |
+| `POST /api/entregas/{id}/link-de-rastreamento` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao`; o valor emitido aparece uma única vez e revoga o anterior |
+| `GET /api/publico/rastreamento/{token}` | — | — | — | — | — | anônimo **por desenho**: a credencial é o token do link (ADR 0024); token que não abre nada devolve 404 idêntico para todos, e a rota tem limite por endereço |
 | `POST /api/entregas/{id}/ocorrencias` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao`; recusa tipo `TentativaDeEntrega` |
 | `POST /api/motorista/entregas/{id}/ocorrencia` | **401** | **401** | **401** | 201 | 401 | `motorista`; só entrega do motorista da sessão |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |

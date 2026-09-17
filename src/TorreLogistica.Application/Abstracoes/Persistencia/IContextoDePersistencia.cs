@@ -127,6 +127,15 @@ public interface IContextoDePersistencia
     /// <summary>Arquivos dos comprovantes (metadados), filtrados pelo tenant. Somente-inserção.</summary>
     DbSet<ArquivoDoComprovante> ArquivosDoComprovante { get; }
 
+    /// <summary>
+    /// Links públicos de acompanhamento, filtrados pelo tenant — guardados só como hash.
+    /// </summary>
+    /// <remarks>
+    /// A consulta pública não tem sessão e por isso usa <c>IgnoreQueryFilters()</c> explícito, como o
+    /// login e a renovação: quem resolve a organização é o próprio token apresentado.
+    /// </remarks>
+    DbSet<TokenDeRastreamento> TokensDeRastreamento { get; }
+
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }
 

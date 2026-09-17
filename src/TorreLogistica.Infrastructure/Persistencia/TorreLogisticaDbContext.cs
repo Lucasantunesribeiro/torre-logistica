@@ -147,6 +147,9 @@ public class TorreLogisticaDbContext(
     public DbSet<ArquivoDoComprovante> ArquivosDoComprovante => Set<ArquivoDoComprovante>();
 
     /// <inheritdoc />
+    public DbSet<TokenDeRastreamento> TokensDeRastreamento => Set<TokenDeRastreamento>();
+
+    /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
 
     /// <inheritdoc />
@@ -815,6 +818,8 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(comprovante => comprovante.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<ArquivoDoComprovante>()
             .HasQueryFilter(arquivo => arquivo.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<TokenDeRastreamento>()
+            .HasQueryFilter(token => token.OrganizacaoId == OrganizacaoIdDoFiltro);
     }
 
     /// <inheritdoc />

@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 14 — Proof of Delivery concluída.**
+> **Estado: Fase 15 — Rastreamento Público concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -15,7 +15,10 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > somente-inserção com severidade, hora, lugar e autor, e alerta crítico na torre quando a mercadoria ou a
 > segurança entram no caminho. Agora também a **prova de entrega**: quem recebeu, quando, onde e a foto —
 > com o arquivo fora do banco, subindo direto ao storage por URL assinada de curta duração e saindo de lá do
-> mesmo jeito, nunca por link público. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> mesmo jeito, nunca por link público. E agora o **rastreamento público**: o destinatário acompanha a
+> encomenda por um link com token forte — do qual o banco guarda só o hash —, vendo a região aproximada do
+> veículo em vez da rua, e nunca o motorista, a rota ou o endereço completo. A ordem está em
+> [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -86,10 +89,10 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 571 |
+| Unidade | 606 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 462 |
-| Frontend (3 aplicações) | 113 |
+| Integração (PostgreSQL + PostGIS real) | 480 |
+| Frontend (3 aplicações) | 117 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
@@ -126,6 +129,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0021](./docs/adr/0021-operacao-offline.md) | Operação offline: fila no aparelho e registro da operação na mesma transação do efeito |
 | [0022](./docs/adr/0022-ocorrencias-e-tentativas.md) | Ocorrências somente-inserção, com motivo tipado, severidade e alerta crítico |
 | [0023](./docs/adr/0023-prova-de-entrega.md) | Prova de entrega: comprovante somente-inserção e arquivo só por URL assinada |
+| [0024](./docs/adr/0024-rastreamento-publico.md) | Rastreamento público: token forte por hash, posição aproximada e resposta neutra |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

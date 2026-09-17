@@ -612,6 +612,35 @@ console: GET /api/entregas/{id}/comprovante → metadados + URLs assinadas de le
 
 Decisões e limitações em [ADR 0023](./adr/0023-prova-de-entrega.md), que implementa o [ADR 0007](./adr/0007-storage-de-comprovantes-fora-do-banco.md).
 
+## Fase 15 — Rastreamento público
+
+```text
+console: POST /api/entregas/{id}/link-de-rastreamento          (entregas:operacao)
+  → token forte de 32 bytes em Base64Url; o banco guarda só o SHA-256
+  → revoga o link anterior e grava o novo na mesma transação (índice único parcial garante um ativo)
+  → devolve o valor UMA vez; perdido, é reemitido, nunca recuperado
+
+destinatário: GET /api/publico/rastreamento/{token}            (anônimo, limite por endereço)
+  → formato implausível é descartado antes do banco
+  → SHA-256 do apresentado → tokens_de_rastreamento → organização e entrega
+  → entrega + marcos públicos + previsão + posição aproximada + comprovante,
+    com IgnoreQueryFilters e comparação explícita com a organização DO TOKEN
+```
+
+| Peça | Regra |
+|---|---|
+| Token | 32 bytes de entropia; só o hash é persistido, como nos tokens de renovação |
+| Um por entrega | índice único parcial `revogado_em IS NULL`; emitir de novo derruba o link repassado adiante |
+| Resposta neutra | malformado, desconhecido, expirado e revogado → o mesmo `404 rastreamento_nao_encontrado` |
+| Autoridade | é o token, nunca a requisição: sem sessão, o filtro de tenant é substituído por comparação explícita |
+| Posição | só em `EmRota` e `ProximaDoDestino`, arredondada em grade de 0,01° (~1,1 km) e descartada após 15 min |
+| Fora da página | motorista, veículo, rota, outras entregas, logradouro, número, CEP, autor dos eventos e dados em JSON |
+| Timeline | só marcos que dizem respeito à encomenda; planejamento, atribuição e troca de motorista ficam de fora |
+| Comprovante | depois da conclusão, por URL assinada curta (ADR 0023); desligável em `Torre:RastreamentoPublico:ExporComprovante` |
+| Limite | `limite-rastreamento-publico`, por endereço — a superfície não tem conta para particionar |
+
+Decisões e limitações em [ADR 0024](./adr/0024-rastreamento-publico.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem

@@ -49,6 +49,14 @@ public sealed class OpcoesDeLimiteDeRequisicoes
     /// </summary>
     [Range(1, 100_000)]
     public int SincronizacoesPorMinuto { get; set; } = 30;
+
+    /// <summary>
+    /// Consultas do rastreamento público por minuto <b>por endereço</b>. O destinatário abre a página e
+    /// atualiza de vez em quando; o limite existe para que ninguém use o endereço público como oráculo,
+    /// tentando tokens em massa até acertar um.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int ConsultasPublicasPorMinuto { get; set; } = 30;
 }
 
 /// <summary>
