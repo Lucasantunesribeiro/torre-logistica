@@ -41,7 +41,7 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
 
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
         await EntregarAsync();
 
         var recebidos = Assinante.Recebidos;
@@ -74,8 +74,8 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
 
-        await DespacharAsync();
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
+        await DespacharAsync(cenario.Organizacao.Id);
 
         Assert.Equal("2", await Banco.ConsultarEscalarAsync(
             "SELECT count(*) FROM entregas_de_webhook WHERE organizacao_id = @id", ("id", cenario.Organizacao.Id)));
@@ -93,7 +93,7 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
         Assinante.Modo = ModoDoAssinante.Quebra;
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
 
         var entregaId = await EntregarAteDesistirAsync(cenario);
 
@@ -127,7 +127,7 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
         Assinante.Modo = ModoDoAssinante.Quebra;
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
 
         var entregaId = await EntregarAteDesistirAsync(cenario);
 
@@ -159,7 +159,7 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
         await AssinarAsync(http, cenario);
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
 
         var pendente = await Banco.ConsultarEscalarAsync(
             "SELECT id FROM entregas_de_webhook WHERE organizacao_id = @id LIMIT 1", ("id", cenario.Organizacao.Id));
@@ -179,14 +179,14 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
         var assinatura = await AssinarAsync(http, cenario, [TiposDeEventoDeWebhook.EntregaConcluida]);
 
         // A saída para rota já aconteceu no cenário: ela não é assinada, e não pode virar entrega.
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
 
         Assert.Equal("0", await Banco.ConsultarEscalarAsync(
             "SELECT count(*) FROM entregas_de_webhook WHERE organizacao_id = @id", ("id", cenario.Organizacao.Id)));
 
         await OkAsync(http, HttpMethod.Post, $"/api/webhooks/assinaturas/{assinatura.Id}/revogacao", cenario.Administrador, null);
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
 
         // Revogada, nem o evento que ela assinava gera entrega.
         Assert.Equal("0", await Banco.ConsultarEscalarAsync(
@@ -223,7 +223,7 @@ public sealed class WebhooksTestes(ContainerPostgis banco) : TesteDeWebhook(banc
         await AssinarAsync(http, cenario);
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
         await EntregarAsync();
 
         var erro = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => Banco.ExecutarAsync(
@@ -305,7 +305,7 @@ public sealed class WebhookComTempoLimiteCurtoTestes(ContainerPostgis banco) : T
         Assinante.Demora = TimeSpan.FromSeconds(4);
 
         await OkAsync(http, HttpMethod.Post, $"/api/motorista/entregas/{cenario.Entrega}/conclusao", cenario.TokenDoMotorista, null);
-        await DespacharAsync();
+        await DespacharAsync(cenario.Organizacao.Id);
         await EntregarAsync();
 
         var entregaId = await Banco.ConsultarEscalarAsync(
@@ -438,11 +438,35 @@ public abstract class TesteDeWebhook(ContainerPostgis banco) : TesteDeIntegracao
             ("id", organizacaoId));
     }
 
-    /// <summary>Roda uma volta do despachante do outbox.</summary>
-    protected async Task DespacharAsync()
+    /// <summary>
+    /// Despacha até não sobrar mensagem desta organização no outbox.
+    /// </summary>
+    /// <remarks>
+    /// O despachante varre o banco inteiro — é o que se quer em produção. Como a coleção de testes
+    /// compartilha o banco, uma única rodada pode encher o lote com mensagens de outros testes e não
+    /// alcançar a deste cenário. Repetir até esvaziar a própria organização tira o teste da dependência do
+    /// tamanho do lote.
+    /// </remarks>
+    protected async Task DespacharAsync(Guid organizacaoId)
     {
-        using var escopo = Fabrica.Services.CreateScope();
-        await escopo.ServiceProvider.GetRequiredService<DespachoDeWebhooks>().DespacharLoteAsync(Cancelamento);
+        for (var rodada = 0; rodada < 30; rodada++)
+        {
+            using (var escopo = Fabrica.Services.CreateScope())
+            {
+                await escopo.ServiceProvider.GetRequiredService<DespachoDeWebhooks>().DespacharLoteAsync(Cancelamento);
+            }
+
+            var pendentes = await Banco.ConsultarEscalarAsync(
+                "SELECT count(*) FROM outbox WHERE organizacao_id = @id AND despachada_em IS NULL",
+                ("id", organizacaoId));
+
+            if (pendentes == "0")
+            {
+                return;
+            }
+        }
+
+        Assert.Fail("O outbox desta organização não esvaziou depois de 30 rodadas de despacho.");
     }
 
     /// <summary>Roda uma volta do entregador.</summary>

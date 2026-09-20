@@ -7,6 +7,7 @@ import { App } from './App';
 import { criarClienteDeConsultas } from './infra/consultas';
 import { ProvedorDeSessao } from './sessao/ProvedorDeSessao';
 import './estilos.css';
+import './estilos-console.css';
 
 const raiz = document.getElementById('raiz');
 

@@ -37,10 +37,19 @@ const esquemaDoAmbiente = z.object({
       ehEnderecoHttpAbsoluto,
       'precisa ser um endereço http(s) absoluto, por exemplo http://localhost:5080',
     ),
+
+  /**
+   * Estilo do mapa, do provedor que a implantação escolher.
+   *
+   * Opcional de propósito: sem ele o Mapa da Operação desenha os pontos sobre fundo neutro, e o console
+   * funciona sem depender de contratar fornecedor de tiles.
+   */
+  VITE_URL_DO_ESTILO_DO_MAPA: z.string().optional(),
 });
 
 export interface Ambiente {
   readonly urlDaApi: string;
+  readonly urlDoEstiloDoMapa: string | null;
 }
 
 /**
@@ -61,9 +70,12 @@ export function lerAmbiente(bruto: unknown): Ambiente {
     throw new Error(`Configuração de ambiente inválida — ${problemas}`);
   }
 
+  const estilo = resultado.data.VITE_URL_DO_ESTILO_DO_MAPA?.trim();
+
   return {
     // A barra final é removida para que a junção com o caminho nunca produza "//".
     urlDaApi: resultado.data.VITE_URL_DA_API.replace(/\/+$/, ''),
+    urlDoEstiloDoMapa: estilo === undefined || estilo === '' ? null : estilo,
   };
 }
 

@@ -138,7 +138,7 @@ Não antecipar:
 | 15 | Rastreamento Público | ✅ |
 | 16 | API de Integração e Importação | ✅ |
 | 17 | Webhooks e Backbone Assíncrono | ✅ |
-| 18 | Console Operacional e Mapa | ⬜ |
+| 18 | Console Operacional e Mapa | ✅ |
 | 19 | Indicadores e Analytics | ⬜ |
 | 20 | Segurança e Privacidade | ⬜ |
 | 21 | Observabilidade | ⬜ |
@@ -3503,9 +3503,117 @@ Evitar:
 - cards decorativos;
 - excesso de espaço vazio.
 
-## Critérios de aceite
+## O que foi feito
 
-Usuário deve entender o estado da operação em menos de alguns segundos.
+```text
+/               Painel operacional — contadores e a fila do que precisa de gente
+/mapa           Mapa da Operação (tela símbolo) — pontos ao vivo + lista sincronizada
+/entregas       lista com filtro por status e busca por código
+/entregas/:id   estado, previsão explicada, timeline, ocorrências, prova e link de rastreamento
+/rotas          rotas do dia, com paradas pendentes na própria linha
+/motoristas     lista e detalhe com a última posição conhecida
+/alertas        abertos e resolvidos, com resolução que exige observação
+/ocorrencias    registro da última milha
+/integracoes    credenciais de máquina (chave mostrada uma vez)
+/webhooks       assinaturas e fila de entregas, com reenvio do que desistiu
+```
+
+Além das oito telas do ROADMAP, a fase fechou **sete pendências** que fases anteriores registraram
+apontando para cá: console consumindo os avisos de tempo real (Fase 8), previsão e risco na tela (Fase 9),
+alertas (Fase 10), ocorrências (Fase 13), botão de emitir link de rastreamento (Fase 15), tela de
+credenciais (Fase 16) e tela de webhooks com reenvio (Fase 17).
+
+> **Sobre custo.** O mapa usa MapLibre GL, mas o **estilo vem de configuração** e não há provedor padrão
+> embutido: sem ele os pontos aparecem sobre fundo neutro. Nenhum serviço pago foi contratado, nenhuma
+> chave inventada. A escolha de provedor é decisão da Fase 25.
+
+## Dependências novas
+
+| Pacote | Justificativa (regra 71) |
+|---|---|
+| `maplibre-gl` | renderizar mapa vetorial com zoom, camadas e projeção é trabalho de anos; a alternativa real seria não ter mapa. OSS, sem chave, sem servidor próprio |
+| `@microsoft/signalr` | é o cliente do protocolo que o servidor fala desde a Fase 8 (ADR 0017); reimplementar negociação, reconexão e fallback seria reescrever a biblioteca |
+
+Ambas gratuitas, mantidas, sem serviço pago atrás, com versão fixada exata. `npm audit`: 0 vulnerabilidades.
+
+## Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| tela símbolo | `Mapa da operação` — monta, lista as entregas a caminho e avisa quando não há provedor configurado |
+| navegação e sessão | recuperação por cookie, login, saída, rota inexistente |
+| painel | contadores, fila de alertas e ocorrências, e o caso vazio ("a operação está limpa") |
+| detalhe da entrega | previsão explicada, ocorrência, ausência de comprovante tratada como estado e não como erro |
+| pendência da Fase 15 | emissão do link de rastreamento, com o valor mostrado uma vez |
+| pendência da Fase 17 | reenvio da entrega de webhook que desistiu |
+| pendência da Fase 10 | resolução de alerta com observação, conferindo o corpo enviado |
+
+## Critério de aceite
+
+> Usuário deve entender o estado da operação em menos de alguns segundos.
+
+✅ A tela de abertura responde a uma pergunta só — "há algo exigindo ação agora?" — com quatro contadores
+e a fila de alertas abertos, sem gráfico e sem rolagem. Do painel ao mapa e ao detalhe da entrega são dois
+cliques, e cada linha de tabela já traz o que decide se aquele caso precisa de atenção.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 689 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 518 | ✅ |
+| Frontend — `operacao` | 30 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.352** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| Teste de webhook instável na suíte completa | passava isolado e com quatro classes; falhava com 518 | o despachante varre o banco **global por desenho**, e um lote de 50 podia não alcançar a mensagem observada entre centenas de outros testes. O teste passou a despachar até esvaziar a própria organização, em vez de supor que uma rodada basta |
+| Importação do MapLibre 6 | `tsc` acusou ausência de export default | a versão 6 exporta nomeadamente; passou a importar `Map` e `GeoJSONSource` |
+| Matcher de texto no painel | `getByText` exato não casava | a descrição do alerta divide o item com selo e link — texto quebrado entre nós irmãos exige expressão regular |
+
+## Security Gate 18
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Nenhum segredo no pacote | ✅ | só variáveis `VITE_` de endereço; nenhuma chave de provedor embutida |
+| Autorização | ✅ | o console lê o que a sessão permite; integrações e webhooks só respondem a administrador (a API recusa, não a tela) |
+| Sessão | ✅ | token em memória, renovação por cookie; rota protegida leva ao login |
+| Tempo real | ✅ | token do hub só na query string do caminho do hub (ADR 0017); queda é anunciada, não disfarçada |
+| Dependências | ✅ | duas novas, ambas OSS e justificadas; `npm audit` 0 |
+| Custo | ✅ | nenhum provedor de tiles contratado nem embutido como padrão |
+| Dados de outra organização | ✅ | o console consome as mesmas rotas já cobertas pelos testes de isolamento do backend |
+
+## Decisões
+
+[ADR 0027](./docs/adr/0027-console-operacional-e-mapa.md).
+
+- **Mapa sem fornecedor obrigatório**: estilo configurável, fundo neutro como padrão.
+- **Aviso invalida consulta**; só posição entra direto no mapa.
+- **Densidade sobre ornamento**: tabela, linha fina e cor com significado.
+- **Painel sem gráfico**: série histórica é da Fase 19.
+- **Estado de tela num componente só**, para onze telas errarem igual.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Mapa de fundo | depende de provedor de tiles; a variável existe e a escolha é da Fase 25 |
+| Traçado da rota no mapa | exige provedor de rotas real; hoje o simulado não produz geometria |
+| Indicadores com série histórica | Fase 19 |
+| Edição de cadastros pelo console | a API já expõe; a fase pediu leitura e as ações que fechavam pendências |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: console operacional com mapa, telas de leitura e acoes pendentes (Fase 18)`
 
 ---
 
@@ -4269,9 +4377,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 17 — Webhooks e Backbone Assíncrono** (2026-09-20) |
-| Próxima fase | **Fase 18 — Console Operacional e Mapa** |
-| Testes verdes | 1.346 — 689 unidade, 22 arquitetura, 518 integração, 117 frontend |
+| Última fase concluída | **Fase 18 — Console Operacional e Mapa** (2026-09-20) |
+| Próxima fase | **Fase 19 — Indicadores e Analytics** |
+| Testes verdes | 1.352 — 689 unidade, 22 arquitetura, 518 integração, 123 frontend |
 
 Comando para continuar:
 

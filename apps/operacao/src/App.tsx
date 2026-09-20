@@ -1,35 +1,49 @@
 import { Route, Routes } from 'react-router';
 
-import { IndicadorDeConexao } from './componentes/IndicadorDeConexao';
+import { Layout } from './componentes/Layout';
+import { Alertas } from './paginas/Alertas';
+import { DetalheDaEntrega } from './paginas/DetalheDaEntrega';
+import { DetalheDoMotorista } from './paginas/DetalheDoMotorista';
 import { Entrar } from './paginas/Entrar';
-import { Painel } from './paginas/Painel';
+import { Entregas } from './paginas/Entregas';
+import { Integracoes } from './paginas/Integracoes';
+import { MapaDaOperacao } from './paginas/MapaDaOperacao';
+import { Motoristas } from './paginas/Motoristas';
+import { Ocorrencias } from './paginas/Ocorrencias';
+import { PainelOperacional } from './paginas/PainelOperacional';
 import { RotaDesconhecida } from './paginas/RotaDesconhecida';
+import { Rotas } from './paginas/Rotas';
+import { Webhooks } from './paginas/Webhooks';
 import { RotaProtegida } from './sessao/RotaProtegida';
 
 /**
  * Casca do Console Operacional.
  *
- * A sessão é recuperada pelo cookie de renovação ao abrir; sem ela, toda rota operacional
- * leva ao login. As telas operacionais — mapa, entregas, rotas, alertas — nascem nas fases
- * que definem o comportamento por trás delas.
+ * A sessão é recuperada pelo cookie de renovação ao abrir; sem ela, toda rota operacional leva ao login.
+ * O login fica fora da moldura de navegação — quem não entrou não tem o que navegar.
  */
 export function App() {
   return (
-    <main>
-      <h1>Console Operacional</h1>
-      <p className="sumario">Torre Logística — acompanhamento de entregas em tempo real.</p>
+    <Routes>
+      <Route path="/entrar" element={<Entrar />} />
 
-      <div className="cartao">
-        <IndicadorDeConexao />
-      </div>
-
-      <Routes>
-        <Route path="/entrar" element={<Entrar />} />
-        <Route element={<RotaProtegida />}>
-          <Route path="/" element={<Painel />} />
+      <Route element={<RotaProtegida />}>
+        <Route element={<Layout />}>
+          <Route path="/" element={<PainelOperacional />} />
+          <Route path="/mapa" element={<MapaDaOperacao />} />
+          <Route path="/entregas" element={<Entregas />} />
+          <Route path="/entregas/:id" element={<DetalheDaEntrega />} />
+          <Route path="/rotas" element={<Rotas />} />
+          <Route path="/motoristas" element={<Motoristas />} />
+          <Route path="/motoristas/:id" element={<DetalheDoMotorista />} />
+          <Route path="/alertas" element={<Alertas />} />
+          <Route path="/ocorrencias" element={<Ocorrencias />} />
+          <Route path="/integracoes" element={<Integracoes />} />
+          <Route path="/webhooks" element={<Webhooks />} />
         </Route>
-        <Route path="*" element={<RotaDesconhecida />} />
-      </Routes>
-    </main>
+      </Route>
+
+      <Route path="*" element={<RotaDesconhecida />} />
+    </Routes>
   );
 }

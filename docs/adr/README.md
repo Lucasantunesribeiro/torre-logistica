@@ -34,6 +34,7 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0024](./0024-rastreamento-publico.md) | Rastreamento público: link com token forte guardado por hash, posição grossa e resposta neutra | 15 | aceita |
 | [0025](./0025-api-de-integracao.md) | API de integração: credencial de máquina, versão no caminho e idempotência em duas camadas | 16 | aceita |
 | [0026](./0026-webhooks-e-backbone-assincrono.md) | Webhooks: outbox transacional, fila no PostgreSQL e desistência visível | 17 | aceita |
+| [0027](./0027-console-operacional-e-mapa.md) | Console operacional: densidade sobre ornamento, e mapa que não depende de fornecedor | 18 | aceita |
 
 ## Regras
 

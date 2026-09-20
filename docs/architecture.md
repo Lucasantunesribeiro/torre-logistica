@@ -702,6 +702,34 @@ console (administrador): assina, revoga, consulta e REENVIA o que desistiu
 
 Decisões e limitações em [ADR 0026](./adr/0026-webhooks-e-backbone-assincrono.md).
 
+## Fase 18 — Console operacional e mapa
+
+```text
+/            Painel operacional — contadores e a fila do que precisa de gente
+/mapa        Mapa da Operação (tela símbolo) — pontos ao vivo + lista sincronizada
+/entregas    lista com filtro por status e busca por código
+/entregas/:id  estado, previsão explicada, timeline, ocorrências, prova e link de rastreamento
+/rotas       rotas do dia, com paradas pendentes na própria linha
+/motoristas  lista e detalhe com a última posição conhecida
+/alertas     abertos e resolvidos, com resolução que exige observação
+/ocorrencias registro da última milha
+/integracoes credenciais de máquina (chave mostrada uma vez)
+/webhooks    assinaturas e fila de entregas, com reenvio do que desistiu
+```
+
+| Peça | Regra |
+|---|---|
+| Mapa | MapLibre GL; o **estilo vem de configuração** e, sem ele, os pontos aparecem sobre fundo neutro |
+| Provedor de tiles | nenhum padrão embutido: padrão embutido é conta que alguém paga sem saber |
+| Tempo real | aviso **invalida** a consulta e a API reconta; só posição entra direto no mapa |
+| Sem tempo real | a tela continua correta, apenas mais lenta; a queda é anunciada, não disfarçada |
+| Estado de tela | carregando, erro e vazio num componente só, para as onze telas errarem igual |
+| Consultas do detalhe | independentes: falta de comprovante ou previsão não apaga o resto |
+| UX | tabela densa, linha fina, cor só com significado; sem vidro fosco, gradiente ou cartão decorativo |
+| Painel | sem gráfico — responde "há algo exigindo ação agora?"; série histórica é da Fase 19 |
+
+Decisões e limitações em [ADR 0027](./adr/0027-console-operacional-e-mapa.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem

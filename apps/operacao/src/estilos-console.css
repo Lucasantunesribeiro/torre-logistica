@@ -1,0 +1,354 @@
+/*
+  Estilo do console operacional.
+
+  Densidade é o princípio: tabela em vez de cartão, linha fina em vez de sombra, cor só onde ela carrega
+  significado (bom, atenção, ruim). Nada de gradiente, vidro fosco ou espaço decorativo — quem opera lê
+  muitas linhas por minuto e precisa comparar, não admirar.
+*/
+
+.console {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.console__navegacao {
+  background: var(--superficie);
+  border-right: 1px solid var(--borda);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.console__marca {
+  font-weight: 700;
+  margin: 0;
+}
+
+.console__navegacao ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.console__navegacao a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: var(--tinta);
+  text-decoration: none;
+}
+
+.console__navegacao a:hover {
+  background: var(--fundo);
+}
+
+.console__navegacao a.active {
+  background: var(--tinta);
+  color: var(--superficie);
+}
+
+.console__conteudo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.console__cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--borda);
+  background: var(--superficie);
+}
+
+.console__usuario {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.console__usuario span {
+  color: var(--tinta-fraca);
+  font-size: 0.85rem;
+}
+
+.console__conteudo main {
+  padding: 20px;
+  min-width: 0;
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 1.3rem;
+}
+
+h3 {
+  margin: 24px 0 8px;
+  font-size: 1rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+caption {
+  text-align: left;
+  padding-bottom: 6px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--borda);
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  color: var(--tinta-fraca);
+  border-bottom-width: 2px;
+  white-space: nowrap;
+}
+
+tbody tr:hover {
+  background: var(--fundo);
+}
+
+.selo {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.selo--bom {
+  color: var(--bom);
+}
+
+.selo--atencao {
+  color: var(--atencao);
+}
+
+.selo--ruim {
+  color: var(--ruim);
+}
+
+.selo--neutro {
+  color: var(--tinta-fraca);
+}
+
+.filtros {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.filtros label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+  color: var(--tinta-fraca);
+}
+
+.filtros select,
+.filtros input {
+  padding: 5px 8px;
+  border: 1px solid var(--borda);
+  border-radius: 4px;
+  background: var(--superficie);
+  color: var(--tinta);
+}
+
+.paginacao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--tinta-fraca);
+}
+
+.indicadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.indicadores article {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--superficie);
+}
+
+.indicadores .indicador--ruim,
+.indicadores article.indicador--ruim {
+  border-color: var(--ruim);
+}
+
+.indicador__valor {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.indicador__rotulo {
+  margin: 4px 0 0;
+  color: var(--tinta-fraca);
+  font-size: 0.85rem;
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lista li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--borda);
+}
+
+.lista--selecionavel li.selecionado {
+  background: var(--fundo);
+}
+
+.lista--selecionavel button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--tinta);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.dados {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.dados dt {
+  color: var(--tinta-fraca);
+}
+
+.dados dd {
+  margin: 0;
+}
+
+.colunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 12px;
+}
+
+.linha-do-tempo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.linha-do-tempo li {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--borda);
+  font-size: 0.9rem;
+}
+
+.linha-do-tempo .quando {
+  color: var(--tinta-fraca);
+}
+
+.estado {
+  padding: 12px 0;
+  color: var(--tinta-fraca);
+}
+
+.estado--erro {
+  color: var(--ruim);
+}
+
+.destaque {
+  border: 1px solid var(--atencao);
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: var(--superficie);
+  word-break: break-all;
+}
+
+.acoes {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.opcao {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
+fieldset {
+  border: 1px solid var(--borda);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+
+.mapa {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 0;
+  height: calc(100vh - 120px);
+}
+
+.mapa__lateral {
+  overflow-y: auto;
+  padding-right: 16px;
+}
+
+.mapa__tela {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  min-height: 320px;
+}
+
+@media (max-width: 900px) {
+  .console {
+    grid-template-columns: 1fr;
+  }
+
+  .mapa {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .mapa__tela {
+    height: 320px;
+  }
+}
