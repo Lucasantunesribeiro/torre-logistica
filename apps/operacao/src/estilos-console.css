@@ -352,3 +352,76 @@ fieldset {
     height: 320px;
   }
 }
+
+/* Indicadores: o cartão carrega pergunta, número, base e definição, então precisa de mais largura
+   que o cartão de contagem do painel. */
+.indicadores--detalhados {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.indicador__pergunta {
+  margin: 2px 0 10px;
+  font-size: 0.85rem;
+  color: var(--tinta-fraca);
+}
+
+.indicador__unidade {
+  margin-left: 3px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--tinta-fraca);
+}
+
+.indicador__sem-base {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--tinta-fraca);
+}
+
+.indicador__base {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--tinta-fraca);
+}
+
+.indicador__definicao {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--borda);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--tinta-fraca);
+}
+
+.recortes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.recorte {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--superficie);
+}
+
+.recorte h3 {
+  margin: 0;
+}
+
+.recorte__pergunta {
+  margin: 2px 0 10px;
+  font-size: 0.85rem;
+  color: var(--tinta-fraca);
+}
+
+/* A barra fica atrás do número, como régua de comparação: quem lê o valor exato lê o texto. */
+.recorte .barra {
+  display: inline-block;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  background: var(--borda);
+  vertical-align: middle;
+}

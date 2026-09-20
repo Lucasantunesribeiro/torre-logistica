@@ -6,6 +6,7 @@ import { DetalheDaEntrega } from './paginas/DetalheDaEntrega';
 import { DetalheDoMotorista } from './paginas/DetalheDoMotorista';
 import { Entrar } from './paginas/Entrar';
 import { Entregas } from './paginas/Entregas';
+import { Indicadores } from './paginas/Indicadores';
 import { Integracoes } from './paginas/Integracoes';
 import { MapaDaOperacao } from './paginas/MapaDaOperacao';
 import { Motoristas } from './paginas/Motoristas';
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/motoristas/:id" element={<DetalheDoMotorista />} />
           <Route path="/alertas" element={<Alertas />} />
           <Route path="/ocorrencias" element={<Ocorrencias />} />
+          <Route path="/indicadores" element={<Indicadores />} />
           <Route path="/integracoes" element={<Integracoes />} />
           <Route path="/webhooks" element={<Webhooks />} />
         </Route>

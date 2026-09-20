@@ -12,6 +12,7 @@ const secoes = [
   { para: '/motoristas', rotulo: 'Motoristas', fim: false },
   { para: '/alertas', rotulo: 'Alertas', fim: false },
   { para: '/ocorrencias', rotulo: 'Ocorrências', fim: false },
+  { para: '/indicadores', rotulo: 'Indicadores', fim: false },
   { para: '/integracoes', rotulo: 'Integrações', fim: false },
   { para: '/webhooks', rotulo: 'Webhooks', fim: false },
 ] as const;

@@ -56,6 +56,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
         ("GET", "/api/entregas/{alvo}/previsao", Status(404, 404, 404, 401, 401)),
         ("GET", "/api/alertas", Status(200, 200, 200, 401, 401)),
         ("GET", "/api/ocorrencias", Status(200, 200, 200, 401, 401)),
+        ("GET", "/api/indicadores", Status(200, 200, 200, 401, 401)),
 
         // O alvo é uma conta, não uma entrega: quem pode ler recebe 404, igual a inexistente.
         ("GET", "/api/entregas/{alvo}/comprovante", Status(404, 404, 404, 401, 401)),
@@ -264,6 +265,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/motoristas/{id:guid}/posicoes"] = "operacao:gestao",
             ["GET /api/entregas/{id:guid}/geofence"] = "operacao:leitura",
             ["GET /api/entregas/{id:guid}/previsao"] = "operacao:leitura",
+            ["GET /api/indicadores"] = "operacao:leitura",
             ["GET /api/alertas/"] = "operacao:leitura",
             ["GET /api/alertas/{id:guid}"] = "operacao:leitura",
             ["POST /api/alertas/{id:guid}/resolucao"] = "entregas:operacao",

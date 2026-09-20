@@ -88,6 +88,17 @@ internal sealed class EntregaConfiguracao : IEntityTypeConfiguration<Entrega>
         // O índice por organização, status e fim da janela — a consulta da lista operacional —
         // está na migration: coluna de tipo complexo não entra em HasIndex.
         builder.HasIndex(entrega => entrega.Localizacao).HasMethod("gist");
+
+        // Indicadores do período: a agregação recorta pelo instante da conclusão, não pela criação.
+        // O índice é parcial porque só a entrega concluída entra na conta — assim ele não cresce com
+        // a fila de entregas em aberto, que é a maior parte da tabela num dia de operação.
+        builder.HasIndex(entrega => new { entrega.OrganizacaoId, entrega.EntregueEm })
+            .HasDatabaseName("ix_entregas_organizacao_entregue_em")
+            .HasFilter("entregue_em IS NOT NULL");
+
+        builder.HasIndex(entrega => new { entrega.OrganizacaoId, entrega.CanceladaEm })
+            .HasDatabaseName("ix_entregas_organizacao_cancelada_em")
+            .HasFilter("cancelada_em IS NOT NULL");
     }
 }
 

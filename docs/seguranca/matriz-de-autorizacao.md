@@ -55,6 +55,7 @@
 | `GET /api/motoristas/{id}/posicoes` | 200 | 200 | 403 | **401** | 401 | `operacao:gestao` |
 | `GET /api/entregas/{id}/geofence` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `GET /api/entregas/{id}/previsao` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
+| `GET /api/indicadores` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura`; só agregado, nunca a lista por trás dele |
 | `GET /api/alertas` e `GET /api/alertas/{id}` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |
 | `POST /api/alertas/{id}/resolucao` | 200 | 200 | 200 | **401** | 401 | `entregas:operacao` |
 | `GET /api/ocorrencias`, `GET /api/ocorrencias/{id}` e `GET /api/entregas/{id}/ocorrencias` | 200 | 200 | 200 | **401** | 401 | `operacao:leitura` |

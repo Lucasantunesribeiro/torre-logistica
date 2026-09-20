@@ -5,6 +5,7 @@ using TorreLogistica.Application.Comprovantes;
 using TorreLogistica.Application.Entregas;
 using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Identidade;
+using TorreLogistica.Application.Indicadores;
 using TorreLogistica.Application.Integracoes;
 using TorreLogistica.Application.Ocorrencias;
 using TorreLogistica.Application.Organizacoes;
@@ -64,6 +65,8 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<RecalculoDePrevisoes>();
         servicos.AddScoped<ConsultaDeRotasParaReavaliacao>();
         servicos.AddScoped<ConsultaDePrevisao>();
+
+        servicos.AddScoped<ConsultaDeIndicadores>();
 
         servicos.AddScoped<GestaoDeOcorrencias>();
         servicos.AddScoped<GestaoDeComprovantes>();

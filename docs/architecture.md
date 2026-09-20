@@ -730,9 +730,30 @@ Decisões e limitações em [ADR 0026](./adr/0026-webhooks-e-backbone-assincrono
 
 Decisões e limitações em [ADR 0027](./adr/0027-console-operacional-e-mapa.md).
 
+## Fase 19 — Indicadores operacionais
+
+```text
+GET /api/indicadores?de=&ate=     agregação do período; sem parâmetro, os últimos 30 dias
+/indicadores                      a tela, no console
+```
+
+| Peça | Regra |
+|---|---|
+| Cálculo | agregação direta no PostgreSQL, sem projeção materializada, sem cache e sem job |
+| Recorte | pelo **instante da conclusão**, não pela criação: "como foi a semana" é sobre o que aconteceu nela |
+| Período | início inclusivo, fim exclusivo, sempre normalizado para UTC; teto de 186 dias, validado antes da consulta |
+| Cancelada | fora do denominador — não é falha de pontualidade; aparece como contagem própria |
+| Sem base | valor **nulo**, nunca zero: "0%" e "não houve entrega" são fatos opostos |
+| Definição | campo da resposta da API, exibido embaixo do número — cálculo e explicação saem do mesmo lugar |
+| Rota da entrega | a parada que a carregava **no instante da conclusão**; parada ativa não serve, porque concluir a rota desativa todas |
+| Índices | `entregue_em` e `cancelada_em` parciais por organização; histórico de paradas por entrega |
+| Gráficos | nenhum, além da barra proporcional atrás da quantidade; cada recorte tem a pergunta impressa acima |
+
+Decisões e limitações em [ADR 0028](./adr/0028-indicadores-operacionais.md).
+
 ## O que deliberadamente **não** existe ainda
 
-Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem
+A ocorrência não tem anexo de foto nem
 fluxo próprio de tratamento — quem tem ciclo de vida é o alerta. A ocorrência que não muda status ainda não
 passa pela fila offline: exige conexão. Não há alerta de desvio de rota — exige traçado
 planejado, que o provedor simulado não produz. Não há notificação fora do console (e-mail, push). Não há provedor de rotas real — o
@@ -740,9 +761,8 @@ simulado não sabe de ruas nem de trânsito, e escolher fornecedor tem custo —
 organização ou cliente, nem classificação de chegada antes da janela. Não há backplane para mais de uma
 instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há retenção
-automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há prova de
-entrega (Fase 14) nem retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
-UTC com um dia de tolerância. Não há tela de cadastro — o console operacional é da Fase 18. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
+automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
+UTC com um dia de tolerância. Não há tela de cadastro: o console lê a estrutura operacional, mas criar e alterar continua sendo trabalho da API. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. Não há localização em segundo plano na PWA: o navegador não garante, e o
 aplicativo avisa o motorista para mantê-lo aberto (ADR 0020).
 

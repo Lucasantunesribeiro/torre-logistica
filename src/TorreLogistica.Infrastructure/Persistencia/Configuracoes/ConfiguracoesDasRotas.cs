@@ -86,6 +86,12 @@ internal sealed class ParadaConfiguracao : IEntityTypeConfiguration<Parada>
             .HasDatabaseName(NomesDeRestricoes.ParadaAtivaDaEntrega);
 
         builder.HasIndex(parada => new { parada.RotaId, parada.Ativa, parada.Sequencia });
+
+        // Indicadores por rota: a pergunta é "em que rota esta entrega estava quando foi concluída", e a
+        // resposta pode estar numa parada já desativada — concluir a rota desativa todas as dela. O índice
+        // acima não serve, porque cobre só a parada ativa.
+        builder.HasIndex(parada => new { parada.EntregaId, parada.AdicionadaEm })
+            .HasDatabaseName("ix_paradas_entrega_adicionada_em");
     }
 }
 

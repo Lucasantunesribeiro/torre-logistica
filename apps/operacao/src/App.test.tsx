@@ -418,3 +418,75 @@ describe('Webhooks', () => {
     });
   });
 });
+
+describe('Indicadores', () => {
+  const INDICADORES = {
+    de: '2026-08-21T12:00:00Z',
+    ate: '2026-09-20T12:00:00Z',
+    entregasConcluidas: 5,
+    entregasCanceladas: 1,
+    pontualidadeEmPercentual: { valor: 60, base: 5, definicao: 'Entregas concluídas dentro da janela prometida.' },
+    sucessoNaPrimeiraTentativaEmPercentual: { valor: 80, base: 5, definicao: 'Concluídas sem tentativa frustrada.' },
+    atrasoMedioEmMinutos: { valor: 75, base: 2, definicao: 'Média de minutos além da janela.' },
+    tempoMedioPorParadaEmMinutos: { valor: null, base: 0, definicao: 'Da chegada à conclusão.' },
+    tempoMedioEmRotaEmMinutos: { valor: 178, base: 5, definicao: 'Da saída para rota à conclusão.' },
+    entregasPorMotorista: [{ rotulo: 'Rafael Nunes', quantidade: 5, valor: 60 }],
+    ocorrenciasPorMotivo: [{ rotulo: 'TentativaDeEntrega', quantidade: 2, valor: null }],
+    pontualidadePorCliente: [{ rotulo: 'Mercado Aurora', quantidade: 5, valor: 60 }],
+    entregasPorRota: [{ rotulo: 'ROT-2026-0001', quantidade: 4, valor: 50 }],
+  };
+
+  it('mostra o número, a base e a definição de cada indicador', async () => {
+    servidor({ ...painel, '/api/indicadores': () => json(INDICADORES) });
+
+    await montar('/indicadores');
+
+    expect(await screen.findByText('A operação está cumprindo a janela que prometeu?')).toBeVisible();
+    expect(screen.getByText('60')).toBeVisible();
+    expect(screen.getByText('Entregas concluídas dentro da janela prometida.')).toBeVisible();
+    // Três indicadores têm as mesmas cinco entregas na base; o atraso médio tem só duas, e diz isso.
+    expect(screen.getAllByText('5 entrega(s) na base do cálculo', { selector: '.indicador__base' })).toHaveLength(3);
+    expect(screen.getByText('2 entrega(s) na base do cálculo', { selector: '.indicador__base' })).toBeVisible();
+    expect(screen.getByText(/5 entrega\(s\) concluída\(s\) no período/)).toBeVisible();
+    expect(screen.getByText(/1 cancelada\(s\), fora das contas/)).toBeVisible();
+  });
+
+  it('sem base, diz que não há dados em vez de mostrar zero', async () => {
+    servidor({ ...painel, '/api/indicadores': () => json(INDICADORES) });
+
+    await montar('/indicadores');
+
+    expect(await screen.findByText('sem dados no período')).toBeVisible();
+    expect(screen.getByText('Quanto tempo o motorista fica parado em cada destino?')).toBeVisible();
+  });
+
+  it('cada recorte aparece com a pergunta que ele responde', async () => {
+    servidor({ ...painel, '/api/indicadores': () => json(INDICADORES) });
+
+    await montar('/indicadores');
+
+    expect(await screen.findByText('Quem está carregando a operação, e com que pontualidade?')).toBeVisible();
+    expect(screen.getByRole('rowheader', { name: 'Rafael Nunes' })).toBeVisible();
+    expect(screen.getByRole('rowheader', { name: 'Mercado Aurora' })).toBeVisible();
+    expect(screen.getByRole('rowheader', { name: 'ROT-2026-0001' })).toBeVisible();
+    expect(screen.getByRole('rowheader', { name: 'TentativaDeEntrega' })).toBeVisible();
+  });
+
+  it('trocar o período refaz a consulta', async () => {
+    const chamadas = servidor({ ...painel, '/api/indicadores': () => json(INDICADORES) });
+
+    await montar('/indicadores');
+    await screen.findByText('A operação está cumprindo a janela que prometeu?');
+
+    fireEvent.change(screen.getByLabelText('Período'), { target: { value: '7' } });
+
+    await vi.waitFor(() => {
+      const periodos = chamadas.mock.calls
+        .map(([entrada]) => urlDe(entrada))
+        .filter((url) => url.includes('/api/indicadores'))
+        .map((url) => new URL(url).searchParams.get('de'));
+
+      expect(new Set(periodos).size).toBe(2);
+    });
+  });
+});

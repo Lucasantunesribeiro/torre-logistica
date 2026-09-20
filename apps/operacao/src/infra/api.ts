@@ -370,3 +370,38 @@ export const reenviarEntregaDeWebhook = (id: string): Promise<EntregaDeWebhook> 
     esquemaDeEntregaDeWebhook,
     comando(),
   );
+
+const esquemaDeIndicador = z.object({
+  valor: z.number().nullable(),
+  base: z.number().int(),
+  definicao: z.string(),
+});
+
+const esquemaDeLinhaDoIndicador = z.object({
+  rotulo: z.string(),
+  quantidade: z.number().int(),
+  valor: z.number().nullable(),
+});
+
+const esquemaDeIndicadores = z.object({
+  de: z.string(),
+  ate: z.string(),
+  entregasConcluidas: z.number().int(),
+  entregasCanceladas: z.number().int(),
+  pontualidadeEmPercentual: esquemaDeIndicador,
+  sucessoNaPrimeiraTentativaEmPercentual: esquemaDeIndicador,
+  atrasoMedioEmMinutos: esquemaDeIndicador,
+  tempoMedioPorParadaEmMinutos: esquemaDeIndicador,
+  tempoMedioEmRotaEmMinutos: esquemaDeIndicador,
+  entregasPorMotorista: z.array(esquemaDeLinhaDoIndicador),
+  ocorrenciasPorMotivo: z.array(esquemaDeLinhaDoIndicador),
+  pontualidadePorCliente: z.array(esquemaDeLinhaDoIndicador),
+  entregasPorRota: z.array(esquemaDeLinhaDoIndicador),
+});
+
+export type Indicador = z.infer<typeof esquemaDeIndicador>;
+export type LinhaDoIndicador = z.infer<typeof esquemaDeLinhaDoIndicador>;
+export type IndicadoresDaOperacao = z.infer<typeof esquemaDeIndicadores>;
+
+export const obterIndicadores = (de: string, ate: string): Promise<IndicadoresDaOperacao> =>
+  chamar(`/api/indicadores${consulta({ de, ate })}`, esquemaDeIndicadores);

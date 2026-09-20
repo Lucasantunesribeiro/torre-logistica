@@ -2024,7 +2024,7 @@ histórico e um erro por falha inesperada do processamento.
 | Item | Situação |
 |---|---|
 | Provedor de rotas real | contrato pronto; escolher fornecedor tem custo e exige autorização |
-| Padrões de velocidade, sinuosidade e limiares | ponto de partida urbano; recalibrar com dados reais — Fase 19 |
+| Padrões de velocidade, sinuosidade e limiares | ponto de partida urbano; **continua aberta depois da Fase 19** — recalibrar exige série de operação real, que o provedor simulado não produz |
 | Limiar por organização ou cliente, chegada antes da janela | decisão de produto ainda inexistente |
 | Mais de uma instância da API | recálculo repetido entre instâncias (resultado correto, trabalho dobrado) e aviso sem backplane — Fase 25 |
 | Reavaliação com mais de 5.000 rotas por ciclo | limite por ciclo; medir na Fase 22 |
@@ -3607,7 +3607,7 @@ cliques, e cada linha de tabela já traz o que decide se aquele caso precisa de 
 |---|---|
 | Mapa de fundo | depende de provedor de tiles; a variável existe e a escolha é da Fase 25 |
 | Traçado da rota no mapa | exige provedor de rotas real; hoje o simulado não produz geometria |
-| Indicadores com série histórica | Fase 19 |
+| Indicadores com série histórica | a Fase 19 entregou o painel do período; comparar períodos lado a lado continua fora de escopo |
 | Edição de cadastros pelo console | a API já expõe; a fase pediu leitura e as ações que fechavam pendências |
 | CI nunca executada | exige `git push`, não autorizado |
 
@@ -3649,9 +3649,127 @@ Sempre mostrar definição do indicador.
 - dados incompletos;
 - tenant isolation.
 
-## Critérios de aceite
+## Entregável
 
-Supervisor consegue responder onde a operação está falhando usando os indicadores.
+| Peça | Arquivo |
+|---|---|
+| Consulta | `src/TorreLogistica.Application/Indicadores/ConsultaDeIndicadores.cs` |
+| Endpoint | `src/TorreLogistica.Api/Indicadores/EndpointsDeIndicadores.cs` — `GET /api/indicadores?de=&ate=` |
+| Índices | migration `IndicadoresOperacionais` |
+| Tela | `apps/operacao/src/paginas/Indicadores.tsx`, rota `/indicadores` |
+
+| Métrica pedida | Onde aparece |
+|---|---|
+| OTD | `pontualidadeEmPercentual` — cartão *Pontualidade* |
+| first-attempt success | `sucessoNaPrimeiraTentativaEmPercentual` |
+| atraso médio | `atrasoMedioEmMinutos`, contando só quem passou da janela |
+| entregas por motorista | recorte com quantidade e pontualidade de cada um |
+| tempo médio por parada | `tempoMedioPorParadaEmMinutos`, da chegada registrada à conclusão |
+| ocorrências por motivo | recorte por tipo de ocorrência |
+| SLA por cliente | recorte de pontualidade por cliente |
+| tempo em rota | `tempoMedioEmRotaEmMinutos`, da saída à conclusão |
+| entregas por rota | recorte pela rota que carregava a entrega na conclusão |
+
+Nenhuma dependência nova, nenhum serviço novo, nenhum recurso pago.
+
+## Regras da fase
+
+| Regra do ROADMAP | Como foi cumprida |
+|---|---|
+| Não criar gráfico sem pergunta operacional clara | cada cartão e cada tabela trazem a pergunta impressa acima — *"Para qual cliente a promessa está sendo quebrada?"*, *"Qual rota concentra o atraso?"*. O único elemento gráfico é a barra proporcional atrás da quantidade, com o número escrito ao lado; nenhuma série temporal, pizza ou medidor |
+| Sempre mostrar definição do indicador | `definicao` é campo da resposta da API, não texto do frontend, e aparece escrita embaixo do número — não em tooltip nem em página de ajuda |
+
+## Decisões de cálculo
+
+| Decisão | Por quê |
+|---|---|
+| Recorte pelo **instante da conclusão** | "como foi a semana" é sobre o que aconteceu nela, não sobre o que entrou |
+| Cancelada fora do denominador | cancelamento não é falha de pontualidade; puniria a operação por decisão que não foi dela. Aparece como contagem própria |
+| Sem base, valor **nulo** | `0%` e "não houve entrega" são fatos opostos; mostrar o mesmo símbolo faz agir sobre problema inexistente |
+| `base` sempre visível | *atraso médio de 75 min* significa uma coisa sobre 2 entregas e outra sobre 200 |
+| Teto de 186 dias no período | sem teto, um parâmetro de query string vira varredura da operação inteira |
+| Agregação direta, sem projeção materializada | otimizar sem medição criaria dois lugares contando a mesma coisa; o caminho fica aberto se a Fase 22 medir necessidade |
+
+## Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| período | `PeriodoRecortaPeloInstanteDaConclusao` (início inclusivo, fim exclusivo) e `PeriodoInvertidoOuLongoDemaisERecusado` (422 antes de tocar no banco) |
+| timezone | `MesmoInstanteEmFusosDiferentesDaOMesmoResultado` e `PeriodoDoIndicadorTestes`: o mesmo instante em UTC, Brasília e Lisboa dá o mesmo recorte; a mesma *hora local* em outro fuso, não |
+| entrega cancelada | `CanceladaNaoEntraNaContaDePontualidade`: com ela no denominador, a pontualidade cairia de 100% para 50% |
+| dados incompletos | `SemBaseOValorEVazioENaoZero`: todos os indicadores nulos com base 0; entrega concluída sem chegada registrada fica fora do tempo por parada, e a base diz isso |
+| tenant isolation | `IndicadoresNaoVazamEntreOrganizacoes`: duas operações simultâneas no mesmo banco, números independentes |
+
+## Critério de aceite
+
+> Supervisor consegue responder onde a operação está falhando usando os indicadores.
+
+✅ O teste de aceite monta uma operação com falha conhecida — duas entregas concluídas fora da janela, uma
+tentativa frustrada reagendada e concluída numa segunda rota, uma cancelada — e confere que os números
+apontam para ela: pontualidade 60% sobre base 5, sucesso na primeira tentativa 80%, atraso médio de 75 min
+sobre as 2 que atrasaram, tempo por parada com base 1 (só uma entrega teve chegada registrada), e os
+recortes dizendo qual rota, qual cliente e qual motorista. Toda entrega percorreu o fluxo real da API;
+nada foi escrito direto no banco.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 530 | ✅ |
+| Frontend — `operacao` | 34 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.374** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| Recorte por rota perdia as entregas que deram certo | o teste de aceite esperava duas rotas e encontrou uma | a consulta juntava pela **parada ativa**, apoiada no índice único parcial que garante uma só por entrega. Mas concluir a rota desativa todas as paradas dela — inclusive as das entregas concluídas. Passou a usar a parada que carregava a entrega **no instante da conclusão**: adicionada antes, ainda não removida. Índice novo `ix_paradas_entrega_adicionada_em` para sustentar a busca, já que o índice existente cobre só a parada ativa |
+| Nome do motivo da ocorrência não traduzia para SQL | 500 em todos os sete testes | `grupo.Key.ToString()` sobre enum não é expressão que o PostgreSQL saiba montar; a conversão passou a acontecer depois da materialização |
+| Diferença de instantes escrita como no SQL Server | `EF.Functions.DateDiffMinute` não existe no Npgsql | subtração de instantes, que o provedor traduz para intervalo |
+
+## Security Gate 19
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Autorização | ✅ | `operacao:leitura`; matriz de autorização cobre a rota nova, e o teste que enumera as rotas exige política declarada |
+| Isolamento entre organizações | ✅ | `IndicadoresNaoVazamEntreOrganizacoes`, com duas operações simultâneas no mesmo banco |
+| Exposição de dados | ✅ | a resposta é só agregado: nenhum endereço, coordenada, telefone ou identificador de destinatário; nem a lista de entregas por trás do número |
+| Abuso por parâmetro | ✅ | período validado e limitado a 186 dias antes de qualquer consulta; `periodo_invalido` e `periodo_grande_demais` com 422 |
+| Segredos | ✅ | nada novo; varredura sem achado |
+| Custo | ✅ | nenhum serviço, dependência ou recurso pago |
+| Desempenho | ✅ | três índices dedicados, dois deles parciais; agregação no banco, sem varredura por linha em C# |
+
+## Decisões
+
+[ADR 0028](./docs/adr/0028-indicadores-operacionais.md).
+
+- **Agregação direta com índices dedicados**, sem projeção materializada — otimizar sem medição criaria duas verdades.
+- **Definição viaja com o número**, no corpo da API, e aparece na tela embaixo dele.
+- **Vazio não vira zero**: sem base, valor nulo.
+- **Cancelada fora do denominador**, com contagem própria.
+- **Rota da entrega é a do instante da conclusão**, não a parada ativa.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Série histórica dos indicadores | o painel responde "como foi o período"; comparar períodos lado a lado exige duas chamadas e uma decisão de UX que a fase não pediu |
+| Tempo por parada de entrega reagendada | a entrega guarda uma `ChegadaRegistradaEm` só; se houve chegada na tentativa frustrada, o tempo por parada conta daquela chegada até a conclusão de dias depois. Corrigir exige guardar a chegada por tentativa, mudança no agregado que a fase não pediu — e que é da alçada do domínio, não do indicador |
+| Exportar para CSV | não pedido pela fase |
+| Limiar de meta por indicador | pintar "abaixo da meta" exige meta configurável por organização — decisão de produto, não de cálculo |
+| Recalibrar velocidade e sinuosidade da previsão | pendência aberta na Fase 9 e apontada para cá; continua aberta: recalibrar exige série de dados reais de operação, que o simulado não produz |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: indicadores operacionais com definicao junto do numero (Fase 19)`
 
 ---
 

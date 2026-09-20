@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 18 — Console Operacional e Mapa concluída.**
+> **Estado: Fase 19 — Indicadores e Analytics concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -17,8 +17,11 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > com o arquivo fora do banco, subindo direto ao storage por URL assinada de curta duração e saindo de lá do
 > mesmo jeito, nunca por link público. E agora o **rastreamento público**: o destinatário acompanha a
 > encomenda por um link com token forte — do qual o banco guarda só o hash —, vendo a região aproximada do
-> veículo em vez da rua, e nunca o motorista, a rota ou o endereço completo. A ordem está em
-> [`ROADMAP.md`](./ROADMAP.md).
+> veículo em vez da rua, e nunca o motorista, a rota ou o endereço completo. E agora os **indicadores
+> operacionais**: pontualidade, sucesso na primeira tentativa, atraso médio, tempo por parada e tempo em
+> rota, com os recortes por motorista, cliente, rota e motivo — cada número acompanhado da pergunta que
+> responde e da definição de como foi calculado, e vazio quando não há base, porque "0%" e "não houve
+> entrega" são fatos opostos. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -89,10 +92,10 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 689 |
+| Unidade | 695 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 518 |
-| Frontend (3 aplicações) | 123 |
+| Integração (PostgreSQL + PostGIS real) | 530 |
+| Frontend (3 aplicações) | 127 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
@@ -133,6 +136,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0025](./docs/adr/0025-api-de-integracao.md) | API de integração: credencial de máquina, `/v1/` no caminho e idempotência em duas camadas |
 | [0026](./docs/adr/0026-webhooks-e-backbone-assincrono.md) | Webhooks: outbox transacional, fila no PostgreSQL e desistência visível |
 | [0027](./docs/adr/0027-console-operacional-e-mapa.md) | Console operacional: densidade sobre ornamento, e mapa sem fornecedor obrigatório |
+| [0028](./docs/adr/0028-indicadores-operacionais.md) | Indicadores: agregação direta com índices, definição junto do número e vazio que não vira zero |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
