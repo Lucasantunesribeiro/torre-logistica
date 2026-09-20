@@ -65,6 +65,7 @@
 | `GET /api/publico/rastreamento/{token}` | — | — | — | — | — | anônimo **por desenho**: a credencial é o token do link (ADR 0024); token que não abre nada devolve 404 idêntico para todos, e a rota tem limite por endereço |
 | `GET` e `POST /api/integracoes`, `GET /api/integracoes/{id}`, `POST /api/integracoes/{id}/revogacao` | 200/201 | 403 | 403 | **401** | 401 | `usuarios:gestao`: emitir e revogar credencial é decisão de segurança, como criar conta. A chave aparece uma única vez |
 | `/api/integracoes/v1/*` (entregas e importações) | **401** | **401** | **401** | **401** | 401 | esquema **Integracao**: a credencial é a chave de API (ADR 0025). Token de pessoa não vale aqui, e a chave não vale no console; limite por credencial |
+| `/api/webhooks/assinaturas*` e `/api/webhooks/entregas*` | 200/201 | 403 | 403 | **401** | 401 | `usuarios:gestao`: assinar webhook cria efeito que sai da nossa rede, e reenviar dispara de novo (ADR 0026). O segredo aparece uma única vez |
 | `POST /api/entregas/{id}/ocorrencias` | 201 | 201 | 201 | **401** | 401 | `entregas:operacao`; recusa tipo `TentativaDeEntrega` |
 | `POST /api/motorista/entregas/{id}/ocorrencia` | **401** | **401** | **401** | 201 | 401 | `motorista`; só entrega do motorista da sessão |
 | Hub `/tempo-real/operacao` (conexão e `negotiate`) | conecta | conecta | conecta | **401** | 401 | `console` |

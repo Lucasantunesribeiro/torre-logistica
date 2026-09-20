@@ -40,7 +40,11 @@ public abstract class TesteDeIntegracao(ContainerPostgis banco) : IAsyncLifetime
     }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    /// <remarks>
+    /// Virtual porque há teste que sobe recurso próprio — o assinante de webhook abre uma porta por
+    /// teste, e sem fechar a suíte inteira vazaria sockets.
+    /// </remarks>
+    public virtual async ValueTask DisposeAsync()
     {
         if (_fabrica is not null)
         {

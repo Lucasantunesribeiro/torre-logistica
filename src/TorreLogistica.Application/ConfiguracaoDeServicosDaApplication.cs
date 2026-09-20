@@ -12,6 +12,7 @@ using TorreLogistica.Application.Previsao;
 using TorreLogistica.Application.Rastreamento;
 using TorreLogistica.Application.Rotas;
 using TorreLogistica.Application.Usuarios;
+using TorreLogistica.Application.Webhooks;
 
 namespace TorreLogistica.Application;
 
@@ -72,6 +73,11 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<AutenticacaoDeIntegracao>();
         servicos.AddScoped<RecepcaoDeEntregasExternas>();
         servicos.AddScoped<ImportacaoDeEntregas>();
+
+        servicos.AddScoped<GestaoDeAssinaturasDeWebhook>();
+        servicos.AddScoped<ConsultaDeWebhooks>();
+        servicos.AddScoped<DespachoDeWebhooks>();
+        servicos.AddScoped<EntregaDeWebhooks>();
 
         servicos.AddSingleton<MetricasDeAlertas>();
         servicos.AddScoped<MonitoramentoOperacional>();

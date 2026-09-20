@@ -14,6 +14,7 @@ using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 using TorreLogistica.Domain.Sincronizacao;
+using TorreLogistica.Domain.Webhooks;
 
 namespace TorreLogistica.Application.Abstracoes.Persistencia;
 
@@ -150,6 +151,24 @@ public interface IContextoDePersistencia
     /// <summary>Vínculo entre o identificador do sistema de origem e a entrega. Somente-inserção.</summary>
     DbSet<ReferenciaExternaDaEntrega> ReferenciasExternasDeEntrega { get; }
 
+    /// <summary>
+    /// Eventos gravados no mesmo commit do estado, esperando publicação.
+    /// </summary>
+    /// <remarks>
+    /// Ninguém insere aqui à mão: o contexto recolhe os eventos do próprio <c>SaveChanges</c>, para que
+    /// não exista caminho em que o fato é gravado e o aviso se perde.
+    /// </remarks>
+    DbSet<MensagemDoOutbox> Outbox { get; }
+
+    /// <summary>Endereços externos que recebem eventos, filtrados pelo tenant.</summary>
+    DbSet<AssinaturaDeWebhook> AssinaturasDeWebhook { get; }
+
+    /// <summary>Entregas de webhook pendentes, entregues e falhadas, filtradas pelo tenant.</summary>
+    DbSet<EntregaDeWebhook> EntregasDeWebhook { get; }
+
+    /// <summary>Histórico de tentativas, filtrado pelo tenant. Somente-inserção.</summary>
+    DbSet<TentativaDeWebhook> TentativasDeWebhook { get; }
+
     /// <summary>Organização que o filtro de tenant deste contexto enxerga, ou <see langword="null"/>.</summary>
     Guid? OrganizacaoDoTenant { get; }
 
@@ -220,6 +239,18 @@ public interface IContextoDePersistencia
     /// Criações simultâneas na mesma organização se enfileiram na linha do contador.
     /// </remarks>
     Task<long> ReservarNumeroSequencialAsync(Guid organizacaoId, string serie, int ano, CancellationToken cancelamento);
+
+    /// <summary>
+    /// Reserva mensagens do outbox prontas para despacho, travando as linhas até o fim da transação.
+    /// </summary>
+    /// <remarks>
+    /// Usa <c>FOR UPDATE SKIP LOCKED</c>: duas instâncias do worker pegam lotes diferentes em vez de
+    /// disputar as mesmas linhas, e nenhuma fica esperando a outra. Exige transação aberta.
+    /// </remarks>
+    Task<IReadOnlyList<Guid>> ReservarMensagensDoOutboxAsync(int limite, DateTimeOffset agora, CancellationToken cancelamento);
+
+    /// <summary>Reserva entregas de webhook prontas para tentativa, travando as linhas até o fim da transação.</summary>
+    Task<IReadOnlyList<Guid>> ReservarEntregasDeWebhookAsync(int limite, DateTimeOffset agora, CancellationToken cancelamento);
 
     /// <summary>Grava as alterações pendentes.</summary>
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

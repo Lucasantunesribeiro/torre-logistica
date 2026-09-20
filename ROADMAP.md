@@ -137,7 +137,7 @@ Não antecipar:
 | 14 | Proof of Delivery | ✅ |
 | 15 | Rastreamento Público | ✅ |
 | 16 | API de Integração e Importação | ✅ |
-| 17 | Webhooks e Backbone Assíncrono | ⬜ |
+| 17 | Webhooks e Backbone Assíncrono | ✅ |
 | 18 | Console Operacional e Mapa | ⬜ |
 | 19 | Indicadores e Analytics | ⬜ |
 | 20 | Segurança e Privacidade | ⬜ |
@@ -3344,9 +3344,112 @@ Implementar:
 - timeout;
 - DLQ.
 
-## Critérios de aceite
+## O que foi feito
 
-Salvar estado e perder webhook não pode ser um failure mode silencioso.
+```text
+SaveChanges do fato ──┬── entrega / evento / auditoria
+                      └── linha no outbox              (MESMA transação)
+
+despachante: reserva o outbox com FOR UPDATE SKIP LOCKED
+  → cria uma entrega por assinatura interessada (única por assinatura + mensagem)
+
+entregador: reserva, ARRENDA e libera o banco → POST assinado fora da transação
+  → registra tentativa; falhou, adia com backoff; esgotou, vai para Falhada (visível)
+
+console (administrador): assina, revoga, consulta histórico e REENVIA o que desistiu
+```
+
+> **Sobre o SQS.** O ROADMAP cita SQS, que é recurso pago. Nada de nuvem foi criado: a fila é uma tabela
+> com `FOR UPDATE SKIP LOCKED` e os processadores rodam no próprio host, atrás da mesma separação que o
+> ADR 0007 usou para o storage. A troca é decisão da Fase 25, com custo na mesa.
+
+## Testes pedidos
+
+| Pedido | Onde |
+|---|---|
+| duplicate delivery | `DespacharDuasVezesNaoGeraEntregaRepetida` (índice único por assinatura + mensagem) |
+| worker crash | arrendamento: a reserva adia e libera o banco, e a entrega volta sozinha quando o prazo vence — provado por `AdiarPorArrendamento` na unidade e pelo fluxo de retentativa na integração |
+| partial failure | o lote continua depois de uma entrega falhar; cada entrega tem estado próprio |
+| HMAC | `AssinaturaHmacDeWebhookTestes` (corpo alterado, segredo errado, carimbo fora da janela, cabeçalho malformado) e a conferência real em `OEventoChegaAoAssinanteAssinadoEComIdentificadorParaDeduplicar` |
+| endpoint 500 | `AssinanteQuebradoEhRetentadoEDepoisDesisteDeFormaVisivel` |
+| timeout | `AssinanteQueNaoRespondeNoPrazoContaComoFalhaERetenta` |
+| DLQ | estado `Falhada` com histórico completo, e volta só por `ReenvioManualColocaDeVoltaNaFilaEEntrega` |
+| SSRF | `DestinoDeWebhookTestes` — loopback, privadas, link-local, metadados e multicast recusados |
+| segredo protegido | `OSegredoNaoApareceEmConsultaNemNaAuditoria` |
+| histórico imutável | `HistoricoDeTentativaEhSomenteInsercao` |
+| tenant | `OutraOrganizacaoNaoEnxergaAssinaturaNemEntrega` |
+
+## Critério de aceite
+
+> Salvar estado e perder webhook não pode ser um failure mode silencioso.
+
+✅ O evento nasce na mesma transação do fato, então não existe estado salvo sem aviso registrado. O que
+não foi entregue tem estado, contagem de tentativas e histórico visíveis, e o que desistiu fica em
+`Falhada` até uma pessoa mandar de novo — em nenhum ponto do caminho algo some sem deixar rastro.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 689 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 518 | ✅ |
+| Frontend — `operacao` | 24 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.346** | **✅** |
+
+`npm run verificar` (lint, tipos, testes e build das três aplicações) sem erro; solução .NET com 0 aviso e
+0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| Índice único em `(entrega, número da tentativa)` | violação de chave duplicada na retentativa | o índice era incompatível com a entrega no mínimo-uma-vez que o próprio código documenta: arrendamento vencido gera tentativa legítima com o mesmo número. Virou índice de leitura |
+| Assinante de teste dentro da API de teste | nenhuma entrega chegava | a fábrica de testes usa servidor de memória, que não escuta porta; o assinante virou um servidor HTTP próprio em porta efêmera, e agora o webhook percorre rede de verdade |
+| Chave de criptografia efêmera por fábrica | `AuthenticationTagMismatchException` ao decifrar | o banco é compartilhado pela coleção, e o entregador é global por desenho: passou a haver uma chave por processo de teste, sorteada em tempo de execução |
+| Asserção de "exatamente 6 tentativas" | 7 tentativas com as classes misturadas | o sistema promete "no mínimo 6"; a asserção passou a exigir isso e que o histórico bata com o contador |
+| Docker desligado | 11 falhas idênticas na primeira execução | ambiente, não código: o serviço foi iniciado antes de seguir |
+
+## Security Gate 17
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Nada se perde | ✅ | outbox no mesmo commit; fila durável no banco; falha de rodada não derruba o serviço |
+| Segredo do assinante | ✅ | cifrado com AES-GCM (precisa ser recuperável para assinar); ausente de resposta, log e auditoria; ilegível no banco |
+| Chave de criptografia | ✅ | obrigatória fora de desenvolvimento e teste; efêmera só ali, com aviso |
+| Assinatura | ✅ | HMAC-SHA256 sobre `t.corpo`; o carimbo impede reenvio eterno; conferência em tempo constante |
+| SSRF | ✅ | destino **resolvido** conferido, sem seguir redirecionamento, com liberação local só em desenvolvimento e teste |
+| Autorização | ✅ | assinar, revogar e reenviar exigem administrador |
+| Tenant | ✅ | assinatura e entrega de outra organização respondem como inexistentes |
+| Histórico | ✅ | `tentativas_de_webhook` somente-inserção por trigger |
+| Entrega repetida | ✅ | índice único por assinatura + mensagem; o assinante ainda recebe o `X-Torre-Event-Id` para deduplicar |
+| Custo | ✅ | nenhum recurso de nuvem; `Microsoft.Extensions.Http` já estava fixado centralmente |
+
+## Decisões
+
+[ADR 0026](./docs/adr/0026-webhooks-e-backbone-assincrono.md).
+
+- **Outbox gravado pelo contexto de persistência**, não pelo caso de uso.
+- **Fila no PostgreSQL** com `SKIP LOCKED`; SQS fica para a Fase 25.
+- **Arrendamento** em vez de transação aberta durante o POST.
+- **Desistência é estado visível**, não remoção; a volta é manual e auditada.
+- **Segredo cifrado**, não hasheado — é o único jeito de continuar assinando.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| SQS, DLQ gerenciada e filas separadas | Fase 25, trocando o adaptador; hoje o estado `Falhada` cumpre o papel da fila morta |
+| Tela de webhooks no console | entra com o console, na Fase 18 |
+| Eventos além dos quatro mínimos | o vocabulário cresce quando houver assinante pedindo |
+| Limpeza do outbox antigo | retenção entra na Fase 20, junto com a de GPS |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: webhooks com outbox transacional e entrega confiavel (Fase 17)`
 
 ---
 
@@ -4166,9 +4269,9 @@ Claude deve pedir confirmação para:
 
 | | |
 |---|---|
-| Última fase concluída | **Fase 16 — API de Integração e Importação** (2026-09-17) |
-| Próxima fase | **Fase 17 — Webhooks e Backbone Assíncrono** |
-| Testes verdes | 1.292 — 646 unidade, 22 arquitetura, 507 integração, 117 frontend |
+| Última fase concluída | **Fase 17 — Webhooks e Backbone Assíncrono** (2026-09-20) |
+| Próxima fase | **Fase 18 — Console Operacional e Mapa** |
+| Testes verdes | 1.346 — 689 unidade, 22 arquitetura, 518 integração, 117 frontend |
 
 Comando para continuar:
 

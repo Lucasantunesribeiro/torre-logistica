@@ -670,6 +670,38 @@ ERP: POST /api/integracoes/v1/importacoes             (chave por linha = hash do
 
 Decisões e limitações em [ADR 0025](./adr/0025-api-de-integracao.md).
 
+## Fase 17 — Webhooks e backbone assíncrono
+
+```text
+SaveChanges do fato ──┬── entrega/evento/auditoria
+                      └── linha no outbox            (MESMA transação)
+
+despachante (5 s): reserva outbox com FOR UPDATE SKIP LOCKED
+  → uma entrega por assinatura interessada (única por assinatura+mensagem)
+  → marca a mensagem despachada
+
+entregador (5 s): reserva entregas, ARRENDA (adia) e libera o banco
+  → POST assinado, fora da transação, com tempo limite de 10 s
+  → registra tentativa; falhou, adia com backoff; esgotou, vai para Falhada
+
+console (administrador): assina, revoga, consulta e REENVIA o que desistiu
+```
+
+| Peça | Regra |
+|---|---|
+| Outbox | gravado pelo próprio contexto de persistência: não há caso de uso que possa esquecer |
+| Fila | tabela + `FOR UPDATE SKIP LOCKED`; SQS fica para a Fase 25, atrás da mesma separação do ADR 0007 |
+| Arrendamento | a reserva adia a disponibilidade e libera o banco; processo que morre devolve a entrega sozinho |
+| Entrega no mínimo uma vez | consequência aceita: o assinante deduplica pelo `X-Torre-Event-Id` |
+| Backoff | 30 s, 2 min, 8 min, 32 min, 2 h, 2 h — soma que dá tempo de o assinante voltar do ar |
+| Desistência | estado `Falhada` visível, com histórico completo; a volta é reenvio manual, por uma pessoa |
+| Assinatura | `X-Torre-Signature: t=…,v1=…`, HMAC sobre `t.corpo` — o carimbo impede reenvio eterno |
+| Segredo | cifrado com AES-GCM (precisa ser recuperável para assinar), nunca em log, consulta ou auditoria |
+| SSRF | destino resolvido e conferido; loopback, privadas, link-local e metadados recusados; sem redirecionamento |
+| Histórico | `tentativas_de_webhook` é somente-inserção por trigger |
+
+Decisões e limitações em [ADR 0026](./adr/0026-webhooks-e-backbone-assincrono.md).
+
 ## O que deliberadamente **não** existe ainda
 
 Nenhum mapa na tela: chega na Fase 18, junto com o console. A ocorrência não tem anexo de foto (Fase 14) nem

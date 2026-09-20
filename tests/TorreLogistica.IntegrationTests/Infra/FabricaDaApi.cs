@@ -23,6 +23,9 @@ public sealed class FabricaDaApi(
     TimeProvider? relogio = null,
     Action<IServiceCollection>? servicosDeTeste = null) : WebApplicationFactory<Program>
 {
+    private static readonly string ChaveDeWebhookDoProcesso =
+        Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+
     /// <summary>Origem que os testes tratam como autorizada.</summary>
     public const string OrigemAutorizada = "https://console.torre.teste";
 
@@ -61,6 +64,18 @@ public sealed class FabricaDaApi(
                 ["Torre:LimiteDeRequisicoes:SincronizacoesPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:ConsultasPublicasPorMinuto"] = "100000",
                 ["Torre:LimiteDeRequisicoes:RequisicoesDeIntegracaoPorMinuto"] = "100000",
+
+                // O processador de webhooks fica desligado: o teste chama despacho e entrega quando quer,
+                // e assim uma rodada de fundo não consome o outbox de outro teste no meio da asserção.
+                ["Torre:Webhooks:ProcessarEmSegundoPlano"] = "false",
+
+                // Uma chave por processo, e não por fábrica: o banco é compartilhado pela coleção, e com
+                // chave efêmera por API o segredo gravado por um teste não abriria no seguinte. Sorteada
+                // em tempo de execução, para que nenhum valor de chave exista no repositório.
+                ["Torre:Webhooks:ChaveDeCriptografia"] = ChaveDeWebhookDoProcesso,
+
+                // O assinante dos testes é um servidor na própria máquina; sem isto a trava de SSRF o recusa.
+                ["Torre:Webhooks:PermitirDestinoLocal"] = "true",
 
                 // Storage de objeto em disco, isolado por teste e apagado no fim.
                 ["Torre:Armazenamento:Diretorio"] = DiretorioDoArmazenamento,

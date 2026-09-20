@@ -290,6 +290,15 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/integracoes/v1/entregas/{id:guid}"] = "integracao",
             ["POST /api/integracoes/v1/importacoes"] = "integracao",
             ["POST /api/integracoes/v1/importacoes/previa"] = "integracao",
+
+            // Webhooks: assinar cria efeito que sai da nossa rede; reenviar dispara de novo.
+            ["POST /api/webhooks/assinaturas"] = "usuarios:gestao",
+            ["GET /api/webhooks/assinaturas"] = "usuarios:gestao",
+            ["GET /api/webhooks/assinaturas/{id:guid}"] = "usuarios:gestao",
+            ["POST /api/webhooks/assinaturas/{id:guid}/revogacao"] = "usuarios:gestao",
+            ["GET /api/webhooks/entregas"] = "usuarios:gestao",
+            ["GET /api/webhooks/entregas/{id:guid}"] = "usuarios:gestao",
+            ["POST /api/webhooks/entregas/{id:guid}/reenvio"] = "usuarios:gestao",
             ["GET /api/ocorrencias/"] = "operacao:leitura",
             ["GET /api/ocorrencias/{id:guid}"] = "operacao:leitura",
             ["GET /api/entregas/{id:guid}/ocorrencias/"] = "operacao:leitura",

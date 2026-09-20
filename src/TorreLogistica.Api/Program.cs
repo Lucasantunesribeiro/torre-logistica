@@ -22,12 +22,14 @@ using TorreLogistica.Api.Rotas;
 using TorreLogistica.Api.Seguranca;
 using TorreLogistica.Api.TempoReal;
 using TorreLogistica.Api.Usuarios;
+using TorreLogistica.Api.Webhooks;
 using TorreLogistica.Application;
 using TorreLogistica.Application.Abstracoes.Correlacao;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Infrastructure;
 using TorreLogistica.Infrastructure.Desenvolvimento;
 using TorreLogistica.Infrastructure.Previsao;
+using TorreLogistica.Infrastructure.Webhooks;
 
 // Logger provisório: garante que uma falha durante a própria construção do host
 // ainda apareça em algum lugar, em vez de morrer silenciosamente.
@@ -138,6 +140,7 @@ try
     construtor.Services.AdicionarTempoRealDaOperacao();
     construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
+    construtor.Services.AdicionarWebhooks(construtor.Configuration);
 
     var aplicacao = construtor.Build();
 
@@ -207,6 +210,7 @@ try
     aplicacao.MapearEndpointsDeRastreamento();
     aplicacao.MapearEndpointsDeRastreamentoPublico();
     aplicacao.MapearEndpointsDeIntegracoes();
+    aplicacao.MapearEndpointsDeWebhooks();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeOcorrencias();
     aplicacao.MapearEndpointsDeComprovantes();

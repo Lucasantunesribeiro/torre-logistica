@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
@@ -5,6 +6,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.TempoReal;
+using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
 using TorreLogistica.Domain.Clientes;
@@ -20,6 +22,7 @@ using TorreLogistica.Domain.Previsao;
 using TorreLogistica.Domain.Rastreamento;
 using TorreLogistica.Domain.Rotas;
 using TorreLogistica.Domain.Sincronizacao;
+using TorreLogistica.Domain.Webhooks;
 
 namespace TorreLogistica.Infrastructure.Persistencia;
 
@@ -41,11 +44,16 @@ public class TorreLogisticaDbContext(
     DbContextOptions<TorreLogisticaDbContext> opcoes,
     IContextoDoTenant contextoDoTenant,
     IPublicadorDeTempoReal? publicadorDeTempoReal = null,
-    ISolicitacoesDeRecalculoDePrevisao? solicitacoesDeRecalculo = null)
+    ISolicitacoesDeRecalculoDePrevisao? solicitacoesDeRecalculo = null,
+    IGeradorDeIdentificador? identificadores = null)
     : DbContext(opcoes), IContextoDePersistencia
 {
     /// <summary>Nome da extensão geoespacial exigida pelo domínio.</summary>
     public const string ExtensaoPostGis = "postgis";
+
+    // Corpo do evento é contrato público: camelCase, como o resto da API, e sem indentação, porque a
+    // assinatura HMAC é calculada sobre estes bytes exatos.
+    private static readonly JsonSerializerOptions OpcoesDeSerializacaoDoOutbox = new(JsonSerializerDefaults.Web);
 
     // Mudanças na execução da entrega que alteram a previsão das paradas da rota.
     private static readonly HashSet<TipoDeEventoDaEntrega> EventosQueMudamAPrevisao =
@@ -158,6 +166,18 @@ public class TorreLogisticaDbContext(
 
     /// <inheritdoc />
     public DbSet<ReferenciaExternaDaEntrega> ReferenciasExternasDeEntrega => Set<ReferenciaExternaDaEntrega>();
+
+    /// <inheritdoc />
+    public DbSet<MensagemDoOutbox> Outbox => Set<MensagemDoOutbox>();
+
+    /// <inheritdoc />
+    public DbSet<AssinaturaDeWebhook> AssinaturasDeWebhook => Set<AssinaturaDeWebhook>();
+
+    /// <inheritdoc />
+    public DbSet<EntregaDeWebhook> EntregasDeWebhook => Set<EntregaDeWebhook>();
+
+    /// <inheritdoc />
+    public DbSet<TentativaDeWebhook> TentativasDeWebhook => Set<TentativaDeWebhook>();
 
     /// <inheritdoc />
     public Guid? OrganizacaoDoTenant => _contextoDoTenant.OrganizacaoId;
@@ -391,6 +411,15 @@ public class TorreLogisticaDbContext(
         var sessoesRevogadas = RecolherSessoesRevogadas();
         var recalculos = RecolherRecalculosPorEntrega();
 
+        // Outbox antes de gravar, e não depois: o evento entra na MESMA transação do fato. É isto que
+        // impede "entrega concluída, aviso perdido" quando o processo cai entre uma coisa e outra.
+        var eventos = RecolherEventosParaOutbox();
+
+        if (eventos.Count > 0)
+        {
+            Outbox.AddRange(eventos);
+        }
+
         var gravados = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
 
         _notificacoesPendentes.AddRange(avisos);
@@ -520,6 +549,87 @@ public class TorreLogisticaDbContext(
                         entrada.Entity.OrganizacaoId, OrigemDoRecalculo.Entrega, null, entrada.Entity.EntregaId, null)),
             ];
 
+    /// <summary>
+    /// Traduz os fatos desta gravação nos eventos públicos do contrato de webhook.
+    /// </summary>
+    /// <remarks>
+    /// O corpo carrega só o que já está em mãos aqui — identificador, situação e instante. Buscar o código
+    /// humano ou o endereço exigiria consulta no meio do <c>SaveChanges</c>, e o assinante que precisa de
+    /// detalhe consulta a API com a credencial dele.
+    /// </remarks>
+    private List<MensagemDoOutbox> RecolherEventosParaOutbox()
+    {
+        var mensagens = new List<MensagemDoOutbox>();
+
+        foreach (var evento in ChangeTracker.Entries<EventoDaEntrega>()
+            .Where(entrada => entrada.State == EntityState.Added)
+            .Select(entrada => entrada.Entity)
+            .OrderBy(evento => evento.EntregaId)
+            .ThenBy(evento => evento.Sequencia))
+        {
+            var tipo = evento.Tipo switch
+            {
+                TipoDeEventoDaEntrega.SaiuParaRota => TiposDeEventoDeWebhook.EntregaIniciada,
+                TipoDeEventoDaEntrega.TentativaFrustrada => TiposDeEventoDeWebhook.TentativaFrustrada,
+                TipoDeEventoDaEntrega.Entregue => TiposDeEventoDeWebhook.EntregaConcluida,
+                _ => null,
+            };
+
+            if (tipo is null)
+            {
+                continue;
+            }
+
+            mensagens.Add(MensagemDoOutbox.Criar(
+                NovoIdentificador(),
+                evento.OrganizacaoId,
+                tipo,
+                evento.EntregaId,
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        deliveryId = evento.EntregaId,
+                        status = evento.StatusResultante.ToString(),
+                        sequence = evento.Sequencia,
+                        occurredAt = evento.OcorridoEm,
+                    },
+                    OpcoesDeSerializacaoDoOutbox),
+                evento.OcorridoEm,
+                evento.OcorridoEm));
+        }
+
+        foreach (var registro in ChangeTracker.Entries<RegistroDePrevisao>()
+            .Where(entrada => entrada.State == EntityState.Added)
+            .Select(entrada => entrada.Entity)
+            .Where(registro => registro.Situacao is SituacaoDoSla.Risco or SituacaoDoSla.Atrasada
+                && (registro.SituacaoAnterior ?? SituacaoDoSla.Normal) != registro.Situacao)
+            .OrderBy(registro => registro.EntregaId)
+            .ThenBy(registro => registro.Sequencia))
+        {
+            mensagens.Add(MensagemDoOutbox.Criar(
+                NovoIdentificador(),
+                registro.OrganizacaoId,
+                TiposDeEventoDeWebhook.EntregaEmRisco,
+                registro.EntregaId,
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        deliveryId = registro.EntregaId,
+                        situation = registro.Situacao.ToString(),
+                        reason = registro.MotivoDaSituacao.ToString(),
+                        estimatedArrival = registro.ChegadaPrevistaEm,
+                        occurredAt = registro.RegistradoEm,
+                    },
+                    OpcoesDeSerializacaoDoOutbox),
+                registro.RegistradoEm,
+                registro.RegistradoEm));
+        }
+
+        return mensagens;
+    }
+
+    private Guid NovoIdentificador() => identificadores?.Novo() ?? Guid.CreateVersion7();
+
     private void DescartarAvisosPendentes()
     {
         _notificacoesPendentes.Clear();
@@ -550,6 +660,40 @@ public class TorreLogisticaDbContext(
             solicitacoesDeRecalculo.Solicitar(recalculos);
         }
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Guid>> ReservarMensagensDoOutboxAsync(
+        int limite,
+        DateTimeOffset agora,
+        CancellationToken cancelamento) =>
+        await Database
+            .SqlQuery<Guid>(
+                $"""
+                 SELECT id FROM outbox
+                 WHERE despachada_em IS NULL AND disponivel_em <= {agora}
+                 ORDER BY disponivel_em, criada_em
+                 LIMIT {limite}
+                 FOR UPDATE SKIP LOCKED
+                 """)
+            .ToListAsync(cancelamento)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Guid>> ReservarEntregasDeWebhookAsync(
+        int limite,
+        DateTimeOffset agora,
+        CancellationToken cancelamento) =>
+        await Database
+            .SqlQuery<Guid>(
+                $"""
+                 SELECT id FROM entregas_de_webhook
+                 WHERE estado = 'Pendente' AND disponivel_em <= {agora}
+                 ORDER BY disponivel_em, criada_em
+                 LIMIT {limite}
+                 FOR UPDATE SKIP LOCKED
+                 """)
+            .ToListAsync(cancelamento)
+            .ConfigureAwait(false);
 
     /// <inheritdoc />
     public Task BloquearSessaoAsync(Guid sessaoId, CancellationToken cancelamento) =>
@@ -836,6 +980,16 @@ public class TorreLogisticaDbContext(
             .HasQueryFilter(requisicao => requisicao.OrganizacaoId == OrganizacaoIdDoFiltro);
         modelBuilder.Entity<ReferenciaExternaDaEntrega>()
             .HasQueryFilter(referencia => referencia.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<AssinaturaDeWebhook>()
+            .HasQueryFilter(assinatura => assinatura.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<EntregaDeWebhook>()
+            .HasQueryFilter(entrega => entrega.OrganizacaoId == OrganizacaoIdDoFiltro);
+        modelBuilder.Entity<TentativaDeWebhook>()
+            .HasQueryFilter(tentativa => tentativa.OrganizacaoId == OrganizacaoIdDoFiltro);
+
+        // O outbox NÃO leva filtro de tenant: quem o lê é um processo de fundo, sem sessão, e precisa
+        // enxergar as mensagens de todas as organizações. A organização viaja dentro da mensagem e é ela
+        // que decide o destino — mesma escolha do rastreamento público (ADR 0024).
     }
 
     /// <inheritdoc />

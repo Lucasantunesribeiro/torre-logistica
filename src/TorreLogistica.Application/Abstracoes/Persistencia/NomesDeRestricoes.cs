@@ -90,4 +90,10 @@ public static class NomesDeRestricoes
 
     /// <summary>Um identificador de origem por integração: o mesmo pedido do ERP não vira duas entregas.</summary>
     public const string ReferenciaExternaPorIntegracao = "ux_referencias_externas_identificador";
+
+    /// <summary>
+    /// Uma entrega por assinatura e mensagem: o assinante recebe cada evento uma vez, mesmo que o
+    /// despachante rode duas vezes.
+    /// </summary>
+    public const string EntregaDeWebhookPorMensagem = "ux_entregas_de_webhook_assinatura_mensagem";
 }

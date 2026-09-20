@@ -20,6 +20,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <!-- IHttpClientFactory para a entrega de webhooks: cliente reaproveitado, sem esgotar socket nem
+         congelar DNS. Versão já fixada centralmente e usada pelo simulador. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
