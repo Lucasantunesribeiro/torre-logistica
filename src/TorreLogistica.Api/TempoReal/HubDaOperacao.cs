@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.SignalR;
 using TorreLogistica.Api.Autenticacao;
+using TorreLogistica.Application.Observabilidade;
 
 namespace TorreLogistica.Api.TempoReal;
 
@@ -42,7 +43,10 @@ public static class EventosDeTempoReal
 /// O rastreamento público nunca usa este canal.
 /// </para>
 /// </remarks>
-public sealed class HubDaOperacao(RegistroDeConexoesDaOperacao registro, ILogger<HubDaOperacao> log) : Hub
+public sealed class HubDaOperacao(
+    RegistroDeConexoesDaOperacao registro,
+    MedidasDaOperacao medidas,
+    ILogger<HubDaOperacao> log) : Hub
 {
     /// <summary>Caminho do hub.</summary>
     public const string Caminho = "/tempo-real/operacao";
@@ -68,6 +72,7 @@ public sealed class HubDaOperacao(RegistroDeConexoesDaOperacao registro, ILogger
 
         await Groups.AddToGroupAsync(Context.ConnectionId, GrupoDaOrganizacao(organizacaoId)).ConfigureAwait(false);
         registro.Registrar(Context, sessaoId);
+        medidas.ConexaoAberta();
 
         await base.OnConnectedAsync().ConfigureAwait(false);
     }
@@ -76,6 +81,7 @@ public sealed class HubDaOperacao(RegistroDeConexoesDaOperacao registro, ILogger
     public override Task OnDisconnectedAsync(Exception? exception)
     {
         registro.Remover(Context.ConnectionId);
+        medidas.ConexaoFechada();
         return base.OnDisconnectedAsync(exception);
     }
 }

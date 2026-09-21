@@ -122,6 +122,17 @@ public sealed class MensagemDoOutbox
     /// <summary>Instante do fato no domínio.</summary>
     public DateTimeOffset OcorridoEm { get; private set; }
 
+    /// <summary>
+    /// O <c>traceparent</c> da operação que produziu o evento, para ligar o que sai depois ao que
+    /// aconteceu antes.
+    /// </summary>
+    /// <remarks>
+    /// Sem ele, a entrega do webhook seria um rastro solto: ninguém ligaria "o cliente não recebeu o
+    /// aviso" à conclusão da entrega que devia tê-lo produzido. É dado de diagnóstico, não de negócio —
+    /// nulo é aceitável, e nada no domínio depende dele.
+    /// </remarks>
+    public string? Rastro { get; private set; }
+
     /// <summary>Instante da gravação.</summary>
     public DateTimeOffset CriadaEm { get; private set; }
 
@@ -145,7 +156,8 @@ public sealed class MensagemDoOutbox
         Guid entregaId,
         string conteudo,
         DateTimeOffset ocorridoEm,
-        DateTimeOffset agora)
+        DateTimeOffset agora,
+        string? rastro = null)
     {
         ExcecaoDeDominio.LancarSe(
             !TiposDeEventoDeWebhook.EhConhecido(tipo), "tipo_de_evento_invalido", "Tipo de evento desconhecido.");
@@ -163,6 +175,7 @@ public sealed class MensagemDoOutbox
             OcorridoEm = ocorridoEm,
             CriadaEm = agora,
             DisponivelEm = agora,
+            Rastro = rastro,
         };
     }
 
@@ -336,6 +349,9 @@ public sealed class EntregaDeWebhook
     /// <summary>Instante da criação.</summary>
     public DateTimeOffset CriadaEm { get; private set; }
 
+    /// <summary>O <c>traceparent</c> herdado da mensagem que originou esta entrega.</summary>
+    public string? Rastro { get; private set; }
+
     /// <summary>Quando foi entregue ou desistiu.</summary>
     public DateTimeOffset? ConcluidaEm { get; private set; }
 
@@ -368,6 +384,7 @@ public sealed class EntregaDeWebhook
             Estado = EstadoDaEntregaDeWebhook.Pendente,
             DisponivelEm = agora,
             CriadaEm = agora,
+            Rastro = mensagem.Rastro,
         };
     }
 

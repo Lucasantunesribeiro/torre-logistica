@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Application.Observabilidade;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Domain.Webhooks;
@@ -31,7 +32,17 @@ public sealed class DespachoDeWebhooks(
     public const int TamanhoDoLote = 50;
 
     /// <summary>Despacha um lote. Devolve quantas mensagens saíram do outbox.</summary>
-    public async Task<int> DespacharLoteAsync(CancellationToken cancelamento) =>
+    public async Task<int> DespacharLoteAsync(CancellationToken cancelamento)
+    {
+        // O lote junta eventos de rastros diferentes, então este span não herda nenhum deles: ele conta a
+        // história do despachante. O elo com a operação de origem viaja na mensagem, e reaparece na entrega.
+        using var rastro = RastroDaOperacao.Fonte.StartActivity("outbox.despacho");
+        var criadas = await DespacharInternoAsync(cancelamento).ConfigureAwait(false);
+        rastro?.SetTag("outbox.entregas_criadas", criadas);
+        return criadas;
+    }
+
+    private async Task<int> DespacharInternoAsync(CancellationToken cancelamento) =>
         await contexto.ExecutarEmTransacaoAsync(
             async token =>
             {

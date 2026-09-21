@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorreLogistica.Application.Abstracoes.Persistencia;
+using TorreLogistica.Application.Observabilidade;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 
 namespace TorreLogistica.Application.Retencao;
@@ -84,6 +85,7 @@ public sealed class LimpezaPorRetencao(
     /// <summary>Executa uma rodada.</summary>
     public async Task<ResultadoDaLimpeza> ExecutarAsync(CancellationToken cancelamento)
     {
+        using var rastro = RastroDaOperacao.Fonte.StartActivity("retencao.limpeza");
         var configuracao = opcoes.Value;
         var prazo = configuracao.PosicoesBrutas < OpcoesDeRetencao.PrazoMinimo
             ? OpcoesDeRetencao.PrazoMinimo
@@ -113,6 +115,8 @@ public sealed class LimpezaPorRetencao(
         }
 
         metricas.RegistrarPosicoesRemovidas(removidas);
+        rastro?.SetTag("retencao.posicoes_removidas", removidas);
+        rastro?.SetTag("retencao.corte", corte.ToString("o"));
 
         if (removidas > 0)
         {

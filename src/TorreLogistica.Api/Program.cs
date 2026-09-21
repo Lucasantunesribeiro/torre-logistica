@@ -16,6 +16,7 @@ using TorreLogistica.Api.Erros;
 using TorreLogistica.Api.Execucao;
 using TorreLogistica.Api.Indicadores;
 using TorreLogistica.Api.Integracoes;
+using TorreLogistica.Api.Observabilidade;
 using TorreLogistica.Api.Ocorrencias;
 using TorreLogistica.Api.Previsao;
 using TorreLogistica.Api.Rastreamento;
@@ -29,6 +30,7 @@ using TorreLogistica.Application.Abstracoes.Correlacao;
 using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Infrastructure;
 using TorreLogistica.Infrastructure.Desenvolvimento;
+using TorreLogistica.Infrastructure.Observabilidade;
 using TorreLogistica.Infrastructure.Previsao;
 using TorreLogistica.Infrastructure.Retencao;
 using TorreLogistica.Infrastructure.Webhooks;
@@ -144,6 +146,8 @@ try
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
     construtor.Services.AdicionarWebhooks(construtor.Configuration);
     construtor.Services.AdicionarRetencao(construtor.Configuration);
+    construtor.Services.AdicionarObservabilidade(construtor.Configuration);
+    construtor.Services.AdicionarMedidasDaOperacao(construtor.Configuration);
 
     var aplicacao = construtor.Build();
 

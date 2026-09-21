@@ -6,6 +6,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Previsao;
 using TorreLogistica.Application.Abstracoes.TempoReal;
+using TorreLogistica.Application.Observabilidade;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Alertas;
 using TorreLogistica.Domain.Auditoria;
@@ -595,7 +596,8 @@ public class TorreLogisticaDbContext(
                     },
                     OpcoesDeSerializacaoDoOutbox),
                 evento.OcorridoEm,
-                evento.OcorridoEm));
+                evento.OcorridoEm,
+                RastroDaOperacao.RastroAtual()));
         }
 
         foreach (var registro in ChangeTracker.Entries<RegistroDePrevisao>()
@@ -622,12 +624,18 @@ public class TorreLogisticaDbContext(
                     },
                     OpcoesDeSerializacaoDoOutbox),
                 registro.RegistradoEm,
-                registro.RegistradoEm));
+                registro.RegistradoEm,
+                RastroDaOperacao.RastroAtual()));
         }
 
         return mensagens;
     }
 
+    /// <remarks>
+    /// O <c>traceparent</c> é capturado aqui, dentro da transação que grava o fato: é o único momento em
+    /// que ainda se sabe qual requisição — ou qual rodada de recálculo — produziu o evento. Depois disso,
+    /// o trabalho muda de processo e o contexto se perde.
+    /// </remarks>
     private Guid NovoIdentificador() => identificadores?.Novo() ?? Guid.CreateVersion7();
 
     private void DescartarAvisosPendentes()

@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 20 — Segurança e Privacidade concluída.**
+> **Estado: Fase 21 — Observabilidade concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -25,8 +25,10 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > guardada para sempre — prazo configurável, corte pelo instante em que o servidor recebeu (não pelo
 > relógio do aparelho), limpeza em lotes que não segura o banco, e a posição atual preservada, porque
 > apagar o caminho percorrido não pode cegar a torre. O modelo de segurança inteiro, com o que ainda **não**
-> está coberto, está em [`docs/security-model.md`](./docs/security-model.md). A ordem está em
-> [`ROADMAP.md`](./ROADMAP.md).
+> está coberto, está em [`docs/security-model.md`](./docs/security-model.md). E agora o sistema **se
+> explica**: o rastro nasce na requisição, é gravado junto com o fato, atravessa a fila do outbox e
+> reaparece no webhook que falhou — quem tem o identificador que o cliente recebeu descobre o que
+> aconteceu sem abrir o banco. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -37,7 +39,7 @@ ocorrências, prova de entrega e rastreamento público controlado.
 | Frontend | React 19, TypeScript estrito, Vite 8, React Router, TanStack Query, Zod |
 | Tempo real | SignalR (canal do console) |
 | Testes | xunit.v3, Testcontainers, Vitest, Testing Library |
-| Observabilidade | Serilog estruturado; OpenTelemetry na Fase 21 |
+| Observabilidade | Serilog estruturado; OpenTelemetry (traces e métricas) por OTLP |
 
 ## Estrutura
 
@@ -99,7 +101,7 @@ npm run verificar                                             # frontend
 |---|:---:|
 | Unidade | 695 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 536 |
+| Integração (PostgreSQL + PostGIS real) | 539 |
 | Frontend (3 aplicações) | 127 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -143,6 +145,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0027](./docs/adr/0027-console-operacional-e-mapa.md) | Console operacional: densidade sobre ornamento, e mapa sem fornecedor obrigatório |
 | [0028](./docs/adr/0028-indicadores-operacionais.md) | Indicadores: agregação direta com índices, definição junto do número e vazio que não vira zero |
 | [0029](./docs/adr/0029-retencao-de-localizacao.md) | Retenção de localização: prazo configurável, corte pelo recebimento e limpeza em lotes |
+| [0030](./docs/adr/0030-observabilidade.md) | Observabilidade: OTLP sem fornecedor, rastro que atravessa a fila e medidas de estado fotografadas |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.

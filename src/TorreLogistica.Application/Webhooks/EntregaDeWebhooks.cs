@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorreLogistica.Application.Abstracoes.Persistencia;
 using TorreLogistica.Application.Abstracoes.Webhooks;
+using TorreLogistica.Application.Observabilidade;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 using TorreLogistica.Domain.Abstracoes.Tempo;
 using TorreLogistica.Domain.Webhooks;
@@ -43,10 +45,20 @@ public sealed class EntregaDeWebhooks(
 
         foreach (var reservada in reservadas)
         {
+            // O rastro volta a ser o da operação que gerou o evento: quem investiga "o cliente não
+            // recebeu o aviso" chega aqui partindo da conclusão da entrega, sem saber que existe fila.
+            using var rastro = RastroDaOperacao.Iniciar("webhook.entrega", reservada.Rastro);
+            rastro?.SetTag("webhook.tipo", reservada.Tipo);
+            rastro?.SetTag("webhook.entrega_id", reservada.Id);
+            rastro?.SetTag("webhook.mensagem_id", reservada.MensagemId);
+
             var resultado = await cliente
                 .EntregarAsync(
                     reservada.Url, reservada.Tipo, reservada.MensagemId, reservada.Conteudo, reservada.Segredo, cancelamento)
                 .ConfigureAwait(false);
+
+            rastro?.SetTag("webhook.status", resultado.Status);
+            rastro?.SetStatus(resultado.Sucesso ? ActivityStatusCode.Ok : ActivityStatusCode.Error, resultado.Erro);
 
             await RegistrarResultadoAsync(reservada.Id, resultado, cancelamento).ConfigureAwait(false);
         }
@@ -95,7 +107,13 @@ public sealed class EntregaDeWebhooks(
                     }
 
                     reservadas.Add(new EntregaReservada(
-                        entrega.Id, entrega.Url, entrega.Tipo, entrega.MensagemId, entrega.Conteudo, protecao.Decifrar(cifrado)));
+                        entrega.Id,
+                        entrega.Url,
+                        entrega.Tipo,
+                        entrega.MensagemId,
+                        entrega.Conteudo,
+                        protecao.Decifrar(cifrado),
+                        entrega.Rastro));
                 }
 
                 await contexto.SaveChangesAsync(token).ConfigureAwait(false);
@@ -143,5 +161,12 @@ public sealed class EntregaDeWebhooks(
             },
             cancelamento).ConfigureAwait(false);
 
-    private sealed record EntregaReservada(Guid Id, string Url, string Tipo, Guid MensagemId, string Conteudo, string Segredo);
+    private sealed record EntregaReservada(
+        Guid Id,
+        string Url,
+        string Tipo,
+        Guid MensagemId,
+        string Conteudo,
+        string Segredo,
+        string? Rastro);
 }

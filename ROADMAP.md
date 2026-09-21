@@ -4008,9 +4008,156 @@ Estruturados.
 
 Nunca registrar token, signed URL completa ou dados sensíveis sem necessidade.
 
-## Critérios de aceite
+## Entregável
 
-Uma entrega problemática deve ser rastreável pelos logs/traces sem abrir o banco manualmente.
+| Peça | Arquivo |
+|---|---|
+| Configuração de traces e métricas | `src/TorreLogistica.Api/Observabilidade/ConfiguracaoDeObservabilidade.cs` |
+| Fonte de rastro do trabalho de fundo | `src/TorreLogistica.Application/Observabilidade/RastroDaOperacao.cs` |
+| Medidas de estado e leitura do banco | `src/TorreLogistica.Application/Observabilidade/MedidasDaOperacao.cs` |
+| Medição periódica | `src/TorreLogistica.Infrastructure/Observabilidade/ProcessamentoDeMedidas.cs` |
+| Rastro atravessando a fila | coluna `rastro` no outbox e na entrega de webhook — migration `RastroNoOutbox` |
+
+## OpenTelemetry
+
+| Pedido | Como está instrumentado |
+|---|---|
+| HTTP | `AddAspNetCoreInstrumentation` (sonda de saúde filtrada) e `AddHttpClientInstrumentation` |
+| DB | fonte `Npgsql`, publicada pelo próprio provedor desde a versão 7 — sem pacote extra e sem envelopar o driver |
+| Workers | `outbox.despacho`, `webhook.entrega`, `retencao.limpeza`, pela fonte `TorreLogistica.Operacao` |
+| SQS | não se aplica: a fila é o PostgreSQL (ADR 0026), e ela é justamente o trecho que o `traceparent` atravessa |
+| SignalR | `signalr.connections` conta conexões abertas; o rastro por mensagem de hub fica de fora — ver pendências |
+| Provider de rota | coberto por `AddHttpClientInstrumentation`, já que o provedor é chamado por HTTP |
+| Webhooks | `webhook.entrega`, com tipo, status e erro, ligado ao rastro de origem |
+
+Exportação por **OTLP**, protocolo aberto. Sem `Torre__Observabilidade__EnderecoOtlp` configurado, nada sai
+do processo: os instrumentos funcionam e ninguém precisa subir coletor para rodar o projeto.
+
+Amostragem configurável (`ProporcaoDeAmostragem`, padrão 1), com `ParentBasedSampler`: um rastro que
+começou amostrado continua inteiro, sem buraco no meio.
+
+## Correlation ID
+
+```text
+HTTP → domínio → outbox → processador → webhook
+```
+
+O `traceparent` do W3C é gravado **na mesma transação do fato**, na coluna `rastro` da mensagem do outbox,
+e herdado pela entrega de webhook. É o que permite sair do identificador que o cliente tem em mãos e chegar
+ao `POST` que falhou, dez minutos e um processo depois.
+
+`TraceId` e `SpanId` entram no escopo de log ao lado do `IdDeCorrelacao`: log e rastro se apontam.
+
+## Métricas
+
+Nomes seguem a convenção do OpenTelemetry (ponto); o exportador converte para o estilo do destino.
+
+| Pedida no ROADMAP | Instrumento | Situação |
+|---|---|---|
+| `tracking_positions_received_total` | `tracking.positions.received` | já existia (Fase 7) |
+| `tracking_positions_duplicate_total` | `tracking.positions.duplicate` | já existia |
+| `tracking_positions_out_of_order_total` | `tracking.positions.out_of_order` | já existia |
+| `tracking_positions_rejected_total` | `tracking.positions.rejected` | já existia, com o motivo como atributo |
+| `eta_calculation_duration` | `eta.calculation.duration` | já existia (Fase 9) |
+| `drivers_online` | `drivers.online` | **novo** |
+| `drivers_offline` | `drivers.offline` | **novo** |
+| `deliveries_in_route` | `deliveries.in_route` | **novo** |
+| `deliveries_at_risk` | `deliveries.at_risk` | **novo** |
+| `deliveries_late` | `deliveries.late` | **novo** |
+| `signalr_connections` | `signalr.connections` | **novo** |
+| `outbox_pending` | `outbox.pending` | **novo** |
+| `webhook_failures` | `webhook.failures` | **novo** |
+
+As sete novas são medidas de **situação**, não de evento: respondem "quantos agora". Elas leem um retrato
+em memória, atualizado a cada 30 segundos por um serviço de fundo — consultar o banco no instante da
+raspagem ligaria a carga do sistema à configuração de quem observa.
+
+## Logs
+
+Já eram estruturados desde a Fase 1. Esta fase acrescentou o `TraceId` ao escopo e manteve a regra da Fase
+20: token, URL assinada, segredo e coordenada não entram em log, com `RedacaoDeLogTestes` como guarda.
+
+## Critério de aceite
+
+> Uma entrega problemática deve ser rastreável pelos logs/traces sem abrir o banco manualmente.
+
+✅ `EntregaProblematicaEhRastreavelDoInicioAoWebhookQueFalhou` reproduz o caso difícil — o cliente diz que
+não foi avisado e, do lado de dentro, "a mensagem saiu". O motorista conclui a entrega com um `traceparent`
+conhecido; o assinante responde 500. Partindo só desse identificador, o teste encontra: a requisição de
+conclusão, o comando SQL que a gravou, e o `POST` ao assinante com status 500 e situação de erro — tudo no
+mesmo rastro, com a fila do outbox no meio. O `TraceId` também aparece no log, fechando a ponte nos dois
+sentidos.
+
+## Dependências novas
+
+| Pacote | Justificativa (regra 71) |
+|---|---|
+| `OpenTelemetry.Extensions.Hosting` | integra o SDK ao host; a alternativa é montar provider e exportador à mão |
+| `OpenTelemetry.Instrumentation.AspNetCore` | rastro de requisição com semântica padronizada |
+| `OpenTelemetry.Instrumentation.Http` | rastro das chamadas de saída — provedor de rotas e webhooks |
+| `OpenTelemetry.Instrumentation.Runtime` | GC, threads e memória, que a Fase 22 vai precisar medir |
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` | protocolo aberto; nenhum SDK de fornecedor entra no código |
+
+Todas OSS, mantidas pela CNCF, versão 1.19.0 fixada centralmente. Nenhum serviço pago. O comando SQL não
+precisou de pacote: o Npgsql publica a própria fonte.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 539 | ✅ |
+| Frontend — `operacao` | 34 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.383** | **✅** |
+
+`npm run verificar` sem erro; solução .NET com 0 aviso e 0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| Duas suposições erradas no próprio teste | o assinante "quebrado" aparecia como tendo recebido, e o span do webhook vinha em dobro | o assinante registra o que chega mesmo respondendo 500 — recusa não é ausência —, e a rota iniciada no cenário também gera aviso. As asserções passaram a falar de status de erro e a recortar pelo tipo do evento, em vez de supor silêncio e evento único |
+
+## Security Gate 21
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Telemetria não carrega segredo | ✅ | os atributos dos spans são tipo, status e identificador; nenhum corpo, token ou URL assinada |
+| Telemetria não carrega localização | ✅ | nenhuma tag de coordenada; `RedacaoDeLogTestes` continua verde |
+| Nada sai do processo sem decisão explícita | ✅ | sem endereço OTLP configurado, não há exportação |
+| Nenhum fornecedor embutido | ✅ | só OTLP; nenhum SDK proprietário, nenhuma chave |
+| A coluna nova não é dado pessoal | ✅ | `rastro` guarda `traceparent`, que é identificador de diagnóstico sem conteúdo |
+| Sonda de saúde fora do rastro | ✅ | filtro explícito, para não afogar o que importa |
+| Dependências | ✅ | cinco pacotes OSS da CNCF, versão fixada; `npm audit` intocado |
+| Custo | ✅ | nenhum serviço contratado; coletor é decisão da Fase 25 |
+
+## Decisões
+
+[ADR 0030](./docs/adr/0030-observabilidade.md).
+
+- **OTLP e nada de fornecedor embutido**; sem endereço, nada sai do processo.
+- **O rastro atravessa a fila dentro da mensagem**, gravado na transação do fato.
+- **O despachante tem rastro próprio**: pendurar o lote numa das origens seria mentira.
+- **Medidas de estado são fotografadas**, não consultadas na raspagem; falha mantém o retrato anterior.
+- **Log e rastro se apontam**, pelo `TraceId` no escopo.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Coletor e destino da telemetria | decisão de infraestrutura, Fase 25 |
+| Rastro por mensagem de hub SignalR | a conexão é contada; instrumentar cada aviso exige envelopar o publicador, e o ganho não apareceu ainda |
+| Exportação de logs por OTLP | o Serilog continua sendo o pipeline de log; unificar não ajuda o critério de aceite |
+| Painel pronto (dashboard) | depende do coletor escolhido |
+| Alerta sobre métrica | monitoramento externo, fora do escopo do projeto |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: observabilidade com rastro que atravessa a fila do outbox (Fase 21)`
 
 ---
 

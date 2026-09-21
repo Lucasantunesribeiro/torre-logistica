@@ -7,6 +7,7 @@ using TorreLogistica.Application.Execucao;
 using TorreLogistica.Application.Identidade;
 using TorreLogistica.Application.Indicadores;
 using TorreLogistica.Application.Integracoes;
+using TorreLogistica.Application.Observabilidade;
 using TorreLogistica.Application.Ocorrencias;
 using TorreLogistica.Application.Organizacoes;
 using TorreLogistica.Application.Previsao;
@@ -67,6 +68,9 @@ public static class ConfiguracaoDeServicosDaApplication
         servicos.AddScoped<ConsultaDePrevisao>();
 
         servicos.AddScoped<ConsultaDeIndicadores>();
+
+        servicos.AddSingleton<MedidasDaOperacao>();
+        servicos.AddScoped<LeituraDoEstadoDaOperacao>();
 
         servicos.AddScoped<GestaoDeOcorrencias>();
         servicos.AddScoped<GestaoDeComprovantes>();

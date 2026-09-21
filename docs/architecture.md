@@ -773,6 +773,26 @@ O modelo de segurança completo — autoridades, isolamento, sessão, borda, pri
 que ainda **não** está coberto — está em [`security-model.md`](./security-model.md), e as decisões desta
 fase em [ADR 0029](./adr/0029-retencao-de-localizacao.md).
 
+## Fase 21 — Observabilidade
+
+```text
+HTTP → domínio → outbox (coluna rastro) → despachante → webhook
+         └── o traceparent viaja com a mensagem e reaparece no POST ao assinante
+```
+
+| Peça | Regra |
+|---|---|
+| Exportação | OTLP; sem `Torre:Observabilidade:EnderecoOtlp`, nada sai do processo |
+| Amostragem | `ParentBasedSampler` sobre razão configurável: rastro amostrado continua inteiro |
+| Banco | fonte `Npgsql`, publicada pelo provedor — sem pacote de instrumentação |
+| Trabalho de fundo | `outbox.despacho`, `webhook.entrega`, `retencao.limpeza`, na fonte `TorreLogistica.Operacao` |
+| Fila | o `traceparent` é gravado na mesma transação do fato e herdado pela entrega de webhook |
+| Despachante | rastro próprio: o lote junta origens diferentes, e pendurá-lo numa delas seria mentira |
+| Medidas de estado | retrato em memória atualizado a cada 30 s; falha de leitura mantém o retrato anterior |
+| Log | `TraceId` e `SpanId` no escopo, ao lado do `IdDeCorrelacao` |
+
+Decisões e limitações em [ADR 0030](./adr/0030-observabilidade.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem
@@ -783,7 +803,8 @@ simulado não sabe de ruas nem de trânsito, e escolher fornecedor tem custo —
 organização ou cliente, nem classificação de chegada antes da janela. Não há backplane para mais de uma
 instância. Não há geofence de hub, raio
 configurável por organização nem detecção de salto impossível entre posições. Não há particionamento
-temporal do histórico, nem exportação das métricas (Fase 21). Não há retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
+temporal do histórico, nem coletor de telemetria escolhido — os instrumentos existem e a exportação
+fica desligada até alguém apontar um endereço OTLP (Fase 25). Não há retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
 UTC com um dia de tolerância. Não há tela de cadastro: o console lê a estrutura operacional, mas criar e alterar continua sendo trabalho da API. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. Não há localização em segundo plano na PWA: o navegador não garante, e o
 aplicativo avisa o motorista para mantê-lo aberto (ADR 0020).

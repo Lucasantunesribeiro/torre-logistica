@@ -21,6 +21,9 @@ internal sealed class MensagemDoOutboxConfiguracao : IEntityTypeConfiguration<Me
         builder.Property(mensagem => mensagem.Conteudo).HasColumnType("jsonb").IsRequired();
         builder.Property(mensagem => mensagem.UltimoErro).HasMaxLength(PoliticaDeWebhook.TamanhoMaximoDoErro);
 
+        // O traceparent do W3C tem 55 caracteres; o teto sobra para uma versão futura do formato.
+        builder.Property(mensagem => mensagem.Rastro).HasMaxLength(64);
+
         builder.HasOne<Entrega>()
             .WithMany()
             .HasForeignKey(mensagem => mensagem.EntregaId)
@@ -77,6 +80,7 @@ internal sealed class EntregaDeWebhookConfiguracao : IEntityTypeConfiguration<En
         builder.Property(entrega => entrega.Conteudo).HasColumnType("jsonb").IsRequired();
         builder.Property(entrega => entrega.Url).HasMaxLength(PoliticaDeWebhook.TamanhoMaximoDaUrl).IsRequired();
         builder.Property(entrega => entrega.UltimoErro).HasMaxLength(PoliticaDeWebhook.TamanhoMaximoDoErro);
+        builder.Property(entrega => entrega.Rastro).HasMaxLength(64);
         builder.Property(entrega => entrega.Estado).HasConversion<string>().HasMaxLength(20).IsRequired();
 
         builder.HasOne<AssinaturaDeWebhook>()

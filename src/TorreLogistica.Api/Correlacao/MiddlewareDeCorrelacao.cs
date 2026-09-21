@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Primitives;
 using TorreLogistica.Domain.Abstracoes.Identificadores;
 
@@ -46,10 +47,21 @@ public sealed class MiddlewareDeCorrelacao(
             return Task.CompletedTask;
         }, (contexto.Response, idDeCorrelacao));
 
-        using (_log.BeginScope(new Dictionary<string, object>
+        // O rastro entra no escopo junto com a correlação: é o que permite sair de uma linha de log
+        // para o trace inteiro, e voltar. Sem isso, log e trace seriam dois relatos do mesmo fato sem
+        // nada que os ligasse.
+        var escopo = new Dictionary<string, object>
         {
             ["IdDeCorrelacao"] = idDeCorrelacao,
-        }))
+        };
+
+        if (Activity.Current is { } rastro)
+        {
+            escopo["TraceId"] = rastro.TraceId.ToString();
+            escopo["SpanId"] = rastro.SpanId.ToString();
+        }
+
+        using (_log.BeginScope(escopo))
         {
             await _proximo(contexto).ConfigureAwait(false);
         }
