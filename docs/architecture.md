@@ -854,6 +854,28 @@ dependência da [ADR 0006](./adr/0006-simulador-externo.md).
 Decisões em [ADR 0033](./adr/0033-entrada-da-demonstracao.md); capturas planejadas em
 [`operacao/screenshots.md`](./operacao/screenshots.md).
 
+## Fase 25 — Hospedagem escolhida, nada provisionado
+
+```text
+Azure Container Apps (minReplicas: 1, maxReplicas: 1)
+  → PostgreSQL Flexible Server 17 + POSTGIS
+  → Storage Account privado (comprovantes)
+  → Key Vault com RBAC + identidade gerenciada
+```
+
+| Decisão | Por quê |
+|---|---|
+| Réplica mínima **1** | o processo que atende HTTP é o mesmo que avalia SLA, despacha webhook e apaga rastro vencido; dormir para tudo isso |
+| Réplica máxima **1** | sem backplane de SignalR, duas instâncias dariam avisos diferentes a consoles diferentes |
+| `azure.extensions = POSTGIS` | sem isso o `CREATE EXTENSION` da migration falha e a aplicação sobe para morrer na primeira consulta geográfica |
+| Papéis, migrations e frontends fora do template | cada um por um motivo, registrado no `infra/README.md` |
+| Deploy só `workflow_dispatch` | um deploy que acontece porque alguém mergeou é um deploy que ninguém decidiu |
+
+A imagem foi construída e exercitada: 196 MB, UID 1654, `/health/live` **200** e `/health/ready` **503**
+com o banco inacessível, e os serviços de fundo errando sem derrubar o processo.
+
+Comparação e custo em [`cost-model.md`](./cost-model.md); decisão em [ADR 0034](./adr/0034-hospedagem.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem

@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 24 — UX Final e Modo Demonstração concluída.**
+> **Estado: Fase 25 — Infraestrutura e Deploy: gate cumprido, infraestrutura escrita, nada provisionado.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -38,7 +38,10 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > [`docs/operacao/simulador.md`](./docs/operacao/simulador.md). E agora existe **porta de entrada**: quem
 > chega sem credencial clica em *Explorar demonstração* e cai numa operação acontecendo — o servidor faz o
 > login pelo visitante, com conta de privilégio mínimo, e a porta simplesmente não existe num ambiente
-> comercial. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> comercial. A infraestrutura está **escrita e não aplicada**: a comparação que a escolheu está em
+> [`docs/cost-model.md`](./docs/cost-model.md), e a decisão que a decidiu é que este sistema **trabalha
+> quando ninguém olha** — avalia SLA, despacha webhook e apaga rastro vencido de madrugada —, então
+> escala a zero não serve. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -159,6 +162,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0031](./docs/adr/0031-performance-e-resiliencia.md) | Não particionar `posicoes`: a medição não justificou, e o gatilho para rever ficou registrado |
 | [0032](./docs/adr/0032-roteiro-da-demonstracao.md) | Demonstração: semente para a narrativa, carimbo para a identidade, e o servidor como protagonista |
 | [0033](./docs/adr/0033-entrada-da-demonstracao.md) | Entrada da demonstração: o servidor faz o login pelo visitante, com privilégio mínimo |
+| [0034](./docs/adr/0034-hospedagem.md) | Hospedagem: contêiner sempre vivo, porque o sistema trabalha quando ninguém olha |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -173,6 +177,8 @@ a ser desfeita por acidente.
 - [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md) — plano das sete capturas
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
+- [`docs/cost-model.md`](./docs/cost-model.md) — gate de arquitetura e o que dirige o custo
+- [`infra/README.md`](./infra/README.md) — infraestrutura escrita, ainda não aplicada
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
 - [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 

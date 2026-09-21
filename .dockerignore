@@ -1,0 +1,28 @@
+# O que nunca entra na imagem.
+#
+# A primeira razão é correção, não tamanho: `obj/` guarda o resultado da restauração feita na máquina
+# de quem desenvolve, com caminhos absolutos dela. Copiado para dentro do contêiner, ele faz a
+# compilação procurar pastas do Windows que não existem no Linux — e o erro que aparece fala de pacote
+# não encontrado, escondendo a causa.
+
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Segredo não vai para imagem, nem por acidente.
+.env
+**/appsettings.Development.json
+**/*.user
+
+# Nada disso muda o que a aplicação faz, e tudo isso invalidaria a camada de build a cada commit.
+.git/
+.github/
+docs/
+tests/
+apps/
+infra/
+*.md

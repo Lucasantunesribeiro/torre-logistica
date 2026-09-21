@@ -4779,20 +4779,160 @@ Custo de portfólio deve ser baixo e previsível.
 
 Qualquer recurso com risco de cobrança relevante exige aprovação antes.
 
+> **Nada foi provisionado.** A autorização desta fase foi para **escrever** a infraestrutura, não para
+> aplicá-la. Nenhum recurso existe, nenhuma cobrança começou, nenhum deploy aconteceu.
+
+## Gate de arquitetura
+
+A comparação está em [`docs/cost-model.md`](./docs/cost-model.md), feita com os números medidos na Fase 22 —
+não com estimativa.
+
+**A descoberta que decidiu a fase:** *scale-to-zero não serve para este sistema*. O processo que atende
+HTTP é o mesmo que despacha o outbox a cada 5 s, reavalia previsão a cada minuto, roda o motor de alertas
+e apaga rastro vencido. Um serviço que dorme **para de avaliar SLA e de despachar webhook** — a entrega
+que entraria em risco às três da manhã só seria marcada quando alguém abrisse o console. Somado à conexão
+persistente do SignalR, que cai junto, o caminho é **baixo custo ocioso com processo sempre vivo**.
+
+| Opção | Resultado |
+|---|---|
+| AWS Lambda | descartada: conexão persistente não cabe no modelo de invocação — é o que o ROADMAP alerta |
+| AWS App Runner | descartada: suporte a WebSocket **não confirmado na documentação oficial** |
+| Aurora Serverless v2 | descartada: a capacidade mínima contínua custa mais que uma instância pequena |
+| ECS Fargate + ALB | descartada: o balanceador sozinho custa mais que todo o compute do projeto |
+| Kubernetes gerenciado | descartada: plano de controle pago e operação que um monólito não pede |
+| AWS Lightsail + RDS | viável, preço fixo a favor; perdeu na diversificação de nuvem do portfólio |
+| EC2 + RDS | viável, mais barato na fatura; manter SO e TLS é custo que não aparece nela |
+| **Azure Container Apps + PostgreSQL Flexible Server** | **escolhida** — decisão de produto, tomada pelo Lucas |
+
+## Banco, storage, secrets, mensageria
+
+| Pedido | Como ficou |
+|---|---|
+| PostgreSQL + PostGIS gerenciado | Flexible Server 17, com `azure.extensions = POSTGIS` — sem isso o `CREATE EXTENSION` da migration falha |
+| Storage objeto privado | Storage Account com `allowBlobPublicAccess: false` e contêiner `None` |
+| Secrets | Key Vault com RBAC e identidade gerenciada: ninguém guarda credencial para ler credencial |
+| Mensageria | **SQS não se aplica**: a fila é o próprio PostgreSQL (ADR 0026), e a arquitetura final não é AWS |
+| Frontends | arquivos estáticos, sem segredo e sem contêiner; o destino é decisão à parte |
+
+## IaC
+
+| Arquivo | O que é |
+|---|---|
+| `infra/main.bicep` | ambiente, API, banco, storage, cofre e workspace |
+| `infra/parametros.exemplo.json` | parâmetros, com a senha **vazia** de propósito |
+| `infra/README.md` | como conferir e aplicar, e o que o template deliberadamente não faz |
+| `.github/workflows/deploy.yml` | publicação **manual**, com confirmação digitada e autenticação federada |
+| `src/TorreLogistica.Api/Dockerfile` | imagem neutra: a mesma sobe em qualquer serviço de contêiner |
+| `.dockerignore` | **corrigiu um defeito real** — ver abaixo |
+
+**O Bicep não foi compilado nem validado.** A Azure CLI não está instalada nesta máquina, e afirmar que um
+template está correto sem a ferramenta que o valida seria inventar. O primeiro passo de quem aplicar é
+`az bicep build`, e está escrito no `infra/README.md`.
+
+## A imagem foi construída e exercitada
+
+Não é template: foi construída e posta para rodar.
+
+| Prova | Resultado |
+|---|---|
+| Tamanho | **196 MB** (Alpine; o projeto compila com `InvariantGlobalization`, então não carrega ICU) |
+| Usuário do processo | **UID 1654**, sem privilégio |
+| `GET /health/live` com o banco inacessível | **200** — o processo está vivo, e a sonda não mente |
+| `GET /health/ready` com o banco inacessível | **503** — a dependência crítica está fora, e a sonda diz |
+| Serviços de fundo sem banco | erram, registram e **não derrubam o processo** |
+
+A última linha é a resiliência da Fase 22 aparecendo onde importa: se o banco demorar a aceitar conexão no
+arranque, o contêiner não entra em ciclo de reinício.
+
+## Custo
+
+[`docs/cost-model.md`](./docs/cost-model.md) fixa o que **não** muda — as quantidades medidas:
+
+| Parcela | Driver medido |
+|---|---|
+| Banco | ~1 GB/dia, ~30 GB em regime pela retenção de 30 dias |
+| Compute | 0,5 vCPU e 1 GB atendem 33 req/s com p50 de 10 ms |
+| Tráfego | ~17 GB/mês de entrada no pico da meta |
+| Objeto | até 5 MB por entrega concluída com foto |
+
+**Não há tabela de preços**, e isso é decisão: preço unitário muda, varia por região e depende de
+compromisso de uso. Cravado aqui, estaria errado em poucos meses — e alguém decidiria com base nele sem
+reconferir. Com as quantidades acima, a calculadora oficial dá o número do dia.
+
+Observabilidade e filas não aparecem no custo porque não são serviços contratados: a telemetria só sai do
+processo quando alguém aponta um coletor (ADR 0030), e a fila é o PostgreSQL (ADR 0026).
+
 ## Critérios de aceite
 
-- app pública;
-- API pública protegida;
-- realtime funcional;
-- workers;
-- storage;
-- DB;
-- health;
-- logs;
-- HTTPS;
-- secrets fora do código.
+| Pedido | Situação |
+|---|---|
+| app pública · API pública protegida · realtime · workers · storage · DB · health · logs · HTTPS | **descritos na IaC, não provisionados** — o critério só fecha com o ambiente no ar |
+| secrets fora do código | ✅ já verdadeiro: Key Vault na IaC, senha vazia no exemplo, nenhum segredo versionado |
 
-Deploy exige autorização explícita.
+> A fase cumpriu o **gate** — comparar antes de provisionar — e deixou a infraestrutura escrita. O critério
+> de aceite completo depende de aplicar, e aplicar exige autorização explícita que não foi dada.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| Imagem da API | construída, subida e exercitada | ✅ |
+| `deploy.yml` e parâmetros | sintaxe validada | ✅ |
+| `infra/main.bicep` | **não validado** — Azure CLI ausente na máquina | ⚠️ |
+
+Nenhum código de aplicação mudou nesta fase. A suíte de integração completa continua pendente desde a
+Fase 24, quando foi interrompida por falta de memória do sistema.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| **A imagem não compilava** | `Unable to find fallback package folder 'C:\Program Files (x86)\...'` dentro do contêiner Linux | o `obj/` da máquina Windows era copiado para dentro da imagem, com os caminhos absolutos dela. Faltava `.dockerignore` — e o erro que aparecia falava de pacote não encontrado, escondendo a causa |
+| Compilação reprovava por regra do analisador | `CA1710: rename ExcecaoDeDominio to end in 'Exception'` | o `.editorconfig` não era copiado, e é ele que carrega as regras. Sem ele, a compilação no contêiner reprovava por regras que a solução configurou para não valerem num domínio em português |
+
+## Security Gate 25
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Nenhum recurso criado | ✅ nada foi provisionado; nenhuma cobrança iniciada |
+| Nenhum segredo no repositório | ✅ senha do banco é parâmetro `@secure()` e está vazia no exemplo |
+| Segredo não vai para a imagem | ✅ `.dockerignore` exclui `.env` e `appsettings.Development.json` |
+| Processo sem privilégio | ✅ UID 1654, verificado no contêiner em execução |
+| Storage privado | ✅ `allowBlobPublicAccess: false` e contêiner com acesso `None` |
+| TLS obrigatório | ✅ `allowInsecure: false` no ingress; `minimumTlsVersion: TLS1_2` no storage |
+| Credencial de deploy | ✅ federada por OIDC; nenhum segredo de longa duração |
+| Deploy acidental | ✅ só `workflow_dispatch`, com confirmação digitada |
+| Banco exposto | ⚠️ a regra de firewall libera serviços do Azure, o mínimo que funciona sem VNet; rede privada custa mais e fica registrada como pendência |
+
+## Decisões
+
+[ADR 0034](./docs/adr/0034-hospedagem.md).
+
+- **Azure Container Apps com réplica mínima 1** — e o "1" é a decisão, não o serviço.
+- **Scale-to-zero recusado**: o sistema trabalha quando ninguém olha.
+- **Teto de uma réplica** até existir backplane de SignalR (ADR 0017).
+- **Papéis, migrations e frontends ficam fora do template**, cada um por um motivo.
+- **Deploy só à mão**, com confirmação digitada e autenticação federada.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Provisionar o ambiente | **exige autorização explícita**; nada foi criado |
+| Validar o Bicep | `az bicep build` — a Azure CLI não está nesta máquina |
+| Backplane do SignalR | sem ele, o teto continua em uma réplica |
+| Rede privada para o banco | hoje a regra libera serviços do Azure; VNet custa mais |
+| Destino dos frontends | decisão à parte; são estáticos e sem segredo |
+| Medição com latência de rede | os números da Fase 22 não têm rede no meio |
+| Capturas e vídeo | dependem do ambiente no ar (Fases 24 e 26) |
+| Suíte de integração completa | pendente desde a Fase 24 |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: gate de arquitetura, imagem testada e infraestrutura escrita sem aplicar (Fase 25)`
 
 ---
 

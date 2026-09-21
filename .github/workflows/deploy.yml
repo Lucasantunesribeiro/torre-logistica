@@ -1,0 +1,99 @@
+# Publicação da Torre Logística.
+#
+# Dispara SÓ à mão. Não há gatilho por push, e isso é decisão: um deploy que acontece porque alguém
+# mergeou algo é um deploy que ninguém decidiu fazer.
+#
+# Nunca rodou. Enquanto não houver ambiente provisionado e autorização explícita, este arquivo é o
+# procedimento escrito — não um processo em uso.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente de destino
+        required: true
+        type: choice
+        options:
+          - demonstracao
+      confirmacao:
+        description: Digite "publicar" para confirmar
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  # Autenticação federada: o workflow troca este token por um do Azure, na hora. Sem segredo de longa
+  # duração guardado no repositório — que é o tipo de credencial que vaza e ninguém percebe.
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.ambiente }}
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    name: Construir, publicar imagem e atualizar a aplicação
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.ambiente }}
+
+    steps:
+      - name: Conferir a confirmação
+        if: inputs.confirmacao != 'publicar'
+        run: |
+          echo "Confirmação ausente ou diferente de 'publicar'. Nada foi feito."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Autenticar no Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Autenticar no registro
+        run: az acr login --name "${{ vars.AZURE_REGISTRO }}"
+
+      - name: Construir e publicar a imagem
+        env:
+          IMAGEM: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+        run: |
+          docker build -f src/TorreLogistica.Api/Dockerfile -t "$IMAGEM" .
+          docker push "$IMAGEM"
+
+      # O schema evolui só por migration versionada, e ela roda antes da imagem nova assumir: aplicação
+      # velha contra schema novo é o caso que as migrations são escritas para suportar; o contrário não.
+      - name: Aplicar migrations
+        env:
+          ConnectionStrings__Torre: ${{ secrets.CADEIA_DE_CONEXAO }}
+        run: |
+          dotnet tool restore
+          dotnet dotnet-ef database update \
+            --project src/TorreLogistica.Infrastructure \
+            --startup-project src/TorreLogistica.Infrastructure
+
+      - name: Atualizar a aplicação
+        env:
+          IMAGEM: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+        run: |
+          az containerapp update \
+            --name "${{ vars.AZURE_APLICACAO }}" \
+            --resource-group "${{ vars.AZURE_GRUPO }}" \
+            --image "$IMAGEM"
+
+      - name: Conferir que subiu
+        run: |
+          for tentativa in $(seq 1 30); do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' "${{ vars.URL_DA_API }}/health/ready" || true)
+            if [ "$codigo" = "200" ]; then
+              echo "Pronta na tentativa $tentativa."
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "A aplicação não ficou pronta. A revisão anterior continua atendendo."
+          exit 1

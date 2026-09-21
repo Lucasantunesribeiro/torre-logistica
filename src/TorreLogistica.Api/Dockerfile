@@ -1,0 +1,57 @@
+# Imagem da API da Torre Logística.
+#
+# Construída a partir da raiz do repositório:
+#   docker build -f src/TorreLogistica.Api/Dockerfile -t torre-logistica-api .
+#
+# Neutra quanto a fornecedor de propósito: a mesma imagem sobe em qualquer serviço que rode contêiner,
+# e a escolha da nuvem (Fase 25) não obriga a reescrever nada aqui.
+
+# ---------------------------------------------------------------------------
+# Compilação
+# ---------------------------------------------------------------------------
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS compilacao
+WORKDIR /origem
+
+# Primeiro só o que descreve as dependências. Assim a camada de restauração só é refeita quando um
+# projeto ou uma versão muda — e não a cada linha de código alterada.
+# O .editorconfig vem junto: ele carrega as regras dos analisadores, e o projeto compila com aviso
+# tratado como erro. Sem ele, a compilação dentro do contêiner reprova por regras que a solução
+# configurou para não valerem — como exigir que exceção termine em "Exception" num domínio em português.
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
+COPY src/TorreLogistica.Domain/TorreLogistica.Domain.csproj src/TorreLogistica.Domain/
+COPY src/TorreLogistica.Application/TorreLogistica.Application.csproj src/TorreLogistica.Application/
+COPY src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj src/TorreLogistica.Infrastructure/
+COPY src/TorreLogistica.Api/TorreLogistica.Api.csproj src/TorreLogistica.Api/
+
+RUN dotnet restore src/TorreLogistica.Api/TorreLogistica.Api.csproj
+
+COPY src/TorreLogistica.Domain/ src/TorreLogistica.Domain/
+COPY src/TorreLogistica.Application/ src/TorreLogistica.Application/
+COPY src/TorreLogistica.Infrastructure/ src/TorreLogistica.Infrastructure/
+COPY src/TorreLogistica.Api/ src/TorreLogistica.Api/
+
+RUN dotnet publish src/TorreLogistica.Api/TorreLogistica.Api.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /publicado
+
+# ---------------------------------------------------------------------------
+# Execução
+# ---------------------------------------------------------------------------
+# Alpine porque o projeto compila com InvariantGlobalization: sem ICU para carregar, a imagem Debian
+# levaria dezenas de megabytes de biblioteca de globalização que ninguém abriria.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS execucao
+WORKDIR /aplicacao
+
+# Usuário sem privilégio, fornecido pela própria imagem. Processo de borda rodando como root é o tipo
+# de detalhe que só importa no dia em que alguém encontra uma falha de execução remota.
+USER $APP_UID
+
+COPY --from=compilacao /publicado .
+
+# A porta vem do ambiente porque cada serviço gerenciado injeta a sua. 8080 é o padrão das imagens
+# .NET sem privilégio — abaixo de 1024 exigiria root.
+ENV ASPNETCORE_HTTP_PORTS=8080
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "TorreLogistica.Api.dll"]
