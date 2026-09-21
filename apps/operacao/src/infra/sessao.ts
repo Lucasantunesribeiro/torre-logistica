@@ -86,6 +86,52 @@ export async function entrar(credenciais: Credenciais): Promise<SessaoAtiva> {
   return sessao;
 }
 
+/** O que o servidor diz sobre a demonstração deste ambiente. */
+export interface OfertaDeDemonstracao {
+  readonly habilitada: boolean;
+  readonly convite: string | null;
+}
+
+/**
+ * Pergunta ao servidor se existe demonstração aqui.
+ *
+ * Quem decide é a API, não uma variável do pacote: o console publicado é o mesmo em todo lugar, e um
+ * botão que aparece por configuração de build apareceria também onde a porta não existe.
+ */
+export async function consultarDemonstracao(): Promise<OfertaDeDemonstracao> {
+  try {
+    const resposta = await fetch(`${ambiente.urlDaApi}/api/demonstracao`, {
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!resposta.ok) {
+      return { habilitada: false, convite: null };
+    }
+
+    return (await resposta.json()) as OfertaDeDemonstracao;
+  } catch {
+    // Sem resposta, sem botão. A tela de login continua funcionando.
+    return { habilitada: false, convite: null };
+  }
+}
+
+/** Abre a sessão de demonstração: o servidor faz o login pelo visitante. */
+export async function entrarNaDemonstracao(): Promise<SessaoAtiva> {
+  const resposta = await fetch(`${ambiente.urlDaApi}/api/demonstracao/sessao`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!resposta.ok) {
+    throw await erroDaResposta(resposta);
+  }
+
+  const sessao = (await resposta.json()) as SessaoAtiva;
+  definirSessao(sessao);
+  return sessao;
+}
+
 /**
  * Troca o cookie de renovação por uma sessão nova.
  *

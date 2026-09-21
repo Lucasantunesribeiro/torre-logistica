@@ -351,6 +351,19 @@ fieldset {
   .mapa__tela {
     height: 320px;
   }
+
+  /* Tabela operacional é densa por decisão, e densidade não cabe em tela estreita. Em vez de
+     esconder coluna — que tira do operador justamente o dado que ele foi buscar —, a tabela rola
+     na horizontal dentro da própria seção, e o resto da página continua parado. */
+  section > table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .console__conteudo {
+    padding: 12px;
+  }
 }
 
 /* Indicadores: o cartão carrega pergunta, número, base e definição, então precisa de mais largura

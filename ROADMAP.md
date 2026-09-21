@@ -4583,9 +4583,145 @@ No mínimo:
 6. tracking público;
 7. proof of delivery.
 
-## Critérios de aceite
+## Entregável
 
-Produto deve parecer operação real sem depender de explicação externa.
+| Peça | Arquivo |
+|---|---|
+| Porta da demonstração | `src/TorreLogistica.Api/Demonstracao/EndpointsDeDemonstracao.cs` |
+| Botão e oferta no console | `apps/operacao/src/paginas/Entrar.tsx`, `apps/operacao/src/infra/sessao.ts` |
+| Plano das sete capturas | `docs/operacao/screenshots.md` |
+| Provas | `tests/TorreLogistica.IntegrationTests/DemonstracaoTestes.cs` e 4 testes no console |
+
+Nenhuma dependência nova, nenhuma migration, nenhum serviço novo.
+
+## Entrada
+
+> Botão: **Explorar demonstração**. Sem onboarding comercial.
+
+O visitante pede uma sessão e **o servidor faz o login por ele** — a senha existe só no ambiente, nunca no
+repositório, no pacote publicado ou na resposta da API. O que ele recebe é uma sessão comum: mesmo token
+curto, mesmo cookie rotativo, mesmas regras de expiração. Nada de caminho paralelo de autenticação, que
+seria uma segunda implementação de segurança com metade dos testes.
+
+Quem decide se o botão aparece é a **API**, não uma variável de build: o console publicado é o mesmo em
+todo lugar, e um botão ligado na compilação apareceria também onde a porta não existe.
+
+## Demo: organização controlada, permissões adequadas
+
+| Proteção | Como |
+|---|---|
+| Desligada por padrão | `Torre:Demonstracao:Habilitada` começa `false` |
+| Ausente quando desligada | `POST /api/demonstracao/sessao` responde **404**, não 403 |
+| Não vaza o alvo | desligada, a oferta não diz qual organização seria usada |
+| Privilégio mínimo | o servidor **recusa** abrir a sessão se a conta for administradora |
+| Origem conhecida | mesmo filtro do login humano; nenhuma exceção aberta |
+| Limite de requisições | a mesma política do login |
+
+Privilégio mínimo aqui não é recomendação em documento: o teste entra pela porta e confere que a sessão
+abre a operação e recebe **403** em integrações e na criação de conta.
+
+## Pausar · retomar · reiniciar: não implementados
+
+O ROADMAP diz "pode haver". Não há, e a razão é arquitetural: o simulador é processo externo
+([ADR 0006](./docs/adr/0006-simulador-externo.md)). Para a API pausá-lo, ela precisaria de um canal de
+controle sobre ele, invertendo a dependência que aquela ADR estabeleceu — o simulador é cliente da API,
+não subordinado dela.
+
+O que existe no lugar é **encenar de novo**: a mesma semente conta a mesma história (Fase 23).
+
+## Refinos
+
+Medidos antes de mexer, e só onde havia lacuna:
+
+| Item | Situação |
+|---|---|
+| Empty states, loading, erros | ✅ já existiam: componente `Estado` desde a Fase 18 |
+| Reconnect e indicador offline | ✅ já existiam: console (Fase 18) e PWA (Fases 11–13) |
+| **Foco visível** | ⚠️ **corrigido**: 0 regras de foco no console e no rastreamento; `:focus-visible` acrescentado |
+| **Tabela em tela estreita** | ⚠️ **corrigido**: a tabela densa rola na horizontal dentro da seção, em vez de esconder coluna — esconder tiraria do operador justamente o dado que ele foi buscar |
+| Responsividade geral | ✅ o console já colapsava a 900px; os recortes usam `auto-fit` |
+| Animação e movimento | ✅ **zero** animações no projeto inteiro, então `prefers-reduced-motion` não tem o que desligar |
+| `lang` e título | ✅ `pt-BR` e título próprio nas três aplicações |
+| Consistência visual | ✅ variáveis de cor compartilhadas; a Fase 18 fixou a direção |
+
+## Screenshots planejadas
+
+As sete estão planejadas em [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md), com o que
+precisa estar na tela, como preparar o palco e as regras (sem dado real, sem token na barra, viewport
+declarado, estado cheio).
+
+**Não foram capturadas neste commit**: exigem os três frontends e a API no ar simultaneamente com o
+simulador encenando, e o ambiente público é decisão da Fase 25. Capturas de um ambiente local meio montado
+envelheceriam e divergiriam do que o visitante vê ao clicar no botão — que é pior que não tê-las.
+
+## Critério de aceite
+
+> Produto deve parecer operação real sem depender de explicação externa.
+
+✅ O visitante chega sem credencial, clica em **Explorar demonstração** e cai numa operação acontecendo:
+mapa com motoristas e destinos, entregas com previsão explicada, alertas com evidência, indicadores com a
+definição ao lado do número. Não há cadastro, não há tour, não há texto pedindo para imaginar. O que falta
+para a frase ficar completa é o ambiente público — Fase 25.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` — classes desta fase | 4 | ✅ |
+| `TorreLogistica.IntegrationTests` — `AutorizacaoTestes` (enumera todas as rotas) | 221 | ✅ |
+| `TorreLogistica.IntegrationTests` — suíte completa | **não concluída nesta rodada** | ⚠️ |
+| Frontend — `operacao` | 38 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Executado e verde** | **1.053** | **✅** |
+
+`npm run verificar` sem erro; solução .NET com 0 aviso e 0 erro; formatação verificada.
+
+> **A execução completa da suíte de integração ficou pendente.** Ela foi interrompida pelo sistema por
+> falta de memória da máquina — não por falha de teste, e nada nela indica defeito. O que a fase mexeu
+> está coberto: as quatro provas novas passaram, e `AutorizacaoTestes`, que enumera **todas** as rotas e
+> reprova qualquer uma sem política declarada, passou com 221. A rodada completa precisa ser refeita antes
+> de considerar a regressão verificada.
+
+## Security Gate 24
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Nenhuma credencial no repositório | ✅ `Senha` vazia no `.env.example`; a porta não abre sem ela |
+| A senha não sai do servidor | ✅ a resposta traz sessão, nunca credencial |
+| Privilégio mínimo é exigido | ✅ conta administrativa recusada, com teste |
+| Porta ausente em ambiente comercial | ✅ desligada por padrão; 404 quando desligada |
+| Defesa de CSRF preservada | ✅ mesmo filtro de origem do login |
+| Limite de requisições | ✅ política do login aplicada às duas rotas |
+| A resposta não ensina o contrato | ✅ desligada, não revela a organização; 404 em vez de 403 |
+| Matriz de autorização | ✅ as duas rotas declaradas como anônimas, com o motivo |
+
+## Decisões
+
+[ADR 0033](./docs/adr/0033-entrada-da-demonstracao.md).
+
+- **O servidor faz o login pelo visitante**, e a sessão é comum.
+- **Desligada por padrão e ausente quando desligada** — 404, não 403.
+- **Conta administrativa é recusada**: erro de configuração vira indisponibilidade, não exposição.
+- **Quem decide sobre o botão é a API**, não uma variável de build.
+- **Pausar e retomar não existem**: dariam à API controle sobre o simulador, invertendo a ADR 0006.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Capturas de tela | planejadas; exigem ambiente público (Fase 25) |
+| Vídeo curto de demonstração | Fase 26, pelo mesmo motivo |
+| Acúmulo de encenações | a saída provável é desativar a organização antiga, não apagar linha |
+| Auditoria automatizada de acessibilidade | não há ferramenta no projeto; o que foi feito veio de inspeção dirigida, não de varredura |
+| Entrada de demonstração na PWA do motorista | o botão hoje é só do console; a PWA exige uma conta de motorista vinculada a uma rota em andamento |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: entrada de demonstracao com privilegio minimo e refinos de ux (Fase 24)`
 
 ---
 

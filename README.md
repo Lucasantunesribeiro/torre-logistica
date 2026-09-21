@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 23 — Simulador e Seed Narrativo concluída.**
+> **Estado: Fase 24 — UX Final e Modo Demonstração concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -35,8 +35,10 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > sozinha**: o simulador encena seis histórias contra a API real — entrega no prazo, risco de atraso,
 > motorista que some do mapa, porta fechada, chegada detectada pelo geofence e prova de entrega — sem
 > tocar no banco, e a mesma semente conta a mesma história. O guia está em
-> [`docs/operacao/simulador.md`](./docs/operacao/simulador.md). A ordem está em
-> [`ROADMAP.md`](./ROADMAP.md).
+> [`docs/operacao/simulador.md`](./docs/operacao/simulador.md). E agora existe **porta de entrada**: quem
+> chega sem credencial clica em *Explorar demonstração* e cai numa operação acontecendo — o servidor faz o
+> login pelo visitante, com conta de privilégio mínimo, e a porta simplesmente não existe num ambiente
+> comercial. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -110,7 +112,7 @@ npm run verificar                                             # frontend
 | Unidade | 695 |
 | Arquitetura | 22 |
 | Integração (PostgreSQL + PostGIS real) | 544 |
-| Frontend (3 aplicações) | 127 |
+| Frontend (3 aplicações) | 131 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
@@ -156,6 +158,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0030](./docs/adr/0030-observabilidade.md) | Observabilidade: OTLP sem fornecedor, rastro que atravessa a fila e medidas de estado fotografadas |
 | [0031](./docs/adr/0031-performance-e-resiliencia.md) | Não particionar `posicoes`: a medição não justificou, e o gatilho para rever ficou registrado |
 | [0032](./docs/adr/0032-roteiro-da-demonstracao.md) | Demonstração: semente para a narrativa, carimbo para a identidade, e o servidor como protagonista |
+| [0033](./docs/adr/0033-entrada-da-demonstracao.md) | Entrada da demonstração: o servidor faz o login pelo visitante, com privilégio mínimo |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -167,6 +170,7 @@ a ser desfeita por acidente.
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
 - [`docs/operacao/simulador.md`](./docs/operacao/simulador.md) — o simulador e as seis histórias
+- [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md) — plano das sete capturas
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos

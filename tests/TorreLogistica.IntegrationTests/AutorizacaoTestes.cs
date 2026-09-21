@@ -186,6 +186,12 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["* /health/live"] = "anonimo",
             ["* /health/ready"] = "anonimo",
             ["POST /api/autenticacao/login"] = "anonimo",
+
+            // A demonstração é anônima por definição: é a porta para quem chega sem credencial. O que a
+            // protege é a configuração desligada por padrão, a origem confiável e o privilégio mínimo da
+            // conta — nada disso aparece como política de autorização.
+            ["GET /api/demonstracao/"] = "anonimo",
+            ["POST /api/demonstracao/sessao"] = "anonimo",
             ["POST /api/autenticacao/renovar"] = "anonimo",
             ["POST /api/autenticacao/sair"] = "anonimo",
             ["GET /api/autenticacao/eu"] = "console",

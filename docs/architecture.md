@@ -831,6 +831,29 @@ Simulator → HTTP autenticado → API real → máquina de estados → banco
 Guia em [`operacao/simulador.md`](./operacao/simulador.md); decisões em
 [ADR 0032](./adr/0032-roteiro-da-demonstracao.md).
 
+## Fase 24 — A porta da demonstração
+
+```text
+GET  /api/demonstracao          há demonstração aqui? (anônimo)
+POST /api/demonstracao/sessao   o servidor faz o login pelo visitante
+```
+
+| Peça | Regra |
+|---|---|
+| Sessão | comum: mesmo token curto, mesmo cookie rotativo, mesmas regras — sem caminho paralelo de autenticação |
+| Padrão | desligada; num ambiente comercial a porta **não existe** |
+| Ausência | 404, não 403 — "existe mas você não pode" já é informação |
+| Alvo | desligada, a oferta não revela qual organização seria usada |
+| Privilégio | conta administrativa é **recusada**; erro de configuração vira indisponibilidade |
+| Origem | mesmo filtro de origem confiável do login humano |
+| Quem decide o botão | a API, não uma variável de build: o pacote publicado é o mesmo em todo lugar |
+
+Pausar e retomar a simulação **não existem**: dariam à API controle sobre o simulador, invertendo a
+dependência da [ADR 0006](./adr/0006-simulador-externo.md).
+
+Decisões em [ADR 0033](./adr/0033-entrada-da-demonstracao.md); capturas planejadas em
+[`operacao/screenshots.md`](./operacao/screenshots.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem

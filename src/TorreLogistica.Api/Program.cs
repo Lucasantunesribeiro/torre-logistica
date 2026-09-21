@@ -10,6 +10,7 @@ using TorreLogistica.Api.Autenticacao;
 using TorreLogistica.Api.Cadastros;
 using TorreLogistica.Api.Comprovantes;
 using TorreLogistica.Api.Correlacao;
+using TorreLogistica.Api.Demonstracao;
 using TorreLogistica.Api.Diagnostico;
 using TorreLogistica.Api.Entregas;
 using TorreLogistica.Api.Erros;
@@ -146,6 +147,12 @@ try
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
     construtor.Services.AdicionarWebhooks(construtor.Configuration);
     construtor.Services.AdicionarRetencao(construtor.Configuration);
+    construtor.Services
+        .AddOptions<OpcoesDeDemonstracao>()
+        .Bind(construtor.Configuration.GetSection(OpcoesDeDemonstracao.Secao))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
+
     construtor.Services.AdicionarObservabilidade(construtor.Configuration);
     construtor.Services.AdicionarMedidasDaOperacao(construtor.Configuration);
 
@@ -220,6 +227,7 @@ try
     aplicacao.MapearEndpointsDeWebhooks();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeIndicadores();
+    aplicacao.MapearEndpointsDeDemonstracao();
     aplicacao.MapearEndpointsDeOcorrencias();
     aplicacao.MapearEndpointsDeComprovantes();
     aplicacao.MapearEndpointsDeArquivos();

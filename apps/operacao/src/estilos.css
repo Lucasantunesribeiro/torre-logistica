@@ -139,3 +139,35 @@ button:disabled {
   gap: 1rem;
   margin-top: 1.5rem;
 }
+
+/* Entrada da demonstração: separada do formulário por uma linha, e não por cor — quem chega
+   procurando o botão o encontra, e quem tem credencial não é empurrado para ele. */
+.demonstracao {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--borda);
+}
+
+.demonstracao__convite {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  color: var(--tinta-fraca);
+}
+
+.demonstracao__botao {
+  width: 100%;
+}
+
+.demonstracao__ressalva {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--tinta-fraca);
+}
+
+/* Foco sempre visível: quem navega por teclado precisa saber onde está, e o contorno
+   padrão do navegador some quando o botão tem fundo próprio. */
+:focus-visible {
+  outline: 2px solid var(--destaque, #2563eb);
+  outline-offset: 2px;
+}

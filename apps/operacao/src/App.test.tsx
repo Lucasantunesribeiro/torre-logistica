@@ -490,3 +490,67 @@ describe('Indicadores', () => {
     });
   });
 });
+
+describe('Entrada da demonstração', () => {
+  const OFERTA = { habilitada: true, convite: 'Entre como operador numa transportadora fictícia.' };
+
+  it('sem demonstração no ambiente, o botão não aparece', async () => {
+    servidor({
+      '/health/ready': prontidao,
+      '/api/autenticacao/renovar': semSessao,
+      '/api/demonstracao': () => json({ habilitada: false, convite: null }),
+    });
+
+    await montar('/');
+    await screen.findByRole('heading', { level: 2, name: 'Entrar no console' });
+
+    expect(screen.queryByRole('button', { name: 'Explorar demonstração' })).toBeNull();
+  });
+
+  it('com demonstração, o botão aparece com o convite e a ressalva', async () => {
+    servidor({
+      '/health/ready': prontidao,
+      '/api/autenticacao/renovar': semSessao,
+      '/api/demonstracao': () => json(OFERTA),
+    });
+
+    await montar('/');
+
+    expect(await screen.findByRole('button', { name: 'Explorar demonstração' })).toBeVisible();
+    expect(screen.getByText(OFERTA.convite)).toBeVisible();
+    expect(screen.getByText(/não administra a organização/)).toBeVisible();
+  });
+
+  it('o botão abre a sessão e leva ao console, sem pedir senha', async () => {
+    const chamadas = servidor({
+      ...painel,
+      '/api/autenticacao/renovar': semSessao,
+      '/api/demonstracao': () => json(OFERTA),
+      '/api/demonstracao/sessao': () => json(SESSAO),
+    });
+
+    await montar('/');
+    fireEvent.click(await screen.findByRole('button', { name: 'Explorar demonstração' }));
+
+    expect(await screen.findByText('Paula Siqueira')).toBeVisible();
+    expect(
+      chamadas.mock.calls.some(([entrada]) => urlDe(entrada).endsWith('/api/demonstracao/sessao')),
+    ).toBe(true);
+  });
+
+  it('falha na demonstração vira mensagem, não tela quebrada', async () => {
+    servidor({
+      '/health/ready': prontidao,
+      '/api/autenticacao/renovar': semSessao,
+      '/api/demonstracao': () => json(OFERTA),
+      '/api/demonstracao/sessao': () => json({ codigo: 'nao_encontrado' }, 404),
+    });
+
+    await montar('/');
+    fireEvent.click(await screen.findByRole('button', { name: 'Explorar demonstração' }));
+
+    expect(await screen.findByRole('alert')).toBeVisible();
+    // A tela de login continua de pé para quem tem credencial.
+    expect(screen.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  });
+});

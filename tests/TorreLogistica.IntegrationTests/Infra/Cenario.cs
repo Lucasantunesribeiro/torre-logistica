@@ -69,6 +69,36 @@ public sealed class Cenario(ContainerPostgis banco)
         return new OrganizacaoDeTeste(organizacao.Id, slug, contas);
     }
 
+    /// <summary>
+    /// Cria organização e conta com identidade conhecida de antemão.
+    /// </summary>
+    /// <remarks>
+    /// Existe para o teste da demonstração: a configuração da API precisa apontar slug e e-mail antes de
+    /// o servidor subir, e os valores sorteados só existiriam depois.
+    /// </remarks>
+    public async Task<ContaDeTeste> CriarContaComIdentidadeAsync(string slug, string email, Perfil perfil)
+    {
+        var agora = DateTimeOffset.UtcNow;
+        var organizacao = Organizacao.Criar(Guid.CreateVersion7(), $"Organização {slug}", slug, agora);
+
+        await using var contexto = banco.CriarContexto(new ContextoDeTenantAusente());
+        contexto.Organizacoes.Add(organizacao);
+
+        var usuario = Usuario.Criar(
+            Guid.CreateVersion7(),
+            organizacao.Id,
+            $"{perfil} da demonstração",
+            EnderecoDeEmail.Criar(email),
+            HashPadrao.Value,
+            perfil,
+            agora);
+
+        contexto.Usuarios.Add(usuario);
+        await contexto.SaveChangesAsync();
+
+        return new ContaDeTeste(usuario.Id, organizacao.Id, slug, email, SenhaPadrao, perfil);
+    }
+
     /// <summary>Desativa uma conta direto no banco, para preparar cenário de conta inativa.</summary>
     public Task DesativarDiretamenteAsync(Guid usuarioId) =>
         banco.ExecutarAsync("UPDATE usuarios SET ativo = false WHERE id = @id", ("id", usuarioId));

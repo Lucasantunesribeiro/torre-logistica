@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 
-import { ErroDeApi } from '../infra/sessao';
+import { ErroDeApi, consultarDemonstracao, entrarNaDemonstracao } from '../infra/sessao';
+import type { OfertaDeDemonstracao } from '../infra/sessao';
 import { useSessao } from '../sessao/ProvedorDeSessao';
 
 /*
@@ -35,6 +36,21 @@ export function Entrar() {
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [demonstracao, setDemonstracao] = useState<OfertaDeDemonstracao | null>(null);
+
+  useEffect(() => {
+    let ativo = true;
+
+    void consultarDemonstracao().then((oferta) => {
+      if (ativo) {
+        setDemonstracao(oferta);
+      }
+    });
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   const destino = (local.state as { de?: unknown } | null)?.de;
   const voltarPara = typeof destino === 'string' && destino.startsWith('/') ? destino : '/';
@@ -55,6 +71,20 @@ export function Entrar() {
       setErro(mensagemDoErro(falha));
       // A senha errada não fica no campo esperando a próxima tentativa.
       setSenha('');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function explorar() {
+    setEnviando(true);
+    setErro(null);
+
+    try {
+      await entrarNaDemonstracao();
+      void navegar(voltarPara, { replace: true });
+    } catch (falha) {
+      setErro(mensagemDoErro(falha));
     } finally {
       setEnviando(false);
     }
@@ -120,6 +150,26 @@ export function Entrar() {
           {enviando ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
+
+      {demonstracao?.habilitada ? (
+        <div className="demonstracao">
+          <p className="demonstracao__convite">{demonstracao.convite}</p>
+          <button
+            type="button"
+            className="demonstracao__botao"
+            disabled={enviando}
+            onClick={() => {
+              void explorar();
+            }}
+          >
+            Explorar demonstração
+          </button>
+          <p className="demonstracao__ressalva">
+            Dados fictícios. A conta de demonstração vê a operação e opera entregas, mas não administra a
+            organização.
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }
