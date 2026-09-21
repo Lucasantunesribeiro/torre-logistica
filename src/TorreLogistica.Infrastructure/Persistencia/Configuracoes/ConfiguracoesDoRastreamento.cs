@@ -39,6 +39,10 @@ internal sealed class PosicaoDoMotoristaConfiguracao : IEntityTypeConfiguration<
 
         // O acesso ao histórico é sempre por motorista e período de captura.
         builder.HasIndex(posicao => new { posicao.MotoristaId, posicao.CapturadaEm });
+
+        // Limpeza por retenção: o corte é pelo recebimento, e o índice deixa a varredura começar
+        // exatamente na linha mais velha em vez de percorrer a tabela inteira a cada lote.
+        builder.HasIndex(posicao => posicao.RecebidaEm).HasDatabaseName("ix_posicoes_recebida_em");
     }
 }
 

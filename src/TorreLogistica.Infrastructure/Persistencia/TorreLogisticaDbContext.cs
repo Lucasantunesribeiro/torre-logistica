@@ -696,6 +696,25 @@ public class TorreLogisticaDbContext(
             .ConfigureAwait(false);
 
     /// <inheritdoc />
+    public Task<int> RemoverPosicoesRecebidasAntesAsync(
+        DateTimeOffset corte,
+        int limite,
+        CancellationToken cancelamento) =>
+        // O ctid identifica a linha física e evita o segundo acesso à tabela que um DELETE por id faria.
+        // O filtro é o mesmo do índice de recebimento, então o lote sai do começo do índice a cada giro.
+        Database.ExecuteSqlAsync(
+            $"""
+             DELETE FROM posicoes
+             WHERE ctid IN (
+                 SELECT ctid FROM posicoes
+                 WHERE recebida_em < {corte}
+                 ORDER BY recebida_em
+                 LIMIT {limite}
+             )
+             """,
+            cancelamento);
+
+    /// <inheritdoc />
     public Task BloquearSessaoAsync(Guid sessaoId, CancellationToken cancelamento) =>
         Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM sessoes WHERE id = {sessaoId} FOR UPDATE",

@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 19 — Indicadores e Analytics concluída.**
+> **Estado: Fase 20 — Segurança e Privacidade concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -21,7 +21,12 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > operacionais**: pontualidade, sucesso na primeira tentativa, atraso médio, tempo por parada e tempo em
 > rota, com os recortes por motorista, cliente, rota e motivo — cada número acompanhado da pergunta que
 > responde e da definição de como foi calculado, e vazio quando não há base, porque "0%" e "não houve
-> entrega" são fatos opostos. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> entrega" são fatos opostos. E agora o **prazo de validade do rastro**: a localização bruta deixa de ser
+> guardada para sempre — prazo configurável, corte pelo instante em que o servidor recebeu (não pelo
+> relógio do aparelho), limpeza em lotes que não segura o banco, e a posição atual preservada, porque
+> apagar o caminho percorrido não pode cegar a torre. O modelo de segurança inteiro, com o que ainda **não**
+> está coberto, está em [`docs/security-model.md`](./docs/security-model.md). A ordem está em
+> [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -94,7 +99,7 @@ npm run verificar                                             # frontend
 |---|:---:|
 | Unidade | 695 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 530 |
+| Integração (PostgreSQL + PostGIS real) | 536 |
 | Frontend (3 aplicações) | 127 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -137,6 +142,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0026](./docs/adr/0026-webhooks-e-backbone-assincrono.md) | Webhooks: outbox transacional, fila no PostgreSQL e desistência visível |
 | [0027](./docs/adr/0027-console-operacional-e-mapa.md) | Console operacional: densidade sobre ornamento, e mapa sem fornecedor obrigatório |
 | [0028](./docs/adr/0028-indicadores-operacionais.md) | Indicadores: agregação direta com índices, definição junto do número e vazio que não vira zero |
+| [0029](./docs/adr/0029-retencao-de-localizacao.md) | Retenção de localização: prazo configurável, corte pelo recebimento e limpeza em lotes |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -147,6 +153,7 @@ a ser desfeita por acidente.
 - [`ROADMAP.md`](./ROADMAP.md) — fases, critérios de aceite e Security Gates
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
+- [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
 - [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 

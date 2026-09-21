@@ -3819,9 +3819,137 @@ Criar política técnica para GPS bruto.
 
 Não precisa implementar multi-tier archive complexo, mas deve existir mecanismo configurável de limpeza.
 
-## Critérios de aceite
+## O que esta fase construiu
 
-Produzir documento `docs/security-model.md`.
+A maior parte do escopo desta fase já existia — cada fase anterior tinha o próprio Security Gate, e é por
+isso que o hardening não virou uma reescrita no fim. O que faltava, e foi feito aqui:
+
+| Entregável | Arquivo |
+|---|---|
+| Política de retenção de GPS, configurável | `src/TorreLogistica.Application/Retencao/LimpezaPorRetencao.cs` |
+| Limpeza em segundo plano | `src/TorreLogistica.Infrastructure/Retencao/ProcessamentoDeRetencao.cs` |
+| Exclusão em lote e índice de recebimento | migration `RetencaoDeLocalizacao` |
+| Prova de que segredo e coordenada não entram em log | `tests/TorreLogistica.IntegrationTests/RedacaoDeLogTestes.cs` |
+| **Documento do modelo de segurança** | `docs/security-model.md` |
+
+Nenhuma dependência nova, nenhum serviço novo, nenhum recurso pago.
+
+## Escopo: onde cada item está provado
+
+| Item | Situação | Onde |
+|---|:---:|---|
+| RBAC completo | ✅ | `AutorizacaoTestes`: matriz perfil × rota conferida contra o roteamento real |
+| Tenant isolation | ✅ | `IsolamentoEntreTenantsTestes` + caso próprio em cada fase |
+| CSRF | ✅ | cookie `SameSite` restrito e `Origin` exigido na renovação |
+| CORS | ✅ | `SegurancaDeBordaTestes`: origem desconhecida não passa nem no preflight |
+| CSP · HSTS · nosniff · framing · referrer | ✅ | `MiddlewareDeCabecalhosDeSeguranca`, cobertos por teste parametrizado |
+| Rate limiting | ✅ | seis políticas por superfície; telemetria não usa a política de login |
+| Upload security | ✅ | tipo por lista fechada, extensão derivada do tipo, teto de 5 MB, chave do servidor |
+| Signed URLs | ✅ | URL de curta duração, 403 uniforme para ausente, inválida e expirada |
+| Tracking tokens | ✅ | token forte, banco guarda só o SHA-256, resposta neutra |
+| Secret hygiene | ✅ | hook local + varredura do histórico completo na CI |
+| **Log redaction** | ✅ **novo** | `RedacaoDeLogTestes`: token público, chave de integração, segredo de webhook, sessão e coordenada |
+| Session hardening | ✅ | token curto, renovação rotativa, detecção de reuso, revogação de família |
+| Webhook signature | ✅ | HMAC-SHA256 com carimbo e tolerância de 5 min; segredo cifrado em repouso |
+| Integration credentials | ✅ | chave em duas partes, conferida em tempo constante, mostrada uma vez |
+| Brute force | ✅ | 5 falhas → bloqueio de 15 min; resposta e custo de hash iguais para conta inexistente |
+
+## Privacidade de localização
+
+As sete perguntas da fase estão respondidas na seção 7 de `docs/security-model.md`:
+
+| Pergunta | Resposta |
+|---|---|
+| Quando pode coletar | motorista autenticado, primeiro plano, rota em andamento |
+| Retenção | 30 dias no histórico bruto, configurável, com piso de 1 dia |
+| Finalidade | operar a entrega em curso — mapa, geofence, previsão, motorista offline |
+| Acesso | posição atual na leitura; histórico só na gestão, por período limitado |
+| Minimização | coordenada, precisão, tempos e sequência; sem bateria, rede ou identificador de aparelho |
+| Fora da jornada | não há coleta em segundo plano; sem rota, a posição não é associada |
+| Localização pública aproximada | grade de 0,01° (≈1,1 km), só a caminho, nunca com captura acima de 15 min |
+
+## Retenção
+
+| Chave | Padrão |
+|---|---|
+| `Torre:Retencao:PosicoesBrutas` | 30 dias (piso de 1 dia) |
+| `Torre:Retencao:Intervalo` | 6 horas |
+| `Torre:Retencao:TamanhoDoLote` | 5.000 |
+| `Torre:Retencao:LotesPorRodada` | 20 |
+| `Torre:Retencao:LimparEmSegundoPlano` | ligado |
+
+Métrica `retention.positions.deleted`. Decisões em [ADR 0029](./docs/adr/0029-retencao-de-localizacao.md).
+
+## Critério de aceite
+
+> Produzir documento `docs/security-model.md`.
+
+✅ Produzido, com quinze seções: ativos e adversários, autoridades, isolamento, sessão, borda HTTP,
+limites, localização (coleta, finalidade, minimização, acesso, retenção), rastreamento público,
+comprovantes, integrações e webhooks, segredos, logs, auditoria, **o que ainda não está coberto** e os
+princípios que decidem os casos novos. Cada seção termina apontando o teste que a sustenta — afirmação de
+segurança sem teste com nome se desfaz na primeira refatoração.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 536 | ✅ |
+| Frontend — `operacao` | 34 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.380** | **✅** |
+
+`npm run verificar` sem erro; solução .NET com 0 aviso e 0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| **Opção de desligar serviço de fundo não tinha efeito** | a limpeza apagou as posições de um teste que a dava por desligada | o registro decidia ligar o `BackgroundService` lendo a configuração **no momento do registro**, quando a configuração do host ainda não está completa: a chave chegava depois e era ignorada em silêncio. A decisão passou para o início do `ExecuteAsync`, via `IOptions`. O mesmo padrão estava no processador de webhooks desde a Fase 17 — `Torre:Webhooks:ProcessarEmSegundoPlano` também era inócuo — e foi corrigido junto |
+
+## Security Gate 20
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Retenção não apaga o que sustenta a operação | ✅ | posição atual e eventos operacionais sobrevivem ao expurgo, com teste |
+| Retenção não depende do relógio do cliente | ✅ | corte pelo recebimento, carimbado pelo servidor |
+| Configuração errada não vira perda de dado | ✅ | piso de 1 dia, com teste |
+| Limpeza não segura o banco | ✅ | lote de 5.000 com teto por rodada e aviso quando sobra |
+| Segredo não entra em log | ✅ | `RedacaoDeLogTestes`, sobre os cinco fluxos que emitem segredo |
+| Localização não entra em log | ✅ | coordenada ausente do texto registrado, com teste |
+| Serviço de fundo desligável de verdade | ✅ | defeito acima, corrigido e usado pela própria suíte |
+| Nenhum controle foi afrouxado | ✅ | nenhuma política, gate ou asserção de fase anterior removida |
+| Custo | ✅ | nada novo |
+
+## Decisões
+
+[ADR 0029](./docs/adr/0029-retencao-de-localizacao.md).
+
+- **Prazo de retenção é configuração**, com piso que protege a operação em curso.
+- **Corte pelo recebimento**, não pela captura: prazo de guarda não é decisão do aparelho.
+- **Só o rastro vence**; posição atual e evento operacional ficam.
+- **Limpeza em lotes com teto**, e aviso quando a rodada não dá conta.
+- **Serviço de fundo lê a própria opção em tempo de execução**, não no registro.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| CSP das aplicações web | depende de como forem servidas; Fase 25 |
+| TLS, WAF e cabeçalhos da hospedagem | Fase 25 |
+| Retenção de comprovantes | o arquivo vive enquanto a entrega existir; prazo próprio é decisão de produto |
+| Retenção de requisições de integração | apagar a marca de idempotência reabre a porta para duplicata; a janela de garantia é decisão de produto |
+| Rotação da chave de criptografia de webhook | hoje é troca manual com reescrita dos segredos |
+| Inspeção do conteúdo do arquivo enviado | o tipo é conferido na autorização; o conteúdo real não é lido depois do upload direto |
+| Pentest | Fase 24 |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: retencao de localizacao e modelo de seguranca documentado (Fase 20)`
 
 ---
 

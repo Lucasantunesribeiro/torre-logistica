@@ -751,6 +751,28 @@ GET /api/indicadores?de=&ate=     agregação do período; sem parâmetro, os ú
 
 Decisões e limitações em [ADR 0028](./adr/0028-indicadores-operacionais.md).
 
+## Fase 20 — Retenção de localização
+
+```text
+Torre:Retencao:PosicoesBrutas      30 dias (piso de 1 dia)
+Torre:Retencao:Intervalo           6 horas
+Torre:Retencao:TamanhoDoLote       5.000 linhas por comando
+Torre:Retencao:LotesPorRodada      20
+```
+
+| Peça | Regra |
+|---|---|
+| Alvo | só `posicoes` — o caminho percorrido; a projeção de posição atual e os eventos operacionais ficam |
+| Corte | pelo **recebimento**, carimbo do servidor; captura é carimbo do aparelho, e aparelho é cliente |
+| Mecânica | `DELETE` por `ctid` em lotes, cada um confirmando sozinho, com teto por rodada e aviso quando sobra |
+| Alcance | atravessa organizações: o prazo é do sistema e a varredura é por idade |
+| Serviço de fundo | sempre registrado; quem decide rodar é ele, lendo `IOptions` — no registro a configuração ainda não está completa |
+| Métrica | `retention.positions.deleted` |
+
+O modelo de segurança completo — autoridades, isolamento, sessão, borda, privacidade de localização e o
+que ainda **não** está coberto — está em [`security-model.md`](./security-model.md), e as decisões desta
+fase em [ADR 0029](./adr/0029-retencao-de-localizacao.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem
@@ -760,8 +782,8 @@ planejado, que o provedor simulado não produz. Não há notificação fora do c
 simulado não sabe de ruas nem de trânsito, e escolher fornecedor tem custo —, nem limiar de SLA por
 organização ou cliente, nem classificação de chegada antes da janela. Não há backplane para mais de uma
 instância. Não há geofence de hub, raio
-configurável por organização nem detecção de salto impossível entre posições. Não há retenção
-automática do histórico nem particionamento, nem exportação das métricas (Fase 21). Não há retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
+configurável por organização nem detecção de salto impossível entre posições. Não há particionamento
+temporal do histórico, nem exportação das métricas (Fase 21). Não há retenção da tabela de operações do aparelho. Não há fuso horário configurado por organização: datas de rota usam
 UTC com um dia de tolerância. Não há tela de cadastro: o console lê a estrutura operacional, mas criar e alterar continua sendo trabalho da API. Não há convite nem conta com acesso a várias organizações — quem precisa de duas
 organizações tem duas contas. Não há localização em segundo plano na PWA: o navegador não garante, e o
 aplicativo avisa o motorista para mantê-lo aberto (ADR 0020).

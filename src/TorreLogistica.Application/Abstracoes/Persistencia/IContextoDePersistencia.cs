@@ -252,6 +252,17 @@ public interface IContextoDePersistencia
     /// <summary>Reserva entregas de webhook prontas para tentativa, travando as linhas até o fim da transação.</summary>
     Task<IReadOnlyList<Guid>> ReservarEntregasDeWebhookAsync(int limite, DateTimeOffset agora, CancellationToken cancelamento);
 
+    /// <summary>
+    /// Apaga do histórico bruto as posições recebidas antes do corte, no máximo <paramref name="limite"/>
+    /// por chamada, e devolve quantas saíram.
+    /// </summary>
+    /// <remarks>
+    /// Em lote por desenho: um <c>DELETE</c> único sobre meses de telemetria seguraria bloqueio e encheria
+    /// o log de transação. Não exige transação aberta — cada lote confirma sozinho, e uma interrupção no
+    /// meio deixa o resto para a próxima rodada em vez de desfazer tudo.
+    /// </remarks>
+    Task<int> RemoverPosicoesRecebidasAntesAsync(DateTimeOffset corte, int limite, CancellationToken cancelamento);
+
     /// <summary>Grava as alterações pendentes.</summary>
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

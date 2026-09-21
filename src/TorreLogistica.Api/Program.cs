@@ -30,6 +30,7 @@ using TorreLogistica.Application.Abstracoes.Identidade;
 using TorreLogistica.Infrastructure;
 using TorreLogistica.Infrastructure.Desenvolvimento;
 using TorreLogistica.Infrastructure.Previsao;
+using TorreLogistica.Infrastructure.Retencao;
 using TorreLogistica.Infrastructure.Webhooks;
 
 // Logger provisório: garante que uma falha durante a própria construção do host
@@ -142,6 +143,7 @@ try
     construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
     construtor.Services.AdicionarWebhooks(construtor.Configuration);
+    construtor.Services.AdicionarRetencao(construtor.Configuration);
 
     var aplicacao = construtor.Build();
 

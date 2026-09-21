@@ -77,6 +77,11 @@ public sealed class FabricaDaApi(
                 // O assinante dos testes é um servidor na própria máquina; sem isto a trava de SSRF o recusa.
                 ["Torre:Webhooks:PermitirDestinoLocal"] = "true",
 
+                // A limpeza por retenção varre por idade e atravessa organizações: uma rodada de fundo
+                // apagaria a telemetria de outro teste no meio da asserção. Os testes de retenção chamam
+                // a limpeza quando querem.
+                ["Torre:Retencao:LimparEmSegundoPlano"] = "false",
+
                 // Storage de objeto em disco, isolado por teste e apagado no fim.
                 ["Torre:Armazenamento:Diretorio"] = DiretorioDoArmazenamento,
                 ["Torre:Armazenamento:EnderecoBase"] = "http://localhost",

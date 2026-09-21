@@ -31,6 +31,13 @@ public sealed class ProcessadorDeWebhooks(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Lido aqui, e não no registro: no registro a configuração do host ainda não está completa, e
+        // desligar o processador por configuração não teria efeito nenhum.
+        if (!opcoes.Value.ProcessarEmSegundoPlano)
+        {
+            return;
+        }
+
         await Task.WhenAll(
             RodarAsync(opcoes.Value.IntervaloDeDespacho, DespacharAsync, "despacho do outbox", stoppingToken),
             RodarAsync(opcoes.Value.IntervaloDeEntrega, EntregarAsync, "entrega de webhooks", stoppingToken))
@@ -117,13 +124,7 @@ public static class ConfiguracaoDeWebhooks
                 ConnectTimeout = TimeSpan.FromSeconds(5),
             });
 
-        var opcoes = new OpcoesDeWebhooks();
-        configuracao.GetSection(OpcoesDeWebhooks.Secao).Bind(opcoes);
-
-        if (opcoes.ProcessarEmSegundoPlano)
-        {
-            servicos.AddHostedService<ProcessadorDeWebhooks>();
-        }
+        servicos.AddHostedService<ProcessadorDeWebhooks>();
 
         return servicos;
     }
