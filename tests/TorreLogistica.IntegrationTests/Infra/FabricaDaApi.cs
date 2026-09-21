@@ -26,6 +26,9 @@ public sealed class FabricaDaApi(
     private static readonly string ChaveDeWebhookDoProcesso =
         Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
+    /// <summary>Nome com que a API de teste se identifica no banco.</summary>
+    public const string NomeDaAplicacao = "torre-api-teste";
+
     /// <summary>Origem que os testes tratam como autorizada.</summary>
     public const string OrigemAutorizada = "https://console.torre.teste";
 
@@ -52,7 +55,11 @@ public sealed class FabricaDaApi(
         {
             var valores = new Dictionary<string, string?>
             {
-                ["Torre:BancoDeDados:CadeiaDeConexao"] = banco.CadeiaDeConexao,
+                // O nome da aplicação identifica as conexões desta API no banco. É o que permite ao
+                // teste de resiliência derrubar só as conexões dela, sem atingir as que a própria suíte
+                // usa para montar cenário — matar tudo faria o teste seguinte falhar por um estrago que
+                // não causou.
+                ["Torre:BancoDeDados:CadeiaDeConexao"] = $"{banco.CadeiaDeConexao};Application Name={NomeDaAplicacao}",
                 ["Torre:BancoDeDados:AplicarMigrationsAoIniciar"] = "false",
                 ["Torre:Cors:OrigensPermitidas:0"] = OrigemAutorizada,
 

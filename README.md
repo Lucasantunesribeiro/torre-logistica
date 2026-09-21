@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 21 — Observabilidade concluída.**
+> **Estado: Fase 22 — Performance e Resiliência concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -28,7 +28,11 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > está coberto, está em [`docs/security-model.md`](./docs/security-model.md). E agora o sistema **se
 > explica**: o rastro nasce na requisição, é gravado junto com o fato, atravessa a fila do outbox e
 > reaparece no webhook que falhou — quem tem o identificador que o cliente recebeu descobre o que
-> aconteceu sem abrir o banco. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> aconteceu sem abrir o banco. E agora o sistema tem **números**: a ingestão sustenta as 33 posições por
+> segundo da meta, o volume de um dia inteiro não a degrada — o que custa é a concorrência —, e o
+> particionamento foi **recusado** porque a medição não o justificou. Os números, o ambiente e os gargalos
+> conhecidos estão em [`docs/performance.md`](./docs/performance.md). A ordem está em
+> [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 
@@ -101,7 +105,7 @@ npm run verificar                                             # frontend
 |---|:---:|
 | Unidade | 695 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 539 |
+| Integração (PostgreSQL + PostGIS real) | 541 |
 | Frontend (3 aplicações) | 127 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -146,6 +150,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0028](./docs/adr/0028-indicadores-operacionais.md) | Indicadores: agregação direta com índices, definição junto do número e vazio que não vira zero |
 | [0029](./docs/adr/0029-retencao-de-localizacao.md) | Retenção de localização: prazo configurável, corte pelo recebimento e limpeza em lotes |
 | [0030](./docs/adr/0030-observabilidade.md) | Observabilidade: OTLP sem fornecedor, rastro que atravessa a fila e medidas de estado fotografadas |
+| [0031](./docs/adr/0031-performance-e-resiliencia.md) | Não particionar `posicoes`: a medição não justificou, e o gatilho para rever ficou registrado |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -157,6 +162,7 @@ a ser desfeita por acidente.
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
+- [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
 - [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 

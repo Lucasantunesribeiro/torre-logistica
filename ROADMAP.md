@@ -4212,9 +4212,144 @@ Avaliar índices e, apenas se justificado por medição:
 
 Não implementar particionamento por estética arquitetural.
 
-## Critérios de aceite
+## Entregável
 
-Criar `docs/performance.md` com números reais e gargalos conhecidos.
+| Peça | Arquivo |
+|---|---|
+| Benchmark de ingestão e de volume | `tests/TorreLogistica.IntegrationTests/CargaDeIngestaoTestes.cs` |
+| Resiliência de banco e de worker | `tests/TorreLogistica.IntegrationTests/ResilienciaTestes.cs` |
+| **Números medidos e gargalos** | `docs/performance.md` |
+
+Nenhuma dependência nova, nenhum serviço novo, nenhum índice novo — a medição não pediu nenhum.
+
+## Cenário de carga
+
+Meta: 500 motoristas a uma posição a cada 15 s ≈ **33 posições/s**. A mesma taxa foi produzida por 60
+motoristas enviando com mais frequência, o que é **conservador**: concentrar a taxa em menos chaves aumenta
+a disputa no `UPSERT` condicional da posição atual, que é onde poderia engasgar.
+
+| Medida | Resultado |
+|---|---|
+| Vazão sustentada | **32,7 /s** |
+| Latência p50 · p95 · p99 | **31,5 ms** · 48,2 ms · **245,3 ms** |
+| Posições recusadas | 0 |
+| Lista do mapa (p50/p95) | 4,0 ms / 4,4 ms |
+| Posição atual (p50/p95) | 2,9 ms / 3,6 ms |
+
+Sob volume de **um dia inteiro** (2.851.200 posições, 1.023 MB):
+
+| Medida | Resultado |
+|---|---|
+| Histórico de um motorista por período | 0,19 ms, usando `ix_posicoes_motorista_id_capturada_em` |
+| Limpeza por retenção (lote de 5.000) | 2,77 ms no plano, **12 ms** no `DELETE` real, usando `ix_posicoes_recebida_em` |
+| Ingestão com a tabela cheia | p50 **9,7 ms** · p95 20,4 ms |
+| Índices | **528 MB** — 52% do peso da tabela |
+
+**O achado principal:** com a tabela 2.880 vezes maior, a ingestão ficou **três vezes mais rápida** (9,7 ms
+contra 31,5 ms). O que custa não é o volume — é a concorrência. Isso muda para onde olhar.
+
+## Testar
+
+| Pedido | Situação |
+|---|---|
+| ingestão GPS | ✅ medida: 32,7/s sustentados, latência por percentil |
+| atualização posição atual | ✅ dentro da mesma requisição medida; `UPSERT` condicional não engasgou com a taxa concentrada |
+| geofence | ✅ avaliado na ingestão medida — faz parte do caminho cronometrado |
+| SignalR | ⚠️ conexões contadas como métrica (Fase 21); latência de aviso sob muitos consoles **não** medida — ver pendências |
+| listagem de mapa | ✅ 4,0 ms p50 sob carga |
+| ETA | ✅ instrumentado desde a Fase 9 (`eta.calculation.duration`); o recálculo roda fora da requisição e não entrou no caminho cronometrado |
+| outbox | ✅ plano medido; a fila esvazia, e por isso o planejador varre em vez de usar índice |
+| banco | ✅ planos com estatísticas atualizadas sob volume de um dia |
+
+## Resiliência
+
+| Pedido | Situação |
+|---|---|
+| DB momentaneamente indisponível | ✅ **novo**: `ConexaoDerrubadaNaoDerrubaAOperacao` |
+| SQS duplicado | ✅ não há SQS (ADR 0026); o equivalente — mensagem repetida — é coberto por `SincronizacaoTestes` |
+| worker restart | ✅ **novo**: `QuedaNoMeioDoDespachoNaoPerdeNemDuplicaEvento` |
+| provider de rota timeout | ✅ `ProvedorQueNaoRespondeNaoSeguraAIngestaoECaiNaContingencia` (Fase 9) |
+| SignalR reconnect | ✅ o console anuncia a queda e continua correto pela API (ADR 0017) |
+| storage falha | ⚠️ o armazenamento é disco local; a falha que importa é a do provedor de objeto, que só existe na Fase 25 |
+| webhook indisponível | ✅ `AssinanteQuebradoEhRetentadoEDepoisDesisteDeFormaVisivel` (Fase 17) |
+
+## Banco: particionamento **não** implementado
+
+O ROADMAP autoriza particionar `posicoes` apenas se a medição justificar. Ela não justifica: histórico em
+0,19 ms e limpeza em 12 ms por lote, com um dia de volume. O custo que a medição **de fato** achou é outro —
+528 MB de índice por dia — e particionar não o resolveria, só o distribuiria.
+
+Gatilho registrado para rever: se a limpeza passar a não acompanhar a entrada (o aviso *rodada encerrada no
+teto de lotes*), particionar passa a valer, porque aí o expurgo vira `DROP PARTITION`.
+
+## Critério de aceite
+
+> Criar `docs/performance.md` com números reais e gargalos conhecidos.
+
+✅ Criado, com o ambiente declarado (Ryzen 7 5700X3D, 32 GB, PostgreSQL em WSL2 com 7,8 GB), o comando para
+reproduzir, os números das duas medições, os planos de consulta com os índices escolhidos, a decisão sobre
+particionamento, quatro gargalos conhecidos em ordem de peso e uma seção do que **não** foi medido.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 541 + 2 sob demanda | ✅ |
+| Frontend — `operacao` | 34 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.385** | **✅** |
+
+Os 2 benchmarks aparecem como pulados na suíte padrão — é por desenho, e o motivo está no ADR: benchmark
+sob contenção mede errado. Eles rodaram, e os números deste documento vieram deles.
+
+`npm run verificar` sem erro; solução .NET com 0 aviso e 0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| **Teste de resiliência derrubava o teste seguinte** | rodando a classe, o segundo teste falhava ao montar o próprio cenário | matar conexões atingia o banco inteiro, e o pool do Npgsql é global por cadeia de conexão: as conexões mortas ficavam para quem viesse depois. A API de teste passou a se identificar por `Application Name`, e a queda agora atinge só as conexões dela |
+| Medição enganosa de plano | os primeiros planos mostravam `Seq Scan` em tudo | com mil linhas o planejador varre porque é mais barato, e o número não diz nada sobre escala. A medição passou a semear um dia de volume, distribuído pela frota, com `ANALYZE` antes e plano medido a quente |
+| Resumo de plano escondia o índice | o plano do histórico aparecia usando `pk_motoristas` | o resumo descia só pelo primeiro filho, que numa consulta com subconsulta é justamente o ramo errado; passou a percorrer a árvore inteira e listar todos os índices usados |
+
+## Security Gate 22
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| O benchmark não afrouxa política | ✅ reprova se qualquer posição for recusada; nenhum limite foi elevado para a medição passar |
+| Semeadura não burla o domínio | ✅ o SQL semeia só histórico de GPS, que é dado derivado; toda posição medida entrou pela API real |
+| Sem dado pessoal na medição | ✅ coordenadas sintéticas; o relatório não traz identificador de pessoa |
+| Teste destrutivo é contido | ✅ a queda atinge só as conexões da API de teste, identificadas por nome |
+| Nenhum controle removido | ✅ nenhuma política, gate ou asserção de fase anterior foi alterada |
+| Custo | ✅ nada novo; o benchmark roda no contêiner que a suíte já usa |
+
+## Decisões
+
+[ADR 0031](./docs/adr/0031-performance-e-resiliencia.md).
+
+- **Não particionar `posicoes`**, com gatilho registrado para rever.
+- **Não retentar `57P01`**: repetir escrita sozinho custa mais que um erro isolado em reinício planejado.
+- **Benchmark desligado por padrão**, porque sob contenção ele mede errado.
+- **Carga concentrada em menos motoristas**, que é o cenário mais difícil, não o mais fácil.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| p99 de 245 ms sob concorrência | gargalo número um; investigar exige as métricas de runtime contra um coletor, o que depende da Fase 25 |
+| Índice ocupa metade da tabela | cinco índices, cada um com caso de uso real; cortar exige dado de uso, não opinião |
+| Primeira operação após queda do banco falha | limitação aceita e documentada |
+| Medição sem latência de rede | aplicação e banco na mesma máquina; o número real sai na Fase 25 |
+| SignalR sob carga | exige múltiplos clientes reais; o ganho não justificou o custo nesta fase |
+| Storage sob falha | o provedor de objeto só existe a partir da Fase 25 |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: carga medida, resiliencia provada e decisao de nao particionar (Fase 22)`
 
 ---
 

@@ -793,6 +793,24 @@ HTTP → domínio → outbox (coluna rastro) → despachante → webhook
 
 Decisões e limitações em [ADR 0030](./adr/0030-observabilidade.md).
 
+## Fase 22 — O que a medição decidiu
+
+```text
+33 posições/s sustentadas · p50 31,5 ms · p99 245 ms (concorrência, não volume)
+2,85 M posições (um dia) · 1.023 MB, dos quais 528 MB de índice
+histórico por motorista: 0,19 ms · limpeza de 5.000: 12 ms
+```
+
+| Decisão | Por quê |
+|---|---|
+| `posicoes` **não** é particionada | com um dia de volume, consulta e limpeza usam índice e respondem em milissegundos; particionar não resolveria o custo que a medição achou, que é o peso dos índices |
+| Gatilho para rever | o aviso *rodada encerrada no teto de lotes* da retenção: aí o expurgo passaria a valer como `DROP PARTITION` |
+| `57P01` não é retentado | o provedor não o classifica como transitório, e repetir escrita sozinho custa mais que um erro isolado num reinício planejado |
+| O benchmark fica desligado | sob contenção com a suíte, ele mede errado e vira teste instável |
+
+Números, ambiente e gargalos em [`performance.md`](./performance.md); decisões em
+[ADR 0031](./adr/0031-performance-e-resiliencia.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem
