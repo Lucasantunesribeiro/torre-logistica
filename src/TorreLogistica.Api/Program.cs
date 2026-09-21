@@ -147,6 +147,11 @@ try
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
     construtor.Services.AdicionarWebhooks(construtor.Configuration);
     construtor.Services.AdicionarRetencao(construtor.Configuration);
+
+    // Nenhum "AdicionarProcessamentoDe..." aqui, e a ausência é a decisão: os laços de fundo — outbox,
+    // reavaliação de previsão, alertas, retenção e medidas — rodam em TorreLogistica.Workers, num
+    // processo próprio. A API registra as dependências porque lê o que eles produzem; hospedá-los
+    // amarraria o número de réplicas da borda ao trabalho que não depende de requisição nenhuma.
     construtor.Services
         .AddOptions<OpcoesDeDemonstracao>()
         .Bind(construtor.Configuration.GetSection(OpcoesDeDemonstracao.Secao))

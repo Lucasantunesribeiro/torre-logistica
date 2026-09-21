@@ -32,6 +32,9 @@ param senhaDoBanco string
 @description('Imagem da API, já publicada num registro acessível.')
 param imagemDaApi string
 
+@description('Imagem do processo de trabalho, já publicada num registro acessível.')
+param imagemDosWorkers string
+
 @description('Origens que o console e a PWA usam, separadas por vírgula.')
 param origensPermitidas string
 
@@ -230,11 +233,67 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        // Mínimo de 1, e este é o ponto do gate de arquitetura: com zero réplicas o processo dorme, e
-        // com ele dormem a avaliação de SLA, o despacho de webhook e a limpeza por retenção.
+        // Mínimo de 1 pela conexão persistente: o console mantém SignalR aberto (ADR 0017), e uma
+        // réplica que dorme derruba todos os consoles conectados. O trabalho de fundo, que antes também
+        // exigia isto, agora mora na aplicação de workers.
         minReplicas: 1
         // Teto baixo de propósito: o backplane do SignalR ainda não existe (ADR 0017), então duas
         // réplicas atenderiam consoles diferentes sem compartilhar aviso.
+        maxReplicas: 1
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Processo de trabalho
+// ---------------------------------------------------------------------------
+// Aplicação separada da API, e a separação é o ponto: o que este processo faz não depende de requisição
+// nenhuma. Ele despacha o outbox, reavalia previsão, abre alerta, apaga rastro vencido e mede o estado
+// da operação — de madrugada, com o console fechado.
+//
+// Juntos num processo só, os dois se amarrariam: a API não poderia escalar sem duplicar o trabalho de
+// fundo, e o trabalho de fundo não poderia parar sem derrubar a borda.
+resource workers 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${prefixo}-workers'
+  location: regiao
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    managedEnvironmentId: ambiente.id
+    configuration: {
+      // Sem bloco de ingress: nenhuma porta é publicada, e não há endereço por onde alcançar este
+      // processo de fora. Um erro de regra de rede não consegue expor o que não tem entrada.
+      secrets: [
+        {
+          name: 'cadeia-de-conexao'
+          value: 'Host=${banco.properties.fullyQualifiedDomainName};Database=${bancoDaAplicacao.name};Username=${usuarioDoBanco};Password=${senhaDoBanco};SSL Mode=Require;Trust Server Certificate=true'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'workers'
+          image: imagemDosWorkers
+          resources: {
+            // Metade da CPU da API: aqui não há pico de requisição, e sim trabalho periódico em lote.
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            { name: 'DOTNET_ENVIRONMENT', value: 'Production' }
+            { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
+          ]
+        }
+      ]
+      scale: {
+        // Um, e exatamente um. Mínimo 1 porque os laços só existem enquanto o processo vive; máximo 1
+        // porque dois processos despachando o mesmo outbox dobrariam o trabalho — o arrendamento com
+        // FOR UPDATE SKIP LOCKED (ADR 0026) evitaria entrega duplicada, mas duplicaria a disputa por
+        // linha sem ganho nenhum no volume deste projeto.
+        minReplicas: 1
         maxReplicas: 1
       }
     }
@@ -246,6 +305,9 @@ output enderecoDaApi string = 'https://${api.properties.configuration.ingress.fq
 
 @description('Identidade da aplicação, para receber papéis no cofre e no armazenamento.')
 output identidadeDaApi string = api.identity.principalId
+
+@description('Identidade do processo de trabalho, para receber papéis no cofre e no armazenamento.')
+output identidadeDosWorkers string = workers.identity.principalId
 
 @description('Servidor do banco.')
 output servidorDoBanco string = banco.properties.fullyQualifiedDomainName

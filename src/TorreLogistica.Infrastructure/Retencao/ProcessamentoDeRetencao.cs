@@ -99,6 +99,14 @@ public static class ConfiguracaoDeRetencao
         servicos.AddSingleton<MetricasDeRetencao>();
         servicos.AddScoped<LimpezaPorRetencao>();
 
+        return servicos;
+    }
+
+    /// <summary>Liga a limpeza por retenção neste processo.</summary>
+    public static IServiceCollection AdicionarProcessamentoDeRetencao(this IServiceCollection servicos)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+
         servicos.AddHostedService<ProcessadorDeRetencao>();
 
         return servicos;

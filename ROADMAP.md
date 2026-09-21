@@ -4725,7 +4725,11 @@ para a frase ficar completa é o ambiente público — Fase 25.
 
 ---
 
-# FASE 25 — INFRAESTRUTURA E DEPLOY
+# FASE 25 — INFRAESTRUTURA E DEPLOY 🟨
+
+> **Em andamento.** O gate de arquitetura está cumprido e a infraestrutura está escrita e validada, mas a
+> fase **não fecha** enquanto não houver ambiente provisionado e aplicação funcionando no publicado.
+> Provisionar exige autorização explícita, que não foi dada.
 
 ## Objetivo
 
@@ -4933,6 +4937,161 @@ Fase 24, quando foi interrompida por falta de memória do sistema.
 ## Commit
 
 `feat: gate de arquitetura, imagem testada e infraestrutura escrita sem aplicar (Fase 25)`
+
+---
+
+## Revisão da Fase 25 — separação API / Workers
+
+> A fase permanece 🟨. O que esta revisão entrega é a correção arquitetural exigida e a **validação** da
+> infraestrutura. Nenhum recurso foi criado.
+
+### A correção
+
+Até aqui a API hospedava quatro laços de segundo plano: despacho do outbox, reavaliação de previsão (com
+o motor de alertas dentro), limpeza por retenção e medição do estado da operação. Isso amarrava as duas
+coisas — a borda não podia escalar sem duplicar o trabalho de fundo, e o trabalho de fundo não podia parar
+sem derrubar a borda.
+
+A separação é **estrutural, não configuracional**:
+
+| | Antes | Agora |
+|---|---|---|
+| Registro das dependências | API | API **e** Workers — a API lê o que eles produzem |
+| Registro dos laços | API | **só** Workers, via `AdicionarProcessamentoDe…` |
+
+Uma opção de configuração poderia ser ligada por engano. A ausência de uma chamada, não.
+
+Nenhuma classe de domínio, caso de uso ou contrato mudou: o que se moveu foi **onde os laços são
+registrados**.
+
+### O acoplamento que decidiu como fazer
+
+A fila de recálculo de previsão é **memória da instância**, e o próprio código já dizia por quê:
+
+> *"um pedido perdido numa queda do processo é coberto pela reavaliação periódica, que relê do banco as
+> rotas em andamento. Por isso não há outbox aqui — previsão se recalcula; não é efeito que não pode se
+> perder."*
+
+Ou seja: a fila é um atalho de latência dentro do processo que a consome, e quem garante que nenhuma
+previsão fica velha é a reavaliação periódica. Por isso a fila foi **junto** com o laço, para os Workers.
+Registrada na API, ela acumularia pedidos que ninguém leria — e passaria a avisar sobre descarte de
+trabalho que nunca foi dela.
+
+### Retenção: avaliada para Container Apps Job, mantida nos Workers
+
+`Microsoft.App/jobs` com `cron` seria a forma canônica para algo que roda a cada 6 horas. Foi **recusado**:
+os Workers já estão sempre vivos por causa do outbox, que roda a cada 5 segundos. Um Job traria uma
+terceira imagem, um terceiro recurso e um terceiro caminho de configuração para executar trabalho que o
+processo existente faz numa rodada de **12 ms** (medido na Fase 22).
+
+Gatilho para rever, registrado: se o outbox virar fila nativa com escala por evento, os Workers deixam de
+precisar estar sempre vivos — e aí a retenção passa a valer como Job.
+
+### Caminho para escalar o SignalR além de uma réplica
+
+Está escrito em `infra/README.md` e na ADR 0034, **sem implementar backplane agora**:
+
+1. ligar um backplane (Azure SignalR Service em modo *Default*, ou Redis);
+2. subir `maxReplicas` da API.
+
+Nada além disso precisa mudar — e é consequência direta desta separação: com os laços fora da API,
+escalar a borda não multiplica o trabalho de fundo. Antes, subir uma réplica significaria dois
+despachantes de outbox e duas reavaliações concorrentes.
+
+A ordem importa: subir a réplica antes do backplane produz um sistema que parece funcionar e mente para
+metade dos operadores.
+
+### Evidências da validação
+
+**Ferramenta.** A Azure CLI não está instalada e não há `winget` nesta máquina. Em vez de instalar um MSI
+de sistema, foi baixado o **Bicep CLI standalone** (executável único, oficial, gratuito) para o diretório
+temporário da sessão: `Bicep CLI version 0.47.16 (3f73e1a234)`.
+
+| Verificação | Resultado |
+|---|---|
+| `bicep build infra/main.bicep` | **0 erros, 0 avisos** |
+| `bicep lint infra/main.bicep` | **sem achados** |
+| Recursos no ARM compilado | **12**, listados em `infra/README.md` |
+| Parâmetros | 7; `senhaDoBanco` é `securestring` |
+| Segredo fixo | **nenhum** — varredura por padrões de senha, chave e credencial |
+| Recurso pago criado na validação | **nenhum** — a compilação é local e offline |
+| `what-if` | **não executado**: exige assinatura autenticada e grupo de recursos existente |
+
+**Imagens.** As duas foram construídas e postas para rodar contra o banco de desenvolvimento real.
+
+| Prova | API | Workers |
+|---|---|---|
+| Tamanho | 196 MB | **155 MB** (`runtime`, não `aspnet`: não há servidor HTTP) |
+| Usuário | UID 1654 | UID 1654 |
+| Portas publicadas | 8080 | **nenhuma** |
+| Com banco real | migrations aplicadas; `/health/ready` **200** | vivo, assumindo os laços |
+| Sem banco | `/health/live` **200**, `/health/ready` **503** | encerra de propósito (falha rápida) |
+| "Falha na rodada" no log sem banco | **0** | é quem as registra |
+
+A última linha é a prova da separação: a imagem anterior, com os laços dentro, enchia o log de
+`Falha na rodada de despacho do outbox`. A atual não registra nenhuma.
+
+**Comportamento preservado.** As 5 suítes que dependem dos laços foram executadas **antes e depois** da
+mudança, com o mesmo resultado: 33 provas, 1 falha. A falha
+(`MotoristaParadoAbreAlertaPelaPermanenciaCalculadaNoPostgis`) foi confirmada como **pré-existente** —
+reproduzida no código anterior, guardado com `git stash`. Ela passa quando a suíte completa roda (Fase 23,
+546 provas) e falha em subconjunto, o que indica dependência de ordem, não regressão desta mudança.
+
+### Os 12 recursos que seriam criados
+
+| # | Tipo | SKU / configuração |
+|---|---|---|
+| 1 | `OperationalInsights/workspaces` | PerGB2018, retenção 30 dias |
+| 2 | `DBforPostgreSQL/flexibleServers` | **Standard_B1ms** (Burstable), PG 17, 64 GB, backup 7 dias, sem HA |
+| 3 | `…/configurations` | `azure.extensions = POSTGIS` |
+| 4 | `…/databases` | `torre_logistica`, UTF8 |
+| 5 | `…/firewallRules` | serviços do Azure |
+| 6 | `Storage/storageAccounts` | **Standard_LRS**, sem acesso público, TLS 1.2 |
+| 7-8 | `…/blobServices` e `…/containers` | contêiner `comprovantes`, acesso `None` |
+| 9 | `KeyVault/vaults` | **standard**, RBAC, soft delete 7 dias |
+| 10 | `App/managedEnvironments` | consumo |
+| 11 | `App/containerApps` — **API** | 0,5 vCPU / 1 GiB, min 1, max 1, ingress HTTPS |
+| 12 | `App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** |
+
+**Impacto de custo esperado:** três parcelas sempre ligadas — banco `B1ms` com 64 GB, 0,75 vCPU e 1,5 GiB
+de contêiner somados, e o workspace de log. O armazenamento cresce ~1 GB/dia até o teto de 30 dias da
+retenção. Cofre, storage e ambiente têm custo desprezível neste volume. Os valores em moeda saem da
+calculadora do Azure com essas quantidades — este documento não crava preço porque preço unitário muda e
+envelheceria a decisão.
+
+### Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| Integração — 5 suítes dependentes dos laços | 33 | ⚠️ 1 falha **pré-existente**, idêntica antes e depois |
+| Formatação | `dotnet format --verify-no-changes` | ✅ |
+| Solução | 0 erro, 0 aviso | ✅ |
+
+### Defeitos encontrados e corrigidos nesta revisão
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| **Workers subiam e morriam** | `Unable to resolve service for type 'MedidasDaOperacao'` ao montar o primeiro serviço de fundo | o host registrava só a camada de infraestrutura; faltava `AdicionarCamadaDeApplication()`. Só apareceu porque a imagem foi **posta para rodar**, não apenas construída |
+| Registro duplicado do laço de previsão | dois `ProcessadorDePrevisoes` na suíte de teste | uma edição anterior abortou num `assert` antes de gravar, e as linhas antigas continuaram em `AdicionarPrevisaoDeChegada` |
+| Mensagem de log falsa | "nenhum job registrado nesta fase" | era verdade na Fase 0; agora os laços moram ali |
+
+### O que falta para a fase fechar (🟨)
+
+| Item | Bloqueio |
+|---|---|
+| Provisionar os 12 recursos | **autorização explícita** |
+| `az deployment group what-if` | assinatura autenticada + grupo de recursos |
+| Deploy da aplicação | **autorização explícita** |
+| Papéis das identidades gerenciadas | operação de diretório, feita após o provisionamento |
+| Destino dos frontends | decisão à parte; são estáticos e sem segredo |
+| Medição com latência de rede | só no ambiente publicado |
+| Suíte de integração completa | pendente desde a Fase 24 (interrompida por memória) |
+
+## Commit da revisão
+
+`refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
 
 ---
 

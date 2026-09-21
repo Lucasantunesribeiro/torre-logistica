@@ -81,6 +81,20 @@ public static class ConfiguracaoDeMedidas
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        return servicos;
+    }
+
+    /// <summary>
+    /// Liga a medição periódica do estado da operação neste processo.
+    /// </summary>
+    /// <remarks>
+    /// O medidor consulta o banco de tempos em tempos, então é trabalho de fundo e mora com os outros.
+    /// A contagem de conexões de tempo real continua na API, porque quem conta conexão é quem a recebe.
+    /// </remarks>
+    public static IServiceCollection AdicionarProcessamentoDeMedidas(this IServiceCollection servicos)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+
         servicos.AddHostedService<ProcessadorDeMedidas>();
 
         return servicos;

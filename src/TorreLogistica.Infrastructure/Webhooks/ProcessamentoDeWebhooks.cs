@@ -124,6 +124,21 @@ public static class ConfiguracaoDeWebhooks
                 ConnectTimeout = TimeSpan.FromSeconds(5),
             });
 
+        return servicos;
+    }
+
+    /// <summary>
+    /// Liga o despachante e o entregador neste processo.
+    /// </summary>
+    /// <remarks>
+    /// Separado do registro das dependências de propósito: a API precisa das opções e do cliente HTTP
+    /// para <b>ler</b> o estado dos webhooks, mas quem roda o laço é o processo de trabalho. Registrar o
+    /// laço junto com as dependências faria a API voltar a hospedá-lo sem ninguém decidir isso.
+    /// </remarks>
+    public static IServiceCollection AdicionarProcessamentoDeWebhooks(this IServiceCollection servicos)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+
         servicos.AddHostedService<ProcessadorDeWebhooks>();
 
         return servicos;

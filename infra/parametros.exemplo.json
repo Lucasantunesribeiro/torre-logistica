@@ -13,6 +13,9 @@
     },
     "imagemDaApi": {
       "value": "SUBSTITUA/torre-logistica-api:SUBSTITUA"
+    },
+    "imagemDosWorkers": {
+      "value": "SUBSTITUA/torre-logistica-workers:SUBSTITUA"
     }
   }
 }

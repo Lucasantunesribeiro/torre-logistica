@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 25 — Infraestrutura e Deploy: gate cumprido, infraestrutura escrita, nada provisionado.**
+> **Estado: Fase 25 — Infraestrutura e Deploy 🟨: infraestrutura escrita e validada, nada provisionado.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -41,7 +41,8 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > comercial. A infraestrutura está **escrita e não aplicada**: a comparação que a escolheu está em
 > [`docs/cost-model.md`](./docs/cost-model.md), e a decisão que a decidiu é que este sistema **trabalha
 > quando ninguém olha** — avalia SLA, despacha webhook e apaga rastro vencido de madrugada —, então
-> escala a zero não serve. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+> escala a zero não serve — e, pelo mesmo motivo, os laços de fundo saíram da API para um **processo de
+> workers próprio**, sem porta nenhuma publicada. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
 

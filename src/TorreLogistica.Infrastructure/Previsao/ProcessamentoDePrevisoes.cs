@@ -288,8 +288,34 @@ public static class ConfiguracaoDePrevisao
 
         servicos.AddScoped<IProvedorDeRotas, ProvedorDeRotasSimulado>();
 
+        // A fila e o laço ficam em AdicionarProcessamentoDePrevisoes, e não aqui: a fila é um atalho de
+        // latência dentro do processo que a consome. Registrada na API, acumularia pedidos que ninguém
+        // leria — e a fila cheia passaria a avisar sobre descarte de trabalho que nunca foi dela.
+        return servicos;
+    }
+
+    /// <summary>
+    /// Liga o recálculo de previsão neste processo: a fila de pedidos e o laço que a consome.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Os dois andam juntos porque a fila é memória da instância. Quem garante que nenhuma previsão fica
+    /// velha não é ela, e sim a reavaliação periódica, que relê do banco as rotas em andamento — está
+    /// escrito na própria fila, e é o que torna possível tirar este laço da API sem perder recálculo.
+    /// </para>
+    /// <para>
+    /// O motor de alertas vem junto: as regras rodam dentro deste mesmo processador, logo depois da
+    /// previsão de cada rota. Separá-los exigiria uma segunda leitura das mesmas rotas para chegar à
+    /// mesma conclusão.
+    /// </para>
+    /// </remarks>
+    public static IServiceCollection AdicionarProcessamentoDePrevisoes(this IServiceCollection servicos)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+
         servicos.AddSingleton<FilaDeRecalculoDePrevisoes>();
-        servicos.AddSingleton<ISolicitacoesDeRecalculoDePrevisao>(provedor => provedor.GetRequiredService<FilaDeRecalculoDePrevisoes>());
+        servicos.AddSingleton<ISolicitacoesDeRecalculoDePrevisao>(
+            provedor => provedor.GetRequiredService<FilaDeRecalculoDePrevisoes>());
         servicos.AddHostedService<ProcessadorDePrevisoes>();
 
         return servicos;

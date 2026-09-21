@@ -47,7 +47,7 @@ public sealed class ServicoDeVerificacaoDeInfraestrutura(
         }
 
         _log.LogInformation(
-            "Host de workers iniciado. Banco alcançável; nenhum job registrado nesta fase.");
+            "Host de workers iniciado. Banco alcançável; os laços de fundo assumem daqui.");
     }
 
     /// <inheritdoc />

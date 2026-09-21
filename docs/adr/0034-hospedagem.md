@@ -15,21 +15,29 @@ O projeto chega aqui com números próprios, medidos na Fase 22: 33 posições p
 
 ## Decisão
 
-### Azure Container Apps, com réplica mínima de **1**
+### Azure Container Apps, com **duas** aplicações e réplica mínima de 1 em cada
 
-E a parte que importa é o **1**, não o serviço.
+O trabalho periódico — despacho do outbox a cada 5 segundos, reavaliação de previsão a cada minuto, motor
+de alertas, limpeza por retenção — **não depende de requisição nenhuma**. A entrega que entraria em risco
+às três da manhã precisa ser marcada mesmo com o console fechado, e alerta que chega quando o problema já
+passou não é alerta: é histórico.
 
-O processo que atende HTTP é o mesmo que hospeda o trabalho periódico: despacho do outbox a cada 5
-segundos, reavaliação de previsão a cada minuto, motor de alertas, limpeza por retenção a cada 6 horas. Um
-serviço que dorme quando ninguém acessa **para de avaliar SLA, de despachar webhook e de apagar rastro
-vencido**.
+Isso elimina scale-to-zero. E, na revisão desta fase, mostrou que também eliminava o desenho de um
+processo só: até aqui a API hospedava esses laços, o que amarrava as duas coisas — a borda não podia
+escalar sem duplicar o trabalho de fundo, e o trabalho de fundo não podia parar sem derrubar a borda.
 
-A entrega que entraria em risco às três da manhã só seria marcada quando alguém abrisse o console. E
-alerta que chega quando o problema já passou não é alerta — é histórico.
+| | API | Workers |
+|---|---|---|
+| Ingress | HTTPS público | **nenhum** |
+| Por que fica viva | conexão persistente do console (ADR 0017) | os laços só existem enquanto o processo vive |
+| `minReplicas` | 1 | 1 |
+| `maxReplicas` | 1 — ver abaixo | 1 — dois despachantes disputariam o mesmo outbox sem ganho |
+| Recursos | 0,5 vCPU / 1 GiB | 0,25 vCPU / 0,5 GiB |
 
-Somado a isso: o console mantém conexão persistente (ADR 0017). Dormir derruba todo console conectado.
-
-Portanto, das duas saídas que o ROADMAP oferecia, vale a segunda: **baixo custo ocioso, não escala a zero**.
+A separação é estrutural, não configuracional: o registro das dependências continua nos dois processos,
+porque a API **lê** o que os workers produzem, mas o registro dos laços (`AdicionarProcessamentoDe…`)
+existe só no host de workers. Uma opção de configuração poderia ser ligada por engano; a ausência de uma
+chamada, não.
 
 ### Por que não as outras
 
@@ -43,13 +51,35 @@ Portanto, das duas saídas que o ROADMAP oferecia, vale a segunda: **baixo custo
 | **AWS Lightsail + RDS** | tecnicamente viável, com preço fixo a favor; perdeu na diversificação de nuvem do portfólio |
 | **EC2 + RDS** | mais barato na fatura, mas manter sistema operacional e TLS é custo que não aparece nela |
 
-### Teto de uma réplica, por enquanto
+### Teto de uma réplica na API, e o caminho para sair dele
 
 `maxReplicas` é **1**, e isso é limitação declarada, não descuido: o SignalR ainda não tem backplane
 (ADR 0017). Com duas réplicas, consoles conectados a instâncias diferentes receberiam avisos diferentes —
 e o operador que não vê o alerta é pior que o operador sem tempo real, porque ele confia no que vê.
 
-Subir daqui exige backplane primeiro. A ordem é essa, e não a inversa.
+O caminho para escalar, quando o tráfego justificar e **só então**:
+
+1. ligar um backplane (Azure SignalR Service em modo *Default*, ou Redis), que é o que faz o aviso
+   publicado numa instância alcançar as conexões das outras;
+2. subir `maxReplicas` da API.
+
+Nada além disso precisa mudar — e é justamente por causa da separação desta fase: com os laços fora da
+API, escalar a borda não multiplica o trabalho de fundo. Antes, subir uma réplica significaria dois
+despachantes de outbox e duas reavaliações concorrentes.
+
+A ordem é essa, e não a inversa. Subir a réplica antes do backplane produz um sistema que parece
+funcionar e mente para metade dos operadores.
+
+### Retenção: avaliada para Container Apps Job, mantida no processo de trabalho
+
+A limpeza roda a cada 6 horas — cara de tarefa agendada, e `Microsoft.App/jobs` com `cron` seria a forma
+canônica. Recusada por um motivo simples: **os workers já estão sempre vivos** por causa do outbox, que
+roda a cada 5 segundos. Um Job traria uma terceira imagem, um terceiro recurso e um terceiro caminho de
+configuração para executar trabalho que o processo existente faz numa rodada de 12 ms (medido em
+`docs/performance.md`).
+
+Gatilho para rever: se o outbox virar fila nativa com escala por evento, o processo de trabalho deixa de
+precisar estar sempre vivo — e aí a retenção passa a valer como Job.
 
 ### O que a infraestrutura **não** faz
 
@@ -74,9 +104,9 @@ longa duração guardado no repositório.
 Existe um custo mensal fixo enquanto o ambiente estiver de pé: contêiner e banco não dormem. É o preço de
 um sistema que continua operando quando ninguém está olhando — que é, afinal, o que ele se propõe a ser.
 
-O template **não foi validado por ferramenta**: a Azure CLI não está instalada na máquina de
-desenvolvimento, e afirmar que um Bicep está correto sem compilá-lo seria inventar. O primeiro passo de
-quem aplicar é `az bicep build`, e está escrito no `infra/README.md`.
+O template **foi validado**: `bicep build` e `bicep lint` passam sem erro nem aviso, e os 12 recursos que
+ele geraria estão listados em `infra/README.md`. O que **não** rodou foi o `what-if`, e o motivo não é
+comodidade: ele exige assinatura autenticada e grupo de recursos existente, e nenhum dos dois existe.
 
 Os números de desempenho da Fase 22 foram medidos com aplicação e banco na mesma máquina, sem rede no
 meio. Em produção, cada ida ao banco paga latência de rede, e a ingestão faz várias por requisição. A
@@ -91,9 +121,13 @@ Estão na tabela acima e, com as quantidades que dirigem o custo, em
 
 | Afirmação | Prova |
 |---|---|
-| A imagem sobe e responde | contêiner construído e exercitado: `/health/live` → **200** com o banco inacessível |
-| A sonda de prontidão não mente | `/health/ready` → **503** no mesmo cenário |
-| O processo não roda como root | UID 1654 dentro do contêiner |
-| Falha de banco não vira ciclo de reinício | os serviços de fundo erram, registram e o processo continua vivo |
-| A imagem é enxuta | 196 MB, sem ICU, porque o projeto compila com `InvariantGlobalization` |
-| Nada foi provisionado | não há recurso criado; o template descreve, e aplicar exige autorização |
+| A API não hospeda mais os laços | contêiner da API sem banco: **0 ocorrências** de "Falha na rodada"; a imagem anterior enchia o log delas |
+| Os workers assumiram os laços | contêiner dos workers contra o banco real: vivo, registrando as rodadas |
+| Os workers não têm porta | `docker ps` mostra a coluna de portas **vazia**; a imagem usa `runtime`, não `aspnet` |
+| A separação não mudou comportamento | as 5 suítes que dependem dos laços dão o mesmo resultado antes e depois: 33 provas, a mesma 1 falha pré-existente |
+| A API sobe e responde | com banco real: migrations aplicadas e `/health/ready` **200** |
+| A sonda não mente | sem banco: `/health/live` **200** e `/health/ready` **503** |
+| Nenhum processo roda como root | UID **1654** nos dois contêineres |
+| O template está correto | `bicep build` e `bicep lint` sem erro nem aviso |
+| Nenhum segredo fixo | `senhaDoBanco` é `securestring` e não consta do arquivo de exemplo |
+| Nada foi provisionado | não há recurso criado; aplicar exige autorização |

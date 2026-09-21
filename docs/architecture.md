@@ -857,7 +857,10 @@ Decisões em [ADR 0033](./adr/0033-entrada-da-demonstracao.md); capturas planeja
 ## Fase 25 — Hospedagem escolhida, nada provisionado
 
 ```text
-Azure Container Apps (minReplicas: 1, maxReplicas: 1)
+Azure Container Apps Environment
+  ├── torrelog-api      ingress HTTPS · min 1 · max 1 · 0,5 vCPU
+  └── torrelog-workers  SEM ingress   · min 1 · max 1 · 0,25 vCPU
+        outbox · previsão · alertas · retenção · medidas
   → PostgreSQL Flexible Server 17 + POSTGIS
   → Storage Account privado (comprovantes)
   → Key Vault com RBAC + identidade gerenciada
@@ -865,14 +868,20 @@ Azure Container Apps (minReplicas: 1, maxReplicas: 1)
 
 | Decisão | Por quê |
 |---|---|
-| Réplica mínima **1** | o processo que atende HTTP é o mesmo que avalia SLA, despacha webhook e apaga rastro vencido; dormir para tudo isso |
-| Réplica máxima **1** | sem backplane de SignalR, duas instâncias dariam avisos diferentes a consoles diferentes |
+| **Dois processos** | o trabalho de fundo não depende de requisição; juntos, a borda não escalaria sem duplicá-lo e ele não pararia sem derrubar a borda |
+| Separação **estrutural** | a API não chama `AdicionarProcessamentoDe…`; uma opção de configuração poderia ser ligada por engano, a ausência de uma chamada não |
+| Workers sem ingress | nenhuma porta publicada: um erro de regra de rede não expõe o que não tem entrada |
+| Réplica mínima **1** nos dois | na API pela conexão persistente; nos workers porque os laços só existem enquanto o processo vive |
+| Réplica máxima **1** na API | sem backplane de SignalR, duas instâncias dariam avisos diferentes a consoles diferentes |
+| Retenção **sem** Job | os workers já estão vivos pelo outbox; um Job seria um terceiro recurso para 12 ms de trabalho |
 | `azure.extensions = POSTGIS` | sem isso o `CREATE EXTENSION` da migration falha e a aplicação sobe para morrer na primeira consulta geográfica |
 | Papéis, migrations e frontends fora do template | cada um por um motivo, registrado no `infra/README.md` |
 | Deploy só `workflow_dispatch` | um deploy que acontece porque alguém mergeou é um deploy que ninguém decidiu |
 
-A imagem foi construída e exercitada: 196 MB, UID 1654, `/health/live` **200** e `/health/ready` **503**
-com o banco inacessível, e os serviços de fundo errando sem derrubar o processo.
+As duas imagens foram construídas e exercitadas contra o banco real: API com 196 MB e workers com 155 MB
+(imagem `runtime`, sem servidor HTTP), ambas como UID 1654. A API sem banco responde `/health/live` **200**
+e `/health/ready` **503**, e **não registra mais nenhuma** "Falha na rodada" — que é a prova de que os
+laços saíram dela.
 
 Comparação e custo em [`cost-model.md`](./cost-model.md); decisão em [ADR 0034](./adr/0034-hospedagem.md).
 

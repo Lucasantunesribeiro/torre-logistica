@@ -57,12 +57,15 @@ jobs:
       - name: Autenticar no registro
         run: az acr login --name "${{ vars.AZURE_REGISTRO }}"
 
-      - name: Construir e publicar a imagem
+      - name: Construir e publicar as imagens
         env:
-          IMAGEM: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+          IMAGEM_API: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+          IMAGEM_WORKERS: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-workers:${{ github.sha }}
         run: |
-          docker build -f src/TorreLogistica.Api/Dockerfile -t "$IMAGEM" .
-          docker push "$IMAGEM"
+          docker build -f src/TorreLogistica.Api/Dockerfile -t "$IMAGEM_API" .
+          docker build -f src/TorreLogistica.Workers/Dockerfile -t "$IMAGEM_WORKERS" .
+          docker push "$IMAGEM_API"
+          docker push "$IMAGEM_WORKERS"
 
       # O schema evolui só por migration versionada, e ela roda antes da imagem nova assumir: aplicação
       # velha contra schema novo é o caso que as migrations são escritas para suportar; o contrário não.
@@ -75,14 +78,20 @@ jobs:
             --project src/TorreLogistica.Infrastructure \
             --startup-project src/TorreLogistica.Infrastructure
 
-      - name: Atualizar a aplicação
+      # Os workers primeiro, a API depois. A ordem importa no dia em que uma versão nova produz um
+      # evento que a versão velha do outro lado não entende: é preferível que quem consome esteja
+      # atualizado antes de quem produz.
+      - name: Atualizar o processo de trabalho
         env:
-          IMAGEM: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+          IMAGEM_WORKERS: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-workers:${{ github.sha }}
         run: |
-          az containerapp update \
-            --name "${{ vars.AZURE_APLICACAO }}" \
-            --resource-group "${{ vars.AZURE_GRUPO }}" \
-            --image "$IMAGEM"
+          az containerapp update             --name "${{ vars.AZURE_WORKERS }}"             --resource-group "${{ vars.AZURE_GRUPO }}"             --image "$IMAGEM_WORKERS"
+
+      - name: Atualizar a API
+        env:
+          IMAGEM_API: ${{ vars.AZURE_REGISTRO }}.azurecr.io/torre-logistica-api:${{ github.sha }}
+        run: |
+          az containerapp update             --name "${{ vars.AZURE_APLICACAO }}"             --resource-group "${{ vars.AZURE_GRUPO }}"             --image "$IMAGEM_API"
 
       - name: Conferir que subiu
         run: |

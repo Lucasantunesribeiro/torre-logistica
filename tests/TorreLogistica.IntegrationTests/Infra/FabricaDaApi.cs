@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog.Core;
 using Serilog.Events;
+using TorreLogistica.Infrastructure.Previsao;
 
 namespace TorreLogistica.IntegrationTests.Infra;
 
@@ -113,6 +114,14 @@ public sealed class FabricaDaApi(
 
         builder.ConfigureTestServices(servicos =>
         {
+            // Em produção este laço mora em TorreLogistica.Workers, num processo separado. Aqui ele é
+            // registrado junto da API porque a suíte sobe um processo só: subir dois para provar o mesmo
+            // comportamento custaria orquestração de processo em cada teste, e o que se quer verificar é
+            // o efeito no banco e na API, que independe de quem hospeda o laço.
+            //
+            // Os outros laços — outbox, retenção e medidas — NÃO entram: os testes deles chamam o caso de
+            // uso diretamente, e uma rodada de fundo no meio disputaria a fila com a asserção.
+            servicos.AdicionarProcessamentoDePrevisoes();
             servicos.AddSingleton<IStartupFilter, FiltroDeEndpointsDeTeste>();
             servicos.AddSingleton<ILogEventSink>(Logs);
 

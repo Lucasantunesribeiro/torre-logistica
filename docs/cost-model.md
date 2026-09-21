@@ -34,12 +34,21 @@ Some-se a isso a conexão persistente: dormir derruba todo console conectado.
 
 **Conclusão do gate:** o caminho é **baixo custo ocioso com processo sempre vivo**, não escala a zero.
 
-Duas saídas seriam possíveis no futuro, e nenhuma se justifica agora:
+### E por isso são dois processos, não um
 
-- separar os workers num processo próprio, deixando a API dormir — mas aí o processo dos workers é que
-  fica sempre vivo, e passam a ser **dois** serviços a pagar em vez de um;
-- mover o trabalho periódico para um agendador externo — mais partes móveis para economizar o custo de um
-  contêiner pequeno.
+A primeira versão deste documento tratava API e trabalho de fundo como a mesma coisa. Estava errado: são
+responsabilidades com ciclos de vida diferentes, e juntá-las amarrava as duas — a API não poderia escalar
+sem duplicar o trabalho de fundo, e o trabalho de fundo não poderia parar sem derrubar a borda.
+
+| | API | Workers |
+|---|---|---|
+| Por que fica viva | conexão persistente do console | os laços só existem enquanto o processo vive |
+| Ingress | HTTPS público | **nenhum** |
+| Tamanho | 0,5 vCPU / 1 GiB | 0,25 vCPU / 0,5 GiB |
+
+O custo ocioso passa a ser de **dois** contêineres pequenos em vez de um médio. Na prática isso muda
+pouco: o segundo é metade do primeiro, e o total de CPU reservada é **0,75 vCPU** — menos que uma única
+instância de 1 vCPU que seria necessária se tudo dividisse o mesmo processo sob carga.
 
 ## 3. Onde o dinheiro vai
 
@@ -48,7 +57,7 @@ Em qualquer fornecedor, o custo desta aplicação tem quatro parcelas. A ordem i
 | Parcela | O que dirige | Quantidade medida |
 |---|---|---|
 | **Banco gerenciado** | instância sempre ligada + armazenamento + backup | ~30 GB em regime, crescendo ~1 GB/dia até o teto da retenção |
-| **Compute** | uma instância pequena sempre viva | 0,5 vCPU e 1 GB bastam para 33 req/s com p50 de 10 ms |
+| **Compute** | duas instâncias pequenas sempre vivas | **0,75 vCPU e 1,5 GiB no total**: 0,5/1 GiB na API e 0,25/0,5 GiB nos workers |
 | **Tráfego** | telemetria de entrada e páginas de saída | ~17 GB/mês de entrada no pico da meta; saída menor |
 | **Objeto** | comprovantes | até 5 MB por entrega concluída com foto |
 
@@ -86,28 +95,42 @@ oficial de qualquer fornecedor dá o número do dia, e a comparação continua v
 O empate técnico é real: as três atendem WebSocket, PostGIS e processo sempre vivo. O desempate é de
 **produto** — qual nuvem este portfólio quer demonstrar — e de quanto se aceita pagar por mês.
 
-## 5. O que já está pronto, independente da escolha
+### Escolhida: Azure Container Apps + PostgreSQL Flexible Server
 
-A imagem do contêiner é neutra e **foi construída e testada**:
+Decisão de produto, tomada por quem paga a conta. O peso do desempate foi a diversificação do portfólio:
+a Central Antifraude já é AWS, e o ROADMAP abre esta fase proibindo copiar aquela arquitetura.
 
-| Prova | Resultado |
-|---|---|
-| Imagem construída | 196 MB, Alpine (o projeto compila com `InvariantGlobalization`, então não carrega ICU) |
-| Processo sem privilégio | roda como UID 1654, não root |
-| `GET /health/live` com o banco inacessível | **200** — o processo está vivo, e a sonda não mente sobre isso |
-| `GET /health/ready` com o banco inacessível | **503** — a dependência crítica está fora, e a sonda diz |
-| Serviços de fundo sem banco | registram erro a cada rodada e **não derrubam o processo** |
+O detalhamento está em [ADR 0034](./adr/0034-hospedagem.md), e a infraestrutura escrita — **validada e não
+aplicada** — em [`infra/`](../infra/README.md).
 
-Essa última linha é a resiliência da Fase 22 aparecendo onde ela importa: num arranque em que o banco
-ainda não subiu, o contêiner não entra em ciclo de reinício.
+## 5. O que já está construído e exercitado
+
+As duas imagens foram construídas e postas para rodar nesta máquina, contra o banco de desenvolvimento
+real — não são template.
+
+| Prova | API | Workers |
+|---|---|---|
+| Tamanho | 196 MB | **155 MB** (imagem `runtime`: não há servidor HTTP) |
+| Usuário | UID 1654, sem privilégio | UID 1654, sem privilégio |
+| Portas publicadas | 8080 | **nenhuma** |
+| Com banco real | `/health/ready` **200**; migrations aplicadas no arranque | fica vivo e assume os laços |
+| Sem banco | `/health/live` **200**, `/health/ready` **503** | encerra de propósito (falha rápida) |
+| Laços de fundo | **0 ocorrências** de "Falha na rodada" | é quem as registra |
+
+A última linha é a prova da separação: a imagem anterior, com os laços dentro da API, enchia o log de
+`Falha na rodada de despacho do outbox` quando o banco estava fora. A atual não registra nenhuma.
+
+E a linha do `/health/live` é a resiliência da Fase 22 onde ela importa: num arranque em que o banco ainda
+não subiu, o contêiner da API não entra em ciclo de reinício.
 
 ## 6. O que falta, e o que depende de autorização
 
 | Item | Situação |
 |---|---|
-| Escolha do fornecedor | **decisão de produto**, com implicação financeira e de lock-in |
-| IaC | escrita depois da escolha; escrever antes seria adivinhar |
+| Escolha do fornecedor | ✅ feita: Azure Container Apps + PostgreSQL Flexible Server |
+| IaC | ✅ escrita e **validada**: `bicep build` e `bicep lint` sem achados; 12 recursos |
+| `what-if` | ❌ exige assinatura autenticada e grupo de recursos existente — nenhum dos dois existe |
 | Provisionamento | **exige aprovação explícita** — nenhum recurso foi criado |
 | Deploy | **exige autorização explícita**, na mensagem que o pedir |
-| Custo mensal real | sai da calculadora do fornecedor escolhido, com as quantidades da seção 3 |
-| Medição com latência de rede | `docs/performance.md` foi medido com aplicação e banco na mesma máquina; em produção há rede no meio |
+| Custo mensal real | sai da calculadora do Azure com as quantidades da seção 3 |
+| Medição com latência de rede | `docs/performance.md` foi medido com aplicação e banco na mesma máquina |
