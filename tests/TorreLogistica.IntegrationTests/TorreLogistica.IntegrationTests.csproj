@@ -7,6 +7,12 @@
   <ItemGroup>
     <ProjectReference Include="../../src/TorreLogistica.Api/TorreLogistica.Api.csproj" />
     <ProjectReference Include="../../src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj" />
+    <!--
+      O simulador entra aqui como objeto de teste, não como dependência da aplicação: a seta continua
+      apontando de fora para dentro. É o que permite encenar a demonstração contra a API em memória e
+      provar que o roteiro é reproduzível, sem subir processo nem servidor.
+    -->
+    <ProjectReference Include="../../src/TorreLogistica.Simulator/TorreLogistica.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

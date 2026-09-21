@@ -811,6 +811,26 @@ histórico por motorista: 0,19 ms · limpeza de 5.000: 12 ms
 Números, ambiente e gargalos em [`performance.md`](./performance.md); decisões em
 [ADR 0031](./adr/0031-performance-e-resiliencia.md).
 
+## Fase 23 — O simulador e as seis histórias
+
+```text
+Simulator → HTTP autenticado → API real → máquina de estados → banco
+            (sem referência a Domain, Application ou Infrastructure)
+```
+
+| Peça | Regra |
+|---|---|
+| Narrativa | a semente decide destinos, ordem, janelas e distâncias; a mesma semente conta a mesma história |
+| Identidade | e-mail, placa e CNPJ carregam carimbo da execução: repetir a identidade esbarraria na unicidade do sistema |
+| Protagonismo | risco de atraso, motorista offline e geofence **nascem no servidor**; o simulador cria a situação e espera |
+| Raio | as histórias de chegada manual param fora dos 300 m, senão o geofence responde no lugar do motorista |
+| Tempo | o multiplicador comprime a espera **e** a janela prometida |
+| Origem | o simulador declara `Origin` em vez de o servidor abrir exceção de CSRF |
+| Reset | não existe reset destrutivo: as tabelas centrais são somente-inserção por desenho |
+
+Guia em [`operacao/simulador.md`](./operacao/simulador.md); decisões em
+[ADR 0032](./adr/0032-roteiro-da-demonstracao.md).
+
 ## O que deliberadamente **não** existe ainda
 
 A ocorrência não tem anexo de foto nem

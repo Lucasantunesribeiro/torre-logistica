@@ -4407,9 +4407,127 @@ Permitir reset seguro apenas em ambiente demo.
 
 Suportar multiplicador de tempo para demo.
 
-## Critérios de aceite
+## Entregável
 
-Resetar e reproduzir deve levar ao mesmo storytelling.
+| Peça | Arquivo |
+|---|---|
+| Roteiro determinístico | `src/TorreLogistica.Simulator/Cenario/RoteiroDaDemonstracao.cs` |
+| Encenação contra a API real | `src/TorreLogistica.Simulator/Cenario/EncenacaoDaDemonstracao.cs` |
+| Cliente HTTP da Torre | `src/TorreLogistica.Simulator/Cliente/ClienteDaApiDaTorre.cs` |
+| Guia de operação | `docs/operacao/simulador.md` |
+| Prova do critério de aceite | `tests/TorreLogistica.IntegrationTests/SimuladorTestes.cs` |
+
+Nenhuma dependência nova, nenhum serviço novo, nenhum endpoint novo na API — o simulador usa os que já
+existem, autenticado, como qualquer integrador.
+
+## Simulator: projeto separado, sem acesso ao banco
+
+O projeto continua sem referenciar Domain, Application ou Infrastructure, e o teste de arquitetura continua
+guardando isso. Tudo acontece por HTTP: login, cadastros, rota, posições, chegada, conclusão, comprovante.
+
+## Cenários obrigatórios
+
+| # | História | Desfecho | Quem decide |
+|---|---|---|---|
+| A | Operação normal | `Entregue`, com chegada registrada pelo motorista | o motorista |
+| B | Risco de atraso | motorista quase parado; a folga encolhe | **o servidor**, na reavaliação periódica |
+| C | Motorista offline | uma posição e silêncio | **o servidor**, no motor de alertas |
+| D | Tentativa frustrada | `TentativaFrustrada`, com motivo tipado | o motorista |
+| E | Entrada no geofence | `ProximaDoDestino` **sem ninguém chamar chegada** | **o servidor**, na ingestão |
+| F | Prova de entrega | `Entregue`, com quem recebeu, onde e quando | o motorista |
+
+As três do servidor **não são encenadas**: o simulador cria a situação e espera. Se ele escrevesse o
+alerta, a demonstração provaria que o simulador sabe escrever alerta.
+
+## Determinismo
+
+A semente decide a narrativa — destinos, ruas, bairros, ordem, janelas, distâncias. O que **não** se repete
+são os campos que o sistema exige únicos (e-mail, placa, CNPJ), que carregam um carimbo da execução:
+repetir a identidade faria a segunda encenação esbarrar na unicidade que o próprio sistema garante.
+
+## Modo acelerado
+
+`MultiplicadorDeTempo` comprime a espera **e a promessa**: a janela prometida é criada na mesma escala.
+Comprimir só a espera faria toda entrega nascer atrasada já no primeiro quadro.
+
+O multiplicador não alcança os temporizadores do servidor (reavaliação de previsão, limiar de offline) —
+eles são configuração do ambiente, e o guia do simulador diz quais ajustar para ver as histórias B e C numa
+apresentação curta.
+
+## Reset
+
+Não existe reset destrutivo, e isso é decisão. Cada execução monta o próprio palco; "reiniciar" é encenar
+de novo. Apagar o palco anterior exigiria remover linhas de tabelas **somente-inserção** por desenho —
+timeline, ocorrências, comprovantes, auditoria — e desligar esses gatilhos para uma demonstração seria
+trocar uma garantia de verdade por uma conveniência. Limpar o acúmulo é assunto da Fase 24.
+
+## Critério de aceite
+
+> Resetar e reproduzir deve levar ao mesmo storytelling.
+
+✅ `MesmaSementeContaAMesmaHistoria` encena duas vezes contra a API real e compara a narrativa inteira:
+história, título, estado final e sequência de eventos de cada uma das seis entregas.
+
+## Execução
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `TorreLogistica.IntegrationTests` (PostgreSQL + PostGIS real) | 544 + 2 sob demanda | ✅ |
+| Frontend — `operacao` | 34 | ✅ |
+| Frontend — `motorista` | 76 | ✅ |
+| Frontend — `rastreamento` | 17 | ✅ |
+| **Total** | **1.388** | **✅** |
+
+`npm run verificar` sem erro; solução .NET com 0 aviso e 0 erro; formatação verificada.
+
+### Defeitos encontrados e corrigidos durante a fase
+
+| Defeito | Como apareceu | Correção |
+|---|---|---|
+| **As histórias A e E eram a mesma coisa** | o teste esperava chegada registrada e encontrou proximidade detectada | o roteiro aproximava o motorista para dentro dos 300 m do geofence, e o sistema decidia sozinho antes de o motorista registrar chegada. A, D e F passaram a parar **fora** do raio: ali quem diz "cheguei" é o motorista, e a diferença entre "o app registrou" e "o sistema percebeu" fica visível |
+| Janela prometida terminava antes de começar | 422 `janela_invalida` na criação das entregas | o multiplicador comprimia o fim da janela mas não o início; com 600× o fim caía antes do começo fixo de um minuto |
+| Saída planejada nascia no passado | 422 `saida_no_passado` | `agora` era lido no início do preparo, e montar doze cadastros consumia a folga inteira; os instantes passaram a ser lidos no momento de cada chamada |
+| Login do simulador recusado | 403 `origem_nao_autorizada` | a defesa de CSRF da Fase 3 funcionando. O simulador passou a **declarar** a própria origem, configurável — quem opera decide se ela entra na lista, em vez de o servidor abrir exceção |
+| Estado final vinha do último evento | a história E terminava em `ProximidadeDetectada` em vez de `ProximaDoDestino` | timeline e status são coisas diferentes: uma conta o que aconteceu, o outro diz onde a entrega parou. O relato passou a consultar a entrega |
+
+## Security Gate 23
+
+| Item | Resultado | Evidência |
+|---|:---:|---|
+| Sem acesso ao banco | ✅ o projeto não referencia a persistência; teste de arquitetura guarda |
+| Sem atalho no domínio | ✅ toda mudança de estado passa pela máquina de estados, autenticada |
+| Defesa de CSRF preservada | ✅ o simulador declara origem; nenhuma exceção foi aberta no servidor |
+| Senha fora do repositório | ✅ `Senha` vazia por padrão, e o simulador recusa começar sem ela |
+| Dados fictícios | ✅ nomes, endereços e documentos gerados; nenhum dado de pessoa real |
+| Poder do simulador | ✅ ele usa contas existentes; não cria organização nem administrador |
+| Custo | ✅ nada novo |
+
+## Decisões
+
+[ADR 0032](./docs/adr/0032-roteiro-da-demonstracao.md).
+
+- **Semente para a narrativa, carimbo para a identidade.**
+- **O servidor é o protagonista**: risco, offline e geofence nascem nele, e o simulador só cria a situação.
+- **A, D e F param fora do raio do geofence**, para não virarem a história E.
+- **O multiplicador comprime a espera e a promessa**, senão a demonstração conta história falsa.
+- **O simulador declara origem** em vez de o servidor abrir exceção.
+- **Não existe reset destrutivo**, porque as tabelas centrais são somente-inserção por desenho.
+
+## Pendências conhecidas
+
+| Item | Situação |
+|---|---|
+| Acúmulo de encenações no ambiente de demonstração | limpar é assunto do modo demonstração (Fase 24); a saída provável é desativar a organização, não apagar linha |
+| Histórias B e C em teste automatizado | dependem de temporizadores reais do servidor; o teste afirma que foram encenadas, e o resto está no guia |
+| Comprovante com foto de verdade | o roteiro conclui com comprovante sem arquivo; subir imagem exigiria storage configurado, que é da Fase 25 |
+| Rastreamento público na narrativa | o link é emitido pela API, mas o roteiro ainda não o exibe como parte da história |
+| CI nunca executada | exige `git push`, não autorizado |
+
+## Commit
+
+`feat: simulador encena seis historias contra a api real, com roteiro reproduzivel (Fase 23)`
 
 ---
 

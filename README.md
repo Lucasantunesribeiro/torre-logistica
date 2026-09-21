@@ -4,7 +4,7 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 22 — Performance e Resiliência concluída.**
+> **Estado: Fase 23 — Simulador e Seed Narrativo concluída.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -31,7 +31,11 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > aconteceu sem abrir o banco. E agora o sistema tem **números**: a ingestão sustenta as 33 posições por
 > segundo da meta, o volume de um dia inteiro não a degrada — o que custa é a concorrência —, e o
 > particionamento foi **recusado** porque a medição não o justificou. Os números, o ambiente e os gargalos
-> conhecidos estão em [`docs/performance.md`](./docs/performance.md). A ordem está em
+> conhecidos estão em [`docs/performance.md`](./docs/performance.md). E agora a operação **acontece
+> sozinha**: o simulador encena seis histórias contra a API real — entrega no prazo, risco de atraso,
+> motorista que some do mapa, porta fechada, chegada detectada pelo geofence e prova de entrega — sem
+> tocar no banco, e a mesma semente conta a mesma história. O guia está em
+> [`docs/operacao/simulador.md`](./docs/operacao/simulador.md). A ordem está em
 > [`ROADMAP.md`](./ROADMAP.md).
 
 ## Stack
@@ -105,7 +109,7 @@ npm run verificar                                             # frontend
 |---|:---:|
 | Unidade | 695 |
 | Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 541 |
+| Integração (PostgreSQL + PostGIS real) | 544 |
 | Frontend (3 aplicações) | 127 |
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
@@ -151,6 +155,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0029](./docs/adr/0029-retencao-de-localizacao.md) | Retenção de localização: prazo configurável, corte pelo recebimento e limpeza em lotes |
 | [0030](./docs/adr/0030-observabilidade.md) | Observabilidade: OTLP sem fornecedor, rastro que atravessa a fila e medidas de estado fotografadas |
 | [0031](./docs/adr/0031-performance-e-resiliencia.md) | Não particionar `posicoes`: a medição não justificou, e o gatilho para rever ficou registrado |
+| [0032](./docs/adr/0032-roteiro-da-demonstracao.md) | Demonstração: semente para a narrativa, carimbo para a identidade, e o servidor como protagonista |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -161,6 +166,7 @@ a ser desfeita por acidente.
 - [`ROADMAP.md`](./ROADMAP.md) — fases, critérios de aceite e Security Gates
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
+- [`docs/operacao/simulador.md`](./docs/operacao/simulador.md) — o simulador e as seis histórias
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos

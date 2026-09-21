@@ -1,15 +1,19 @@
+using System.Net.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog;
+using TorreLogistica.Simulator.Cenario;
 using TorreLogistica.Simulator.Cliente;
 using TorreLogistica.Simulator.Configuracao;
 
 // Simulador da operação logística.
-// Na Fase 0 ele exercita o único contrato que a API já publica — a prontidão —
-// para provar que o caminho "simulador → HTTP → aplicação real" está de pé.
-// Os cenários narrativos chegam na Fase 23.
+//
+// Ele encena seis histórias contra a API real, autenticado, como qualquer integrador faria. Não há
+// atalho para o banco — e é isso que faz a demonstração valer: o que a plateia vê acontecendo é o
+// mesmo caminho que a operação de verdade percorre.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
     .CreateBootstrapLogger();
@@ -50,26 +54,57 @@ try
 
     using var host = construtor.Build();
 
-    var cliente = host.Services.GetRequiredService<ClienteDaApiDaTorre>();
-    var enderecoDaApi = host.Services
-        .GetRequiredService<IOptions<OpcoesDoSimulador>>().Value.UrlBaseDaApi;
+    var opcoesDoSimulador = host.Services.GetRequiredService<IOptions<OpcoesDoSimulador>>().Value;
+    var cliente = new ClienteDaApiDaTorre(
+        host.Services.GetRequiredService<IHttpClientFactory>().CreateClient(ClienteDaApiDaTorre.NomeDoCliente),
+        opcoesDoSimulador.OrigemDeclarada);
+    var enderecoDaApi = opcoesDoSimulador.UrlBaseDaApi;
 
-    using var cancelamento = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    using var cancelamento = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+
     var prontidao = await cliente.ConsultarProntidaoAsync(cancelamento.Token).ConfigureAwait(false);
 
-    if (prontidao is null)
+    if (prontidao is null || !string.Equals(prontidao.Status, "Healthy", StringComparison.Ordinal))
     {
-        Log.Error("A API em {EnderecoDaApi} respondeu sem corpo reconhecível.", enderecoDaApi);
-        return 1;
+        Log.Error(
+            "A API em {EnderecoDaApi} não está pronta ({Status}). A demonstração não começa contra um sistema doente.",
+            enderecoDaApi,
+            prontidao?.Status ?? "sem resposta");
+        return 2;
     }
 
     Log.Information(
-        "API em {EnderecoDaApi} respondeu prontidão {Status} em {DuracaoEmMs} ms.",
+        "API em {EnderecoDaApi} pronta em {DuracaoEmMs} ms. Semente {Semente}, tempo {Multiplicador}× mais rápido.",
         enderecoDaApi,
-        prontidao.Status,
-        prontidao.DuracaoEmMs);
+        prontidao.DuracaoEmMs,
+        opcoesDoSimulador.Semente,
+        opcoesDoSimulador.MultiplicadorDeTempo);
 
-    return string.Equals(prontidao.Status, "Healthy", StringComparison.Ordinal) ? 0 : 2;
+    var encenacao = new EncenacaoDaDemonstracao(
+        cliente,
+        opcoesDoSimulador,
+        host.Services.GetRequiredService<ILogger<EncenacaoDaDemonstracao>>());
+
+    var desfechos = await encenacao.EncenarAsync(cancelamento.Token).ConfigureAwait(false);
+
+    Log.Information("Demonstração encerrada. {Quantidade} histórias encenadas:", desfechos.Count);
+
+    foreach (var desfecho in desfechos)
+    {
+        Log.Information(
+            "  {Codigo} · {Historia}: {Status} — {Eventos}",
+            desfecho.Codigo,
+            desfecho.Historia,
+            desfecho.StatusFinal,
+            string.Join(" → ", desfecho.Eventos));
+    }
+
+    return 0;
+}
+catch (ErroDaApiDaTorre excecao)
+{
+    Log.Fatal("A API recusou uma chamada da demonstração: {Mensagem}", excecao.Message);
+    return 1;
 }
 catch (Exception excecao)
 {
