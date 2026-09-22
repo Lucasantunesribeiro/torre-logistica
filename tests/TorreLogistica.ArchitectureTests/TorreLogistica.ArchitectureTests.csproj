@@ -9,6 +9,9 @@
     <ProjectReference Include="../../src/TorreLogistica.Application/TorreLogistica.Application.csproj" />
     <ProjectReference Include="../../src/TorreLogistica.Domain/TorreLogistica.Domain.csproj" />
     <ProjectReference Include="../../src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj" />
+    <!-- O composition root do processo de trabalho é assunto de arquitetura: o teste de
+         composição monta o grafo dele e prova que nada da borda HTTP entra ali. -->
+    <ProjectReference Include="../../src/TorreLogistica.Workers/TorreLogistica.Workers.csproj" />
   </ItemGroup>
 
 </Project>

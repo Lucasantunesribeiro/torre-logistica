@@ -331,14 +331,10 @@ resource workers 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
             // Os workers registram a mesma camada de infraestrutura, então a validação de subida cobra
             // deles a mesma declaração de armazenamento — mesmo sem gravarem comprovante.
-            // Mesma declaração da API, de propósito: configuração uniforme entre os dois processos
-            // evita que um worker futuro que toque em comprovante caia no disco local sem ninguém
-            // perceber. O adaptador só é construído quando IObjectStorage é resolvido, e os workers
-            // nunca o resolvem — por isso eles NÃO recebem papel no Storage (menor privilégio).
-            { name: 'Torre__Armazenamento__Provedor', value: 'blob' }
-            { name: 'Torre__Armazenamento__Blob__Conta', value: armazenamento.name }
-            { name: 'Torre__Armazenamento__Blob__Contedor', value: contedorDeComprovantes.name }
-            { name: 'Torre__Armazenamento__Blob__Autenticacao', value: 'identidade-gerenciada' }
+            // Nenhuma variável de armazenamento aqui, e isso é a consequência visível da divisão do
+            // composition root: o processo de trabalho não registra storage, então não precisa saber
+            // dele — nem de conta, nem de contêiner, nem de chave de assinatura de URL. Por isso
+            // também não recebe papel no Storage (menor privilégio).
           ]
         }
       ]

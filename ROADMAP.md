@@ -5461,12 +5461,132 @@ A última linha da tabela é o ponto: o arquivo não depende do sistema de arqui
 
 São 26 provas a mais que a correção anterior: 13 de unidade e 13 de integração contra o emulador.
 
+## Divisão do composition root: cada processo registra só o que usa
+
+> Ainda **🟨**, ainda **nada provisionado**. Este era o último achado estrutural da fase.
+
+### Causa raiz
+
+`AdicionarCamadaDeApplication()` era um registro **único e indivisível** de cerca de quarenta casos de
+uso. O processo de trabalho o chamava inteiro para obter **seis**, e arrastava junto os que dependem de
+`IContextoDoUsuario` e `IEmissorDeTokenDeAcesso` — duas abstrações registradas dentro do assembly
+`TorreLogistica.Api` (`ConfiguracaoDeAutenticacao` e `Program.cs`), que o processo de trabalho nem
+referencia e portanto **não tem como satisfazer**.
+
+O que fazia o sintoma aparecer só em um ambiente:
+
+| Ambiente | `ValidateOnBuild` | O que acontecia |
+|---|---|---|
+| `Production` | desligado | o processo subia carregando um grafo impossível; só quebraria se alguém resolvesse um daqueles serviços |
+| `Development` | **ligado** | o contêiner validava cada descritor na construção e o processo **não subia** |
+
+Ou seja: o defeito estava sempre lá; o que mudava era quem olhava. Por isso os testes novos ligam a
+validação **explicitamente**, em vez de depender do ambiente em que a suíte roda.
+
+### Como os registros ficaram separados
+
+A divisão não é organizacional — separa casos de uso por **do que eles dependem**.
+
+| Registro | O que entra | Quem chama |
+|---|---|---|
+| `AdicionarCasosDeUsoDaOperacao()` | o que funciona sem ninguém autenticado: `RecalculoDePrevisoes`, `ConsultaDeRotasParaReavaliacao`, `MonitoramentoOperacional`, `DespachoDeWebhooks`, `EntregaDeWebhooks`, `LeituraDoEstadoDaOperacao` e as métricas. Depende de persistência, relógio, identificador e opções | **os dois** |
+| `AdicionarCasosDeUsoDaBorda()` | os ~34 que alcançam `IContextoDoUsuario` ou `IEmissorDeTokenDeAcesso` — login, cadastro, ingestão, consultas do console | **só a API** |
+| `AdicionarCamadaDeApplication()` | as duas metades somadas | **só a API** |
+| `AdicionarProcessoDeTrabalho()` | o composition root do processo de fundo: metade de operação + infraestrutura + dependências dos laços + os quatro laços | **só os workers** |
+
+A lista de operação é curta de propósito: cada linha é uma dependência que os laços realmente resolvem.
+Acrescentar ali algo que só a borda usa recoloca o problema que a divisão resolveu.
+
+### Um segundo corte que a correção expôs
+
+Ao rodar o contêiner dos workers em `Production`, o processo morreu com
+`Torre:Armazenamento:ChaveDeAssinatura é obrigatória`. A causa foi introduzida na correção anterior: o
+`AnuncioDoArmazenamento`, criado para dizer na subida qual storage está atendendo, resolvia
+`IObjectStorage` — e o registro do storage morava no `AdicionarCamadaDeInfrastructure` compartilhado.
+
+Resultado: o processo de trabalho exigia uma **credencial de assinatura de URL que nunca usaria**, para
+um serviço que nunca resolveria. O mesmo defeito, em escala menor.
+
+Corrigido com o mesmo princípio: o storage saiu para `AdicionarArmazenamentoDeObjetos()`, chamado só pela
+API. `IObjectStorage` tem exatamente dois usos no sistema — `GestaoDeComprovantes` e
+`GestaoDoRastreamentoPublico` —, ambos atrás de requisição autenticada.
+
+Consequência visível no `main.bicep`: a aplicação de workers **não recebe mais variável de armazenamento
+nenhuma**. O menor privilégio deixou de ser declaração de intenção e virou consequência de o processo não
+conhecer o recurso.
+
+### Composition root testável
+
+O registro dos workers saiu das instruções de nível superior do `Program.cs` para
+`ComposicaoDoProcessoDeTrabalho.AdicionarProcessoDeTrabalho()`. O motivo é prático: um composition root
+escrito em instruções de nível superior só existe quando o processo sobe, e um teste que o recriasse à mão
+estaria testando a cópia — que sai de sincronia no primeiro registro esquecido. Com o registro num método,
+o processo e o teste compõem **exatamente o mesmo grafo**.
+
+### Prova: workers em `DOTNET_ENVIRONMENT=Development`
+
+```text
+dotnet run --project src/TorreLogistica.Workers
+```
+
+| Verificação | Resultado |
+|---|---|
+| Sobe | **sim** — zero erros de resolução no log |
+| Permanece vivo | sim, até o `timeout` do teste encerrar o processo |
+| Abre porta | **nenhuma** — `netstat` filtrado pelo PID: 0 em escuta |
+| Conecta ao PostgreSQL/PostGIS | sim: *"Banco alcançável; os laços de fundo assumem daqui"* |
+| Executa os laços | **sim**: 2 conexões e **22 transações confirmadas em 20 s** |
+
+As 22 transações são a prova positiva que faltava. Os laços são silenciosos quando não há trabalho — o log
+não serve de evidência —, mas o contador de transações do PostgreSQL mostra as rodadas acontecendo.
+
+### Contêineres
+
+Imagens reconstruídas: API **202 MB**, workers **161 MB**.
+
+| Verificação | Resultado |
+|---|---|
+| API em `Production` | `/health/live` **200**, `/health/ready` **200** |
+| Workers em `Production`, **sem nenhuma variável de armazenamento** | vivos, `portas=[]` |
+| Laços nos workers em contêiner | 2 conexões, **22 transações em 20 s** |
+| Workers mencionam armazenamento no log | **0 vezes** — o processo nem sabe que storage existe |
+| API anuncia o storage na subida | sim |
+
+### Testes acrescentados — 8
+
+| Onde | Quantos | O que travam |
+|---|:---:|---|
+| `ComposicaoDoProcessoDeTrabalhoTestes` (arquitetura) | 6 | host real construído com `ValidateOnBuild` + `ValidateScopes` em `Development` **e** `Production`; nada da sessão humana registrado; nenhum tipo do grafo pedindo dependência de requisição no construtor; os seis casos de uso dos laços resolvendo; os cinco serviços hospedados presentes |
+| `ComposicaoDaApiTestes` (integração) | 2 | o `Program.cs` real da API subindo em `Development` com validação ligada; e a API **não** hospedando nenhum dos quatro laços |
+
+Os dois testes de "nada da sessão humana" olham ângulos diferentes: um vê o que está **registrado**, o
+outro o que os registrados **exigem** no construtor. Juntos fecham os dois caminhos pelos quais uma
+dependência de requisição voltaria a entrar no grafo de fundo.
+
+Nenhuma implementação falsa foi registrada para satisfazer o contêiner, e nenhuma validação foi
+desligada — era exatamente o que o pedido proibia, e é o que teria mascarado o problema.
+
+### Bateria completa depois da divisão
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| Integração (completa, PostgreSQL + PostGIS + Azurite reais) | **571** | ✅ 0 falha, 2 puladas, 814 s |
+| `TorreLogistica.UnitTests` | 717 | ✅ |
+| `TorreLogistica.ArchitectureTests` | **28** | ✅ |
+| `apps/operacao` · `apps/motorista` · `apps/rastreamento` | 38 · 76 · 17 | ✅ |
+| `dotnet format --verify-no-changes` | — | ✅ |
+| `bicep build` · `bicep lint` | — | ✅ 0 erro, 0 aviso, sem achados; 17 recursos |
+| **Total** | **1.447** | ✅ |
+
+São 8 provas a mais que o adaptador de Blob: 6 de composição do processo de trabalho e 2 da API.
+
 ## Commits
 
 `refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
 `test: corrige causa raiz do alerta de permanencia e congela sizing e regiao (Fase 25)`
 `fix: corpo json ilegivel responde 400 e armazenamento falha na subida (Fase 25)`
 `feat: adaptador de azure blob storage para comprovantes, com identidade gerenciada (Fase 25)`
+`refactor: divide o composition root para cada processo registrar so o que usa (Fase 25)`
 
 ---
 

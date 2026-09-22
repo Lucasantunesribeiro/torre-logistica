@@ -2,12 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using TorreLogistica.Application;
-using TorreLogistica.Infrastructure;
-using TorreLogistica.Infrastructure.Observabilidade;
-using TorreLogistica.Infrastructure.Previsao;
-using TorreLogistica.Infrastructure.Retencao;
-using TorreLogistica.Infrastructure.Webhooks;
 using TorreLogistica.Workers;
 
 // Processo de trabalho da Torre Logística.
@@ -39,26 +33,9 @@ try
         .ReadFrom.Services(provedor)
         .Enrich.FromLogContext());
 
-    // As duas camadas, como a API faz: os casos de uso que os laços executam são os mesmos que a borda
-    // expõe. Registrar só a infraestrutura deixaria o processo subir e morrer ao montar o primeiro
-    // serviço de fundo — foi exatamente o que aconteceu na primeira tentativa de rodar esta imagem.
-    construtor.Services.AdicionarCamadaDeApplication();
-    construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
-
-    // Dependências: as mesmas que a API registra.
-    construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
-    construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
-    construtor.Services.AdicionarWebhooks(construtor.Configuration);
-    construtor.Services.AdicionarRetencao(construtor.Configuration);
-    construtor.Services.AdicionarMedidasDaOperacao(construtor.Configuration);
-
-    // Os laços: só aqui.
-    construtor.Services.AdicionarProcessamentoDePrevisoes();
-    construtor.Services.AdicionarProcessamentoDeWebhooks();
-    construtor.Services.AdicionarProcessamentoDeRetencao();
-    construtor.Services.AdicionarProcessamentoDeMedidas();
-
-    construtor.Services.AddHostedService<ServicoDeVerificacaoDeInfraestrutura>();
+    // Todo o registro vive em ComposicaoDoProcessoDeTrabalho, e não aqui: assim o teste de composição
+    // monta exatamente o mesmo grafo que este processo monta, em vez de uma cópia que sai de sincronia.
+    construtor.Services.AdicionarProcessoDeTrabalho(construtor.Configuration);
 
     using var host = construtor.Build();
 

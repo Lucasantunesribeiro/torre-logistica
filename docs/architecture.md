@@ -51,6 +51,30 @@
 | `Workers` | carga assíncrona | `Application`, `Infrastructure` |
 | `Simulator` | cliente externo | **nada do núcleo** |
 
+### A camada de aplicação tem duas metades, e os processos registram metades diferentes
+
+A divisão não é organizacional: ela separa casos de uso por **do que eles dependem**.
+
+| Metade | O que é | Quem registra |
+|---|---|---|
+| `AdicionarCasosDeUsoDaOperacao()` | o que funciona sem ninguém autenticado: reavaliar previsão, abrir alerta, despachar webhook, ler o estado da operação. Depende de persistência, relógio, identificador e opções — e de mais nada | **os dois** processos |
+| `AdicionarCasosDeUsoDaBorda()` | o que só existe dentro de uma requisição autenticada. Tudo aqui alcança `IContextoDoUsuario` ou `IEmissorDeTokenDeAcesso`, abstrações que só a borda HTTP implementa | **só a API** |
+
+Enquanto havia um registro só, o processo de trabalho precisava chamá-lo inteiro para obter os seis casos
+de uso que executa, e arrastava junto quarenta que só a borda usa. Em produção o contêiner nunca
+reclamava, porque a validação na construção fica desligada; em **desenvolvimento**, que a liga, o processo
+**não subia**. O sintoma aparecia no ambiente errado, e a causa era um registro que não distinguia quem
+precisa de quê.
+
+Pela mesma régua, o **storage de objeto saiu do registro compartilhado**: `IObjectStorage` tem exatamente
+dois usos — comprovante e rastreamento público —, ambos atrás de requisição autenticada. Enquanto ele
+morava no registro comum, o processo de trabalho exigia uma chave de assinatura de URL em produção:
+credencial que ele nunca usaria, para um serviço que nunca resolveria.
+
+O composition root do processo de trabalho mora em `ComposicaoDoProcessoDeTrabalho`, e não em
+instruções de nível superior do `Program.cs`, para que o teste de composição monte **o mesmo grafo** que o
+processo monta, em vez de uma cópia que sai de sincronia no primeiro registro esquecido.
+
 A regra não é confiada à disciplina de quem escreve: `TorreLogistica.ArchitectureTests`
 lê os arquivos `.csproj` e os metadados dos assemblies e reprova o build quando a
 direção é violada. A leitura do `.csproj` é intencional — uma referência declarada e

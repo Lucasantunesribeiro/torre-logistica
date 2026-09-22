@@ -111,8 +111,11 @@ pedida ao Azure em nome da identidade gerenciada da Container App. A chave de co
 como opção, mas a validação de subida **recusa** usá-la fora de Development/Testing — ela só serve ao
 emulador, que não implementa delegação.
 
-Os workers recebem a mesma declaração de propósito (configuração uniforme entre os processos), mas **não**
-recebem papel no Storage: eles nunca resolvem `IObjectStorage`.
+Os workers **não recebem variável de armazenamento nenhuma** — nem conta, nem contêiner, nem chave. O
+registro do storage saiu do composition root deles: `IObjectStorage` tem exatamente dois usos no sistema,
+comprovante e rastreamento público, e os dois vivem atrás de uma requisição autenticada. Por isso eles
+também não recebem papel no Storage: menor privilégio que não é declaração de intenção, e sim consequência
+de o processo não conhecer o recurso.
 
 ### Papéis atribuídos, e o que isso exige de quem aplica
 

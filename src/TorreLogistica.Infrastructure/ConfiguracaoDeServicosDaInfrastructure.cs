@@ -60,36 +60,6 @@ public static class ConfiguracaoDeServicosDaInfrastructure
             .AddOptions<OpcoesDeSemeaduraDeDesenvolvimento>()
             .Bind(configuracao.GetSection(OpcoesDeSemeaduraDeDesenvolvimento.Secao));
 
-        // Storage de objeto (ADR 0007): nesta fase, disco local com URL assinada servida pela própria API.
-        // A troca por S3 ou compatível é da Fase 25 e não passa do adaptador.
-        servicos
-            .AddOptions<OpcoesDeArmazenamento>()
-            .Bind(configuracao.GetSection(OpcoesDeArmazenamento.Secao))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        servicos.AddSingleton<IValidateOptions<OpcoesDeArmazenamento>, ValidacaoDeOpcoesDeArmazenamento>();
-        servicos.AddSingleton<AssinaturaDeUrlDeArmazenamento>();
-        servicos.AddSingleton<ArmazenamentoLocalDeObjetos>();
-        servicos.AddSingleton<ArmazenamentoBlobDeObjetos>();
-
-        // Qual adaptador atende é decidido uma vez, aqui, pela configuração já validada na subida. O
-        // registro do local continua existindo sempre porque o endpoint de arquivos da API precisa dele
-        // para conferir assinatura própria — mas quem responde por IObjectStorage é um só.
-        servicos.AddSingleton<IObjectStorage>(provedor =>
-            string.Equals(
-                provedor.GetRequiredService<IOptions<OpcoesDeArmazenamento>>().Value.Provedor,
-                OpcoesDeArmazenamento.ProvedorBlob,
-                StringComparison.OrdinalIgnoreCase)
-                ? provedor.GetRequiredService<ArmazenamentoBlobDeObjetos>()
-                : provedor.GetRequiredService<ArmazenamentoLocalDeObjetos>());
-
-        // Anúncio na subida, e não na primeira foto: qual storage está atendendo é a informação que
-        // alguém procura quando o comprovante não aparece, e procurar não pode depender de ter havido
-        // um comprovante. Resolver aqui também constrói o cliente cedo — configuração que só quebraria
-        // no primeiro uso quebra agora.
-        servicos.AddHostedService<AnuncioDoArmazenamento>();
-
         servicos
             .AddOptions<OpcoesDeComprovantes>()
             .Bind(configuracao.GetSection(OpcoesDeComprovantes.Secao))
@@ -135,6 +105,59 @@ public static class ConfiguracaoDeServicosDaInfrastructure
             .AddDbContextCheck<TorreLogisticaDbContext>(
                 name: NomeDoHealthCheckDeBanco,
                 tags: [EtiquetaDePronto]);
+
+        return servicos;
+    }
+
+    /// <summary>
+    /// Registra o storage de objetos (ADR 0007): opções, validação de subida e o adaptador escolhido.
+    /// </summary>
+    /// <remarks>
+    /// Fica fora de <see cref="AdicionarCamadaDeInfrastructure"/> de propósito. Só a API guarda e serve
+    /// comprovante — <c>GestaoDeComprovantes</c> e <c>GestaoDoRastreamentoPublico</c> são os únicos dois
+    /// usos de <c>IObjectStorage</c> no sistema, e os dois vivem atrás de uma requisição autenticada.
+    ///
+    /// Enquanto isto morava no registro compartilhado, o processo de trabalho precisava de uma chave de
+    /// assinatura de URL para subir em produção — uma credencial que ele nunca usaria, exigida por um
+    /// serviço que ele nunca resolveria. Era o mesmo defeito que esta fase veio corrigir, numa escala
+    /// menor.
+    /// </remarks>
+    public static IServiceCollection AdicionarArmazenamentoDeObjetos(
+        this IServiceCollection servicos,
+        IConfiguration configuracao)
+    {
+        ArgumentNullException.ThrowIfNull(servicos);
+        ArgumentNullException.ThrowIfNull(configuracao);
+
+        // Storage de objeto (ADR 0007): nesta fase, disco local com URL assinada servida pela própria API.
+        // A troca por S3 ou compatível é da Fase 25 e não passa do adaptador.
+        servicos
+            .AddOptions<OpcoesDeArmazenamento>()
+            .Bind(configuracao.GetSection(OpcoesDeArmazenamento.Secao))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        servicos.AddSingleton<IValidateOptions<OpcoesDeArmazenamento>, ValidacaoDeOpcoesDeArmazenamento>();
+        servicos.AddSingleton<AssinaturaDeUrlDeArmazenamento>();
+        servicos.AddSingleton<ArmazenamentoLocalDeObjetos>();
+        servicos.AddSingleton<ArmazenamentoBlobDeObjetos>();
+
+        // Qual adaptador atende é decidido uma vez, aqui, pela configuração já validada na subida. O
+        // registro do local continua existindo sempre porque o endpoint de arquivos da API precisa dele
+        // para conferir assinatura própria — mas quem responde por IObjectStorage é um só.
+        servicos.AddSingleton<IObjectStorage>(provedor =>
+            string.Equals(
+                provedor.GetRequiredService<IOptions<OpcoesDeArmazenamento>>().Value.Provedor,
+                OpcoesDeArmazenamento.ProvedorBlob,
+                StringComparison.OrdinalIgnoreCase)
+                ? provedor.GetRequiredService<ArmazenamentoBlobDeObjetos>()
+                : provedor.GetRequiredService<ArmazenamentoLocalDeObjetos>());
+
+        // Anúncio na subida, e não na primeira foto: qual storage está atendendo é a informação que
+        // alguém procura quando o comprovante não aparece, e procurar não pode depender de ter havido
+        // um comprovante. Resolver aqui também constrói o cliente cedo — configuração que só quebraria
+        // no primeiro uso quebra agora.
+        servicos.AddHostedService<AnuncioDoArmazenamento>();
 
         return servicos;
     }

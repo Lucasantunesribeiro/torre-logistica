@@ -22,7 +22,10 @@ public sealed class FabricaDaApi(
     ContainerPostgis banco,
     IReadOnlyDictionary<string, string?>? configuracaoAdicional = null,
     TimeProvider? relogio = null,
-    Action<IServiceCollection>? servicosDeTeste = null) : WebApplicationFactory<Program>
+    Action<IServiceCollection>? servicosDeTeste = null,
+    string ambiente = "Testing",
+    bool validarContainer = false,
+    bool registrarLacoDePrevisao = true) : WebApplicationFactory<Program>
 {
     private static readonly string ChaveDeWebhookDoProcesso =
         Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -49,8 +52,20 @@ public sealed class FabricaDaApi(
         ArgumentNullException.ThrowIfNull(builder);
 
         // "Testing" e não "Development": exercita o caminho de produção — sem página de
-        // exceção do desenvolvedor, sem OpenAPI, sem semeadura, sem CORS de localhost.
-        builder.UseEnvironment("Testing");
+        // exceção do desenvolvedor, sem OpenAPI, sem semeadura, sem CORS de localhost. O teste de
+        // composição pede "Development" de propósito, porque é lá que o contêiner valida cada descritor.
+        builder.UseEnvironment(ambiente);
+
+        if (validarContainer)
+        {
+            // Ligado explicitamente, e não herdado do ambiente: o que o teste de composição prova não
+            // pode depender de em que ambiente a suíte roda.
+            builder.UseDefaultServiceProvider(opcoes =>
+            {
+                opcoes.ValidateOnBuild = true;
+                opcoes.ValidateScopes = true;
+            });
+        }
 
         builder.ConfigureAppConfiguration(configuracao =>
         {
@@ -121,7 +136,13 @@ public sealed class FabricaDaApi(
             //
             // Os outros laços — outbox, retenção e medidas — NÃO entram: os testes deles chamam o caso de
             // uso diretamente, e uma rodada de fundo no meio disputaria a fila com a asserção.
-            servicos.AdicionarProcessamentoDePrevisoes();
+            // O teste de composição pede este laço de fora: ele precisa enxergar a API como o
+            // Program.cs a compõe, sem nada que a suíte acrescente.
+            if (registrarLacoDePrevisao)
+            {
+                servicos.AdicionarProcessamentoDePrevisoes();
+            }
+
             servicos.AddSingleton<IStartupFilter, FiltroDeEndpointsDeTeste>();
             servicos.AddSingleton<ILogEventSink>(Logs);
 

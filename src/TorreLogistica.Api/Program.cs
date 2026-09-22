@@ -150,6 +150,8 @@ try
     construtor.Services.AdicionarAutenticacaoDaTorre(construtor.Configuration);
     construtor.Services.AdicionarCamadaDeApplication();
     construtor.Services.AdicionarCamadaDeInfrastructure(construtor.Configuration);
+    // Só a API guarda e serve comprovante; o processo de trabalho não registra storage nenhum.
+    construtor.Services.AdicionarArmazenamentoDeObjetos(construtor.Configuration);
     construtor.Services.AdicionarTempoRealDaOperacao();
     construtor.Services.AdicionarPrevisaoDeChegada(construtor.Configuration);
     construtor.Services.AdicionarAlertasOperacionais(construtor.Configuration);
