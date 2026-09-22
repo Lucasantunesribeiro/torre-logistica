@@ -129,7 +129,7 @@ independentemente de uso (banco, armazenamento e registro). É o preço de um si
 quando ninguém está olhando — que é, afinal, o que ele se propõe a ser. Como desligar e como apagar tudo
 está em [`docs/cost-model.md`](../cost-model.md#9-como-desligar-tudo-e-parar-a-cobrança).
 
-O template **foi validado**: `bicep build` e `bicep lint` passam sem erro nem aviso, e os 13 recursos que
+O template **foi validado**: `bicep build` e `bicep lint` passam sem erro nem aviso, e os 17 recursos que
 ele geraria estão listados em `infra/README.md`. O que **não** rodou foi o `what-if`, e o motivo não é
 comodidade: ele exige assinatura autenticada e grupo de recursos existente, e nenhum dos dois existe.
 

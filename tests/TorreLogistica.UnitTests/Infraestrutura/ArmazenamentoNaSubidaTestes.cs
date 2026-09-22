@@ -56,15 +56,136 @@ public sealed class ArmazenamentoNaSubidaTestes : IDisposable
         Assert.Contains("não existe", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
     }
 
-    /// <summary>Sem adaptador, pedir Blob falha na subida — nunca cai no disco local por baixo do pano.</summary>
+    /// <summary>Blob declarado por inteiro sobe — inclusive em produção, que é onde ele vive.</summary>
     [Fact]
-    public void ProvedorBlobReprovaEnquantoNaoTemAdaptador()
+    public void ProvedorBlobComConfiguracaoCompletaSobe()
     {
-        var resultado = Validar("Production", new OpcoesDeArmazenamento { Provedor = "blob" });
+        var resultado = Validar("Production", BlobValido());
+
+        Assert.True(resultado.Succeeded, string.Join(" | ", resultado.Failures ?? []));
+    }
+
+    /// <summary>Configuração obrigatória ausente derruba a subida, nome por nome.</summary>
+    [Theory]
+    [InlineData(null, "comprovantes", "Conta é obrigatória")]
+    [InlineData("torrelogarquivos", null, "Contedor é obrigatório")]
+    public void ProvedorBlobSemConfiguracaoObrigatoriaReprova(string? conta, string? contedor, string trecho)
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.Conta = conta;
+        opcoes.Blob.Contedor = contedor;
+
+        var resultado = Validar("Production", opcoes);
 
         Assert.False(resultado.Succeeded);
-        Assert.Contains("ainda não tem adaptador", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
+        Assert.Contains(trecho, Assert.Single(resultado.Failures!), StringComparison.Ordinal);
     }
+
+    /// <summary>Nome de contêiner que o Azure recusaria é recusado aqui, na subida.</summary>
+    [Theory]
+    [InlineData("ab")]
+    [InlineData("Comprovantes")]
+    [InlineData("com--provantes")]
+    [InlineData("-comprovantes")]
+    [InlineData("comprovantes_")]
+    public void NomeDeContedorInvalidoReprova(string contedor)
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.Contedor = contedor;
+
+        var resultado = Validar("Production", opcoes);
+
+        Assert.False(resultado.Succeeded);
+        Assert.Contains("não é um nome válido", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
+    }
+
+    /// <summary>Chave de conta é segredo permanente com acesso total: fora de teste, não passa.</summary>
+    [Fact]
+    public void AutenticacaoPorChaveDeContaReprovaEmProducao()
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.Autenticacao = OpcoesDoBlob.AutenticacaoPorChave;
+        opcoes.Blob.ChaveDaConta = "ZmFsc2E=";
+
+        var resultado = Validar("Production", opcoes);
+
+        Assert.False(resultado.Succeeded);
+        var falha = Assert.Single(resultado.Failures!);
+        Assert.Contains("não é aceito no ambiente Production", falha, StringComparison.Ordinal);
+        Assert.Contains(OpcoesDoBlob.AutenticacaoPorIdentidade, falha, StringComparison.Ordinal);
+    }
+
+    /// <summary>Em desenvolvimento a chave é aceita — mas só se ela existir.</summary>
+    [Fact]
+    public void AutenticacaoPorChaveExigeAChave()
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.Autenticacao = OpcoesDoBlob.AutenticacaoPorChave;
+
+        var resultado = Validar("Development", opcoes);
+
+        Assert.False(resultado.Succeeded);
+        Assert.Contains("ChaveDaConta é obrigatória", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AutenticacaoDesconhecidaReprova()
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.Autenticacao = "sas-eterna";
+
+        var resultado = Validar("Production", opcoes);
+
+        Assert.False(resultado.Succeeded);
+        Assert.Contains("não existe", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VersaoDeServicoDesconhecidaReprova()
+    {
+        var opcoes = BlobValido();
+        opcoes.Blob.VersaoDoServico = "2030-01-01";
+
+        var resultado = Validar("Production", opcoes);
+
+        Assert.False(resultado.Succeeded);
+        Assert.Contains("não é uma versão conhecida", Assert.Single(resultado.Failures!), StringComparison.Ordinal);
+    }
+
+    /// <summary>Sem endereço configurado, o destino é o domínio público do Azure derivado da conta.</summary>
+    [Fact]
+    public void EnderecoDoServicoVemDaContaQuandoNaoConfigurado()
+    {
+        var derivado = ArmazenamentoBlobDeObjetos.EnderecoDoServico(new OpcoesDoBlob { Conta = "torrelogarquivos" });
+        var explicito = ArmazenamentoBlobDeObjetos.EnderecoDoServico(
+            new OpcoesDoBlob { Conta = "torrelogarquivos", EndpointDoServico = "http://127.0.0.1:10000/devstoreaccount1" });
+
+        Assert.Equal("https://torrelogarquivos.blob.core.windows.net/", derivado.ToString());
+        Assert.Equal("http://127.0.0.1:10000/devstoreaccount1", explicito.ToString());
+    }
+
+    /// <summary>Escolher blob não exige diretório gravável: o disco local deixa de estar no caminho.</summary>
+    [Fact]
+    public void ProvedorBlobNaoCobraDiretorioLocal()
+    {
+        var opcoes = BlobValido();
+        opcoes.Diretorio = Path.Combine(_raizTemporaria, "nao-deve-ser-criado");
+
+        var resultado = Validar("Production", opcoes);
+
+        Assert.True(resultado.Succeeded, string.Join(" | ", resultado.Failures ?? []));
+        Assert.False(Directory.Exists(opcoes.Diretorio));
+    }
+
+    private static OpcoesDeArmazenamento BlobValido() => new()
+    {
+        Provedor = OpcoesDeArmazenamento.ProvedorBlob,
+        Blob = new OpcoesDoBlob
+        {
+            Conta = "torrelogarquivos",
+            Contedor = "comprovantes",
+        },
+    };
 
     /// <summary>Produção sem declarar nada continua sendo recusa, não disco local silencioso.</summary>
     [Fact]

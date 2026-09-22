@@ -5175,7 +5175,7 @@ a infraestrutura descrita não bastava para o deploy descrito. Corrigido com um 
 (US$ 5,07/mês), sem usuário administrador, com pull por identidade gerenciada. A ordem obrigatória do
 primeiro provisionamento (criar → atribuir `AcrPull` → reaplicar) está em `infra/README.md`.
 
-### Os 13 recursos que seriam criados
+### Os 17 recursos que seriam criados
 
 | # | Tipo | SKU / configuração |
 |---|---|---|
@@ -5191,6 +5191,7 @@ primeiro provisionamento (criar → atribuir `AcrPull` → reaplicar) está em `
 | 11 | `App/managedEnvironments` | consumo (sem workload profile dedicado) |
 | 12 | `App/containerApps` — **API** | 0,25 vCPU / 0,5 GiB, min 1, max 1, ingress HTTPS |
 | 13 | `App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** |
+| 14-17 | `Authorization/roleAssignments` | papéis mínimos: dado no contêiner, delegação na conta, `AcrPull` no registro (ver adiante) |
 
 Validação: `bicep build` e `bicep lint` sem erro nem aviso; `senhaDoBanco` continua `securestring`; nenhum
 segredo fixo no template; **nenhum recurso pago criado** — a compilação é local e offline.
@@ -5206,13 +5207,11 @@ segredo fixo no template; **nenhum recurso pago criado** — a compilação é l
 
 | Item | Bloqueio |
 |---|---|
-| Provisionar os 13 recursos | **autorização explícita** |
+| Provisionar os 17 recursos | **autorização explícita** |
 | `az deployment group what-if` | assinatura autenticada + grupo de recursos |
 | Deploy da aplicação | **autorização explícita** |
-| Papéis das identidades gerenciadas (`AcrPull`, cofre, blob) | operação de diretório, feita após o provisionamento |
 | Destino dos frontends | decisão à parte; são estáticos e sem segredo |
 | Medição com latência de rede | só no ambiente publicado |
-| Adaptador de Blob para comprovantes | **não implementado**; sem ele o comprovante do ambiente publicado é efêmero (ver correção do defeito 2) |
 
 ## Correção dos dois defeitos do preflight
 
@@ -5308,7 +5307,7 @@ Imagens reconstruídas: API **196 MB**, workers **155 MB** (mesmos tamanhos de a
 | Onde | Quantos | O que travam |
 |---|:---:|---|
 | `ContratoDeErrosHttpTestes` | 6 | 4 casos de corpo ilegível (sintaxe, chave sem valor, tipo incompatível, vazio), JSON válido seguindo o fluxo, e falha interna continuando 500 |
-| `ArmazenamentoNaSubidaTestes` | 9 | provedor local nos dois ambientes de desenvolvimento, diretório sem permissão, provedor desconhecido, `blob` sem adaptador, produção sem e com declaração, caminho efetivo, e as validações antigas continuando válidas |
+| `ArmazenamentoNaSubidaTestes` | 9 | provedor local nos dois ambientes de desenvolvimento, diretório sem permissão, provedor desconhecido, `blob` recusado enquanto não havia adaptador, produção sem e com declaração, caminho efetivo, e as validações antigas continuando válidas |
 
 ### Bateria completa depois das duas correções
 
@@ -5328,14 +5327,146 @@ São 15 provas a mais que o preflight: 6 de contrato de erro e 9 de armazenament
 
 | Item | Situação |
 |---|---|
-| Adaptador de Blob para comprovantes | **não implementado**. A Storage Account do template é o destino dele |
-| Comprovante no ambiente publicado | efêmero enquanto o adaptador não existir — declarado em configuração, não escondido |
+| Adaptador de Blob para comprovantes | ✅ **implementado** — ver a seção seguinte |
+
+## Adaptador de Azure Blob Storage para comprovantes
+
+> Ainda **🟨**, ainda **nada provisionado**. Este era o último bloqueio técnico da fase: o ambiente
+> publicado não tinha persistência durável de prova de entrega.
+
+### O que existia e o que passou a existir
+
+| | Antes | Agora |
+|---|---|---|
+| Adaptadores de `IObjectStorage` | um: disco local | **dois**: disco local e Azure Blob |
+| Em produção | disco do contêiner — sumia no reinício | Blob privado, com identidade gerenciada |
+| `Provedor=blob` | recusava subir: não havia adaptador | sobe, com a configuração conferida na subida |
+| Qual provedor subiu | não aparecia em lugar nenhum | anunciado no arranque, sem segredo no texto |
+
+### Arquitetura
+
+```text
+aparelho pede autorização
+  → API assina SAS de Create+Write para AQUELA chave, válida por minutos
+aparelho envia a foto DIRETO ao Storage — a API nunca vê os bytes
+API registra o comprovante
+  → ObterAsync lê tamanho e tipo REAIS e calcula o SHA-256 baixando o objeto uma vez
+  → o resumo vira metadado do próprio objeto; leituras seguintes não baixam nada
+console pede o comprovante
+  → API assina SAS de Read, nova a cada leitura
+```
+
+A fronteira Azure termina em `ArmazenamentoBlobDeObjetos`: nenhum tipo do SDK atravessa `IObjectStorage`,
+e o teste de arquitetura passou a proibir pacotes `Azure.*` no domínio.
+
+### Pacotes
+
+| Pacote | Versão | Para quê |
+|---|---|---|
+| `Azure.Storage.Blobs` | 12.29.2 | o adaptador |
+| `Azure.Identity` | 1.21.0 | identidade gerenciada da Container App |
+| `Testcontainers.Azurite` | 4.15.0 | emulador oficial na suíte de integração |
+
+Custo: a imagem da API foi de 196 MB para **202 MB**, e a dos workers de 155 MB para **161 MB**.
+
+### Permissões no Azure
+
+| Identidade | Papel | Escopo |
+|---|---|---|
+| API | `Storage Blob Data Contributor` | **o contêiner** `comprovantes`, não a conta |
+| API | `Storage Blob Delegator` | a conta — é operação de conta, não existe por contêiner |
+| API | `AcrPull` | o registro |
+| Workers | `AcrPull` | o registro |
+
+Os workers **não** recebem papel no Storage: nunca resolvem `IObjectStorage`. Os papéis passaram a viver
+no template, o que muda um pré-requisito: quem aplica precisa de `User Access Administrator` ou `Owner` no
+grupo de recursos. Em troca, o primeiro provisionamento deixou de ser um procedimento de três passos.
+
+### Como o acesso temporário funciona
+
+Com identidade gerenciada não existe segredo para assinar. O adaptador pede ao Azure uma **chave de
+delegação de usuário**, válida por pouco tempo, e assina a SAS com ela. A SAS resultante carrega os
+poderes da identidade e nada além disso, e o Azure a invalida quando a delegação vence. A chave é cacheada
+em memória e renovada com folga — pedi-la a cada autorização seria uma ida de rede por foto.
+
+No banco fica **só a chave lógica** do objeto. Nenhuma URL, permanente ou não: toda URL nasce na hora da
+leitura, depois de a aplicação ter conferido autorização e tenant.
+
+### Três descobertas que mudaram o código
+
+| Descoberta | Como apareceu | O que mudou |
+|---|---|---|
+| **SAS não prende tipo nem tamanho** | teste esperava `403` ao subir `text/plain` com assinatura de `image/jpeg`; o emulador respondeu `201` | o `ContentType` do construtor é override de resposta de leitura, não regra de escrita. Removido do envio, e o teste passou a travar a verdade: o Storage aceita, o **registro** recusa com `tipo_de_arquivo_nao_aceito` |
+| **`BlobSasBuilder` tem versão própria** | a SAS saía com `sv=2026-06-06` mesmo com o cliente fixado em `V2025_07_05` | a versão configurada passou a ser aplicada também na assinatura |
+| **Endereço de emulador precisa ser IP** | upload devolvia `403`, e a URL saía sem o segmento do contêiner | com um *hostname*, o SDK usa o estilo de produção e lê o primeiro segmento do caminho como contêiner, não como conta. Só afeta emulador — em produção o endereço é `https://conta.blob.core.windows.net` |
+
+A primeira é a mais importante: o teste **falhou pelo motivo certo** e impediu que uma afirmação falsa
+sobre segurança entrasse no código e na documentação.
+
+### Prova ponta a ponta, com reinício
+
+PostgreSQL + PostGIS reais, Azurite, imagem real da API e imagem real dos workers.
+
+```text
+1. login na organização semeada
+2. cliente, destinatário, entrega, motorista, veículo, rota iniciada
+3. autorização de envio  → URL aponta para o Storage, não para a API
+4. PUT da foto DIRETO no Storage                      → 201 Created
+5. conclusão com o comprovante                        → entrega Entregue
+6. leitura pela API                                   → 10.240 bytes, sha256 e96760a8…
+7. docker restart do contêiner da API
+8. leitura de novo                                    → 10.240 bytes, sha256 e96760a8…
+```
+
+| Verificação | Resultado |
+|---|---|
+| Binário idêntico depois do reinício | **sim**, byte a byte |
+| Mesma chave lógica | sim |
+| URL reemitida a cada leitura | sim — assinatura e prazo novos |
+| Objeto no Storage | 2 blobs listados no contêiner `comprovantes` |
+| Arquivos no disco da API | **0** |
+| Workers | vivos, sem porta publicada, anunciando o mesmo storage |
+
+A última linha da tabela é o ponto: o arquivo não depende do sistema de arquivos efêmero da API.
+
+### Testes acrescentados — 30
+
+| Onde | Quantos | O que travam |
+|---|:---:|---|
+| `ArmazenamentoNaSubidaTestes` (unidade) | +13 | seleção do provedor blob, configuração ausente por nome, nome de contêiner inválido, chave de conta recusada em produção, chave ausente, autenticação desconhecida, versão de serviço inválida, endereço derivado da conta, e blob não cobrando diretório local |
+| `ComprovantesNoBlobTestes` (Azurite) | 8 | fluxo completo pelo Storage, resumo calculado do objeto e guardado como metadado, leitura sem assinatura recusada, banco sem URL, arquivo inexistente impedindo o registro, isolamento por organização, tipo fora da política, e tipo divergente aceito pelo Storage mas recusado no registro |
+| `AdaptadorDeBlobTestes` (Azurite) | 5 | assinatura vencida recusada (relógio no passado, sem esperar), objeto inexistente, metadados reais, assinatura de envio que não serve para ler, e nenhuma URL sem prazo |
+| `DependenciasEntreCamadasTestes` | — | passou a proibir pacotes `Azure.*` no domínio |
+
+### O que só o Azure real pode provar
+
+| Item | Por quê |
+|---|---|
+| Chave de delegação de usuário (`GetUserDelegationKey`) | o emulador não implementa. Os testes assinam com chave de conta, e a escolha entre os dois caminhos é coberta por unidade |
+| Suficiência dos papéis | o emulador não avalia RBAC. Que `Storage Blob Data Contributor` no contêiner e `Storage Blob Delegator` na conta bastem é afirmação a conferir no provisionamento |
+| `DefaultAzureCredential` resolvendo a identidade da Container App | exige a plataforma real |
+| HTTPS obrigatório na SAS | em produção o endereço é HTTPS e a assinatura exige `https`; contra o emulador, que fala HTTP, essa cláusula fica desligada |
+
+### Bateria completa depois do adaptador
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| Integração (completa, PostgreSQL + PostGIS + Azurite reais) | **569** | ✅ 0 falha, 2 puladas, 865 s |
+| `TorreLogistica.UnitTests` | **717** | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `apps/operacao` · `apps/motorista` · `apps/rastreamento` | 38 · 76 · 17 | ✅ |
+| `dotnet format --verify-no-changes` | — | ✅ |
+| `bicep build` · `bicep lint` | — | ✅ 0 erro, 0 aviso, sem achados; **17 recursos** |
+| **Total** | **1.439** | ✅ |
+
+São 26 provas a mais que a correção anterior: 13 de unidade e 13 de integração contra o emulador.
 
 ## Commits
 
 `refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
 `test: corrige causa raiz do alerta de permanencia e congela sizing e regiao (Fase 25)`
 `fix: corpo json ilegivel responde 400 e armazenamento falha na subida (Fase 25)`
+`feat: adaptador de azure blob storage para comprovantes, com identidade gerenciada (Fase 25)`
 
 ---
 

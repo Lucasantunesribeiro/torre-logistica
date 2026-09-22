@@ -322,7 +322,7 @@ religa o servidor sozinho depois de 7 dias.
 az group delete --name <grupo> --yes
 ```
 
-Apaga os 13 recursos de uma vez e encerra **toda** a cobrança. Três avisos:
+Apaga os 17 recursos de uma vez e encerra **toda** a cobrança. Três avisos:
 
 1. **Os backups do banco vão junto** e não são recuperáveis.
 2. **O cofre fica em soft delete por 7 dias** e o nome continua reservado nesse período; para reaproveitar
@@ -342,7 +342,7 @@ az resource list -g <grupo> -o table
 |---|---|
 | Escolha do fornecedor | ✅ feita: Azure Container Apps + PostgreSQL Flexible Server |
 | Região | ✅ **East US**, pela seção 4 |
-| IaC | ✅ escrita e **validada**: `bicep build` e `bicep lint` sem achados; 13 recursos |
+| IaC | ✅ escrita e **validada**: `bicep build` e `bicep lint` sem achados; 17 recursos |
 | Estimativa de custo | ✅ preços de 21/09/2026; faixa esperada US$ 35–40/mês |
 | `what-if` | ❌ exige assinatura autenticada e grupo de recursos existente — nenhum dos dois existe |
 | Provisionamento | **exige aprovação explícita** — nenhum recurso foi criado |

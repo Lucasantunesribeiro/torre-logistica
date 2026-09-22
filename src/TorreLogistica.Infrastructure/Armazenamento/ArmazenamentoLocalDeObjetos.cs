@@ -19,7 +19,7 @@ public sealed class OpcoesDeArmazenamento
     /// <summary>Provedor de disco local, com URL assinada servida pela própria API.</summary>
     public const string ProvedorLocal = "local";
 
-    /// <summary>Provedor de objeto em nuvem. Reservado: ainda não implementado (ADR 0007).</summary>
+    /// <summary>Azure Blob Storage, contêiner privado com URL assinada de curta duração (ADR 0007).</summary>
     public const string ProvedorBlob = "blob";
 
     /// <summary>
@@ -73,6 +73,62 @@ public sealed class OpcoesDeArmazenamento
 
     /// <summary>Validade da URL de leitura. Curta de propósito: URL longa é link público com prazo.</summary>
     public TimeSpan ValidadeDaUrlDeLeitura { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Configuração do provedor <c>blob</c>. Só é lida quando ele é o escolhido.</summary>
+    public OpcoesDoBlob Blob { get; set; } = new();
+}
+
+/// <summary>Configuração do Azure Blob Storage — seção <c>Torre:Armazenamento:Blob</c>.</summary>
+public sealed class OpcoesDoBlob
+{
+    /// <summary>Identidade gerenciada da própria aplicação. Sem segredo em lugar nenhum.</summary>
+    public const string AutenticacaoPorIdentidade = "identidade-gerenciada";
+
+    /// <summary>Chave da conta. Só para emulador local; recusada em produção.</summary>
+    public const string AutenticacaoPorChave = "chave-de-conta";
+
+    /// <summary>Nome da conta de armazenamento.</summary>
+    public string? Conta { get; set; }
+
+    /// <summary>Contêiner dos comprovantes. Privado — nunca com acesso anônimo.</summary>
+    public string? Contedor { get; set; }
+
+    /// <summary>
+    /// Endereço do serviço de blob. Vazio deriva de <see cref="Conta"/> no domínio público do Azure.
+    /// </summary>
+    /// <remarks>
+    /// Existe para o emulador, cujo endereço é <c>http://host:porta/conta</c> em vez de
+    /// <c>https://conta.blob.core.windows.net</c>.
+    /// </remarks>
+    public string? EndpointDoServico { get; set; }
+
+    /// <summary>Como a aplicação se autentica no Storage.</summary>
+    public string Autenticacao { get; set; } = AutenticacaoPorIdentidade;
+
+    /// <summary>
+    /// Chave da conta, usada apenas com <see cref="AutenticacaoPorChave"/>.
+    /// </summary>
+    /// <remarks>
+    /// Existe por um motivo só: o emulador não implementa a chave de delegação de usuário, então os
+    /// testes de integração precisam assinar com chave de conta. Em produção este caminho é **recusado
+    /// na subida** — chave de conta é segredo permanente que dá acesso total, e identidade gerenciada
+    /// resolve o caso sem guardar nada.
+    /// </remarks>
+    public string? ChaveDaConta { get; set; }
+
+    /// <summary>
+    /// Validade da chave de delegação pedida ao Azure, que é o teto de qualquer SAS emitida com ela.
+    /// </summary>
+    public TimeSpan ValidadeDaChaveDeDelegacao { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Versão da API do Storage a declarar, no formato <c>V2025_11_05</c>. Vazio usa a mais nova do SDK.
+    /// </summary>
+    /// <remarks>
+    /// Existe por causa do emulador, que fica para trás do SDK e recusa versão que não conhece. Contra o
+    /// serviço real não precisa ser configurada: a versão mais nova do SDK é sempre aceita.
+    /// </remarks>
+    public string? VersaoDoServico { get; set; }
 }
 
 /// <summary>
@@ -121,11 +177,7 @@ public sealed class ValidacaoDeOpcoesDeArmazenamento(IHostEnvironment ambiente) 
 
         if (string.Equals(provedor, OpcoesDeArmazenamento.ProvedorBlob, StringComparison.OrdinalIgnoreCase))
         {
-            // Falha explícita em vez de cair no disco local: um fallback silencioso aqui gravaria
-            // comprovante no contêiner enquanto todo mundo acreditaria que ele está no Blob.
-            falhas.Add(
-                $"{OpcoesDeArmazenamento.Secao}:Provedor='{OpcoesDeArmazenamento.ProvedorBlob}' ainda não tem adaptador "
-                + "implementado. Implemente IObjectStorage para o Blob antes de usá-lo.");
+            ValidarBlob(options.Blob, falhas);
             return;
         }
 
@@ -151,6 +203,87 @@ public sealed class ValidacaoDeOpcoesDeArmazenamento(IHostEnvironment ambiente) 
 
         ValidarDiretorio(options.DiretorioEfetivo, falhas);
     }
+
+    private void ValidarBlob(OpcoesDoBlob blob, List<string> falhas)
+    {
+        const string Prefixo = OpcoesDeArmazenamento.Secao + ":Blob";
+
+        if (string.IsNullOrWhiteSpace(blob.Conta))
+        {
+            falhas.Add($"{Prefixo}:Conta é obrigatória com o provedor '{OpcoesDeArmazenamento.ProvedorBlob}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(blob.Contedor))
+        {
+            falhas.Add($"{Prefixo}:Contedor é obrigatório com o provedor '{OpcoesDeArmazenamento.ProvedorBlob}'.");
+        }
+        else if (!NomeDeContedorValido(blob.Contedor))
+        {
+            falhas.Add(
+                $"{Prefixo}:Contedor='{blob.Contedor}' não é um nome válido: de 3 a 63 caracteres, "
+                + "minúsculas, números e hífen, começando e terminando por letra ou número.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(blob.EndpointDoServico)
+            && !Uri.TryCreate(blob.EndpointDoServico, UriKind.Absolute, out _))
+        {
+            falhas.Add($"{Prefixo}:EndpointDoServico precisa ser uma URL absoluta.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(blob.VersaoDoServico)
+            && !Enum.TryParse<Azure.Storage.Blobs.BlobClientOptions.ServiceVersion>(blob.VersaoDoServico, out _))
+        {
+            falhas.Add(
+                $"{Prefixo}:VersaoDoServico='{blob.VersaoDoServico}' não é uma versão conhecida do SDK. "
+                + "Use o formato V2025_11_05, ou deixe vazio para a mais nova.");
+        }
+
+        if (blob.ValidadeDaChaveDeDelegacao < TimeSpan.FromMinutes(5)
+            || blob.ValidadeDaChaveDeDelegacao > TimeSpan.FromDays(7))
+        {
+            falhas.Add($"{Prefixo}:ValidadeDaChaveDeDelegacao vai de 5 minutos a 7 dias.");
+        }
+
+        var autenticacao = (blob.Autenticacao ?? string.Empty).Trim();
+        var porChave = string.Equals(autenticacao, OpcoesDoBlob.AutenticacaoPorChave, StringComparison.OrdinalIgnoreCase);
+        var porIdentidade = string.Equals(autenticacao, OpcoesDoBlob.AutenticacaoPorIdentidade, StringComparison.OrdinalIgnoreCase);
+
+        if (!porChave && !porIdentidade)
+        {
+            falhas.Add(
+                $"{Prefixo}:Autenticacao='{autenticacao}' não existe. Use "
+                + $"'{OpcoesDoBlob.AutenticacaoPorIdentidade}' ou '{OpcoesDoBlob.AutenticacaoPorChave}'.");
+            return;
+        }
+
+        if (!porChave)
+        {
+            return;
+        }
+
+        // Chave de conta é segredo permanente e dá acesso total à conta inteira. Ela existe aqui só
+        // porque o emulador não implementa chave de delegação de usuário. Em produção, recusa.
+        if (!_ambiente.IsDevelopment() && !_ambiente.IsEnvironment("Testing"))
+        {
+            falhas.Add(
+                $"{Prefixo}:Autenticacao='{OpcoesDoBlob.AutenticacaoPorChave}' não é aceito no ambiente "
+                + $"{_ambiente.EnvironmentName}. Use '{OpcoesDoBlob.AutenticacaoPorIdentidade}': chave de conta é "
+                + "segredo permanente com acesso total, e a identidade gerenciada resolve o caso sem guardar nada.");
+        }
+
+        if (string.IsNullOrWhiteSpace(blob.ChaveDaConta))
+        {
+            falhas.Add($"{Prefixo}:ChaveDaConta é obrigatória com Autenticacao='{OpcoesDoBlob.AutenticacaoPorChave}'.");
+        }
+    }
+
+    /// <summary>Regra de nome de contêiner do Azure, conferida aqui para falhar na subida e não no primeiro uso.</summary>
+    private static bool NomeDeContedorValido(string nome) =>
+        nome.Length is >= 3 and <= 63
+        && nome.All(caractere => char.IsAsciiLetterLower(caractere) || char.IsAsciiDigit(caractere) || caractere == '-')
+        && char.IsAsciiLetterOrDigit(nome[0])
+        && char.IsAsciiLetterOrDigit(nome[^1])
+        && !nome.Contains("--", StringComparison.Ordinal);
 
     private static void ValidarDiretorio(string diretorio, List<string> falhas)
     {

@@ -10,11 +10,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Detalhe interno do adaptador de storage exercitado diretamente pelos testes: derivação do
+         endereço do serviço e nome do metadado do resumo. Não faz parte da superfície pública. -->
+    <InternalsVisibleTo Include="TorreLogistica.UnitTests" />
+    <InternalsVisibleTo Include="TorreLogistica.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TorreLogistica.Application\TorreLogistica.Application.csproj" />
     <ProjectReference Include="..\TorreLogistica.Domain\TorreLogistica.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Blob Storage dos comprovantes e identidade gerenciada. A fronteira Azure para de aqui:
+         nenhum tipo do SDK atravessa IObjectStorage. -->
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Azure.Storage.Blobs" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />

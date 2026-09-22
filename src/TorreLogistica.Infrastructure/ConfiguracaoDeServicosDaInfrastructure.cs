@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorreLogistica.Application.Abstracoes.Armazenamento;
 using TorreLogistica.Application.Abstracoes.Identidade;
@@ -70,7 +71,24 @@ public static class ConfiguracaoDeServicosDaInfrastructure
         servicos.AddSingleton<IValidateOptions<OpcoesDeArmazenamento>, ValidacaoDeOpcoesDeArmazenamento>();
         servicos.AddSingleton<AssinaturaDeUrlDeArmazenamento>();
         servicos.AddSingleton<ArmazenamentoLocalDeObjetos>();
-        servicos.AddSingleton<IObjectStorage>(provedor => provedor.GetRequiredService<ArmazenamentoLocalDeObjetos>());
+        servicos.AddSingleton<ArmazenamentoBlobDeObjetos>();
+
+        // Qual adaptador atende é decidido uma vez, aqui, pela configuração já validada na subida. O
+        // registro do local continua existindo sempre porque o endpoint de arquivos da API precisa dele
+        // para conferir assinatura própria — mas quem responde por IObjectStorage é um só.
+        servicos.AddSingleton<IObjectStorage>(provedor =>
+            string.Equals(
+                provedor.GetRequiredService<IOptions<OpcoesDeArmazenamento>>().Value.Provedor,
+                OpcoesDeArmazenamento.ProvedorBlob,
+                StringComparison.OrdinalIgnoreCase)
+                ? provedor.GetRequiredService<ArmazenamentoBlobDeObjetos>()
+                : provedor.GetRequiredService<ArmazenamentoLocalDeObjetos>());
+
+        // Anúncio na subida, e não na primeira foto: qual storage está atendendo é a informação que
+        // alguém procura quando o comprovante não aparece, e procurar não pode depender de ter havido
+        // um comprovante. Resolver aqui também constrói o cliente cedo — configuração que só quebraria
+        // no primeiro uso quebra agora.
+        servicos.AddHostedService<AnuncioDoArmazenamento>();
 
         servicos
             .AddOptions<OpcoesDeComprovantes>()

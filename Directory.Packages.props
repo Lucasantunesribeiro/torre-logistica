@@ -35,6 +35,17 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite" Version="10.0.3" />
   </ItemGroup>
 
+  <ItemGroup Label="Armazenamento de objeto">
+    <!--
+      Azure Blob Storage para os comprovantes (ADR 0007). Fica só na Infrastructure: o domínio e a
+      aplicação continuam conhecendo apenas IObjectStorage.
+      Azure.Identity traz a identidade gerenciada — é o que permite acessar o Storage sem guardar
+      chave de conta em lugar nenhum.
+    -->
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.29.2" />
+  </ItemGroup>
+
   <ItemGroup Label="Diagnóstico">
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.11" />
@@ -60,6 +71,8 @@
     <!-- Cliente SignalR só nos testes: prova o canal de tempo real com cliente real, pela API real. -->
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
+    <!-- Azurite: o emulador oficial do Blob Storage. A suíte de integração não toca em conta real. -->
+    <PackageVersion Include="Testcontainers.Azurite" Version="4.15.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
   </ItemGroup>

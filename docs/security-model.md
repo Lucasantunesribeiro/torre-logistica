@@ -252,8 +252,38 @@ A checagem de assinatura da URL responde **403 uniforme** para assinatura ausent
 (Esse detalhe nasceu de um defeito real encontrado na Fase 14: a ausência de assinatura respondia 400 de
 binding, e o código de status ensinava o contrato ao atacante.)
 
-> **Verificação:** `ComprovantesTestes`, incluindo travessia de caminho em forma escapada e acesso
-> cruzado entre organizações.
+### 9.1 Em produção: Azure Blob privado com identidade gerenciada
+
+O mesmo contrato, com o storage fora do processo — que é o que torna a prova de entrega durável. O
+adaptador está em `ArmazenamentoBlobDeObjetos`.
+
+| Controle | Como |
+|---|---|
+| Acesso anônimo | desligado em dois níveis: `allowBlobPublicAccess: false` na conta e `publicAccess: None` no contêiner |
+| O que vai para o banco | **somente a chave lógica** do objeto. Nenhuma URL, permanente ou não |
+| Credencial da aplicação | **identidade gerenciada** da Container App. Nenhuma chave de conta, nenhuma connection string com segredo |
+| Assinatura da URL | chave de **delegação de usuário** pedida ao Azure em nome da identidade — a SAS nunca carrega mais poder do que a identidade tem, e morre quando a delegação vence |
+| Poder de cada URL | envio: `Create`+`Write` só naquela chave. Leitura: `Read` só naquela chave. Nunca as duas |
+| Prazo | minutos, e nova a cada leitura — não há URL reaproveitável |
+| Chave de conta | **recusada na subida** fora de Development/Testing. Ela existe só porque o emulador não implementa delegação |
+
+Papéis mínimos, atribuídos no `main.bicep`:
+
+| Papel | Escopo | Por quê |
+|---|---|---|
+| `Storage Blob Data Contributor` | **o contêiner `comprovantes`**, não a conta | ler, baixar para calcular o resumo e gravar o metadado do resumo |
+| `Storage Blob Delegator` | a conta | obter a chave de delegação. É operação de conta — não existe versão por contêiner. Não dá acesso a dado nenhum sozinho |
+
+Os **workers não recebem papel no Storage**: eles nunca resolvem `IObjectStorage`. Se um dia precisarem,
+a falta aparece como `403` do Azure e se corrige no template.
+
+> **Verificação:** `ComprovantesTestes` (local) e `ComprovantesNoBlobTestes` + `AdaptadorDeBlobTestes`
+> (Blob, contra o emulador oficial), incluindo travessia de caminho em forma escapada, acesso cruzado
+> entre organizações, leitura sem assinatura recusada, assinatura vencida recusada e a garantia de que
+> nenhuma URL vai para o banco.
+>
+> **O que só o Azure real prova:** a chave de delegação de usuário e a suficiência dos dois papéis. O
+> emulador não implementa nem uma coisa nem outra.
 
 ---
 

@@ -622,7 +622,7 @@ console: GET /api/entregas/{id}/comprovante → metadados + URLs assinadas de le
 | Integridade | `comprovantes` e `arquivos_do_comprovante` são somente-inserção por trigger |
 | Autorização | registrar é do motorista da entrega; ler é do console; arquivo só por URL assinada no prazo |
 | Política | `Torre:Comprovantes:ExigirNaConclusao` recusa conclusão sem prova (`422 comprovante_obrigatorio`) |
-| Storage desta fase | disco local com URL assinada servida pela API; objeto em nuvem continua **não implementado** |
+| Storage | **dois adaptadores** do mesmo contrato: disco local (desenvolvimento) e Azure Blob privado (produção) |
 
 ### Qual adaptador de storage sobe, e o que ele cobra para subir
 
@@ -635,7 +635,9 @@ console: GET /api/entregas/{id}/comprovante → metadados + URLs assinadas de le
 | `local`, fora deles, **sem** `PermitirLocalForaDeDesenvolvimento` | **recusa subir**: comprovante em disco de contêiner some no reinício |
 | `local`, fora deles, **com** a permissão ligada | sobe, e a aceitação do custo ficou registrada em configuração |
 | diretório não gravável | **recusa subir**, dizendo qual caminho e por quê |
-| `blob` | **recusa subir**: não existe adaptador. Nunca cai no disco local por baixo do pano |
+| `blob`, declarado por inteiro | sobe: conta, contêiner e forma de autenticação conferidos |
+| `blob` com conta, contêiner ou autenticação faltando | **recusa subir**, nomeando o que falta |
+| `blob` com `chave-de-conta` fora de Development/Testing | **recusa subir**: segredo permanente com acesso total, e identidade gerenciada resolve sem guardar nada |
 | qualquer outro valor | **recusa subir** |
 
 `Torre:Armazenamento:Diretorio` tem padrão sob o diretório do processo, que dentro do
@@ -643,6 +645,38 @@ contêiner pertence ao root — por isso as duas imagens apontam para
 `/var/tmp/torre-logistica/armazenamento`, criado no Dockerfile e entregue ao usuário
 sem privilégio. Antes disso, um diretório sem permissão só aparecia como `500` na
 primeira entrega com comprovante, horas depois da implantação.
+
+Qual adaptador subiu é anunciado no arranque por `AnuncioDoArmazenamento`, e não na
+primeira foto: "onde está o comprovante?" é a pergunta de quem não tem comprovante
+nenhum aparecendo.
+
+### O adaptador do Blob
+
+```text
+aparelho pede autorização
+  → API assina uma SAS de Create+Write para AQUELA chave, válida por minutos
+aparelho envia a foto DIRETO ao Storage (a API nunca vê os bytes)
+API registra o comprovante
+  → ObterAsync lê tamanho e tipo REAIS e calcula o SHA-256 baixando o objeto uma vez
+  → o resumo fica guardado como metadado do próprio objeto; leituras seguintes não baixam
+console pede o comprovante
+  → API assina uma SAS de Read, nova a cada leitura, válida por minutos
+```
+
+| Peça | Como é |
+|---|---|
+| Contêiner | privado; `allowBlobPublicAccess: false` na conta e `publicAccess: None` no contêiner |
+| No banco | só a chave lógica (`organizacoes/{org}/entregas/{entrega}/{arquivo}.jpg`) — **nunca** uma URL |
+| Autenticação em produção | identidade gerenciada da Container App; nenhuma chave de conta em lugar nenhum |
+| Como a SAS é assinada | chave de **delegação de usuário** pedida ao Azure em nome da identidade, cacheada e renovada antes de vencer |
+| Poder da SAS | nunca maior que o da identidade que a delegou; o Azure a invalida quando a delegação vence |
+| Tipo e tamanho | **não** são prendidos pela SAS — o Azure Blob não tem essa cláusula. Quem barra é o registro, lendo o que o storage gravou |
+
+A última linha é uma diferença real em relação ao adaptador local, onde o envio passa
+pela API e ela corta no limite. Foi conferida contra o emulador: subir `text/plain` com
+uma SAS emitida para `image/jpeg` é aceito com `201`, e o registro depois recusa com
+`tipo_de_arquivo_nao_aceito`. O objeto rejeitado fica órfão — a inconsistência que o
+contrato já previa.
 
 Decisões e limitações em [ADR 0023](./adr/0023-prova-de-entrega.md), que implementa o [ADR 0007](./adr/0007-storage-de-comprovantes-fora-do-banco.md).
 
@@ -899,8 +933,9 @@ Azure Container Apps Environment
   → Storage Account privado (comprovantes)
   → Key Vault com RBAC + identidade gerenciada
   → Container Registry Basic (as duas imagens; pull por identidade gerenciada)
+  → papéis mínimos por identidade: dado no contêiner, delegação na conta, AcrPull no registro
 
-região East US · 13 recursos · US$ 35–40/mês estimados (preços de 21/09/2026)
+região East US · 17 recursos · US$ 35–40/mês estimados (preços de 21/09/2026)
 ```
 
 | Decisão | Por quê |

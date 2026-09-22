@@ -69,10 +69,10 @@ Bicep CLI version 0.47.16 (3f73e1a234)
 |---|---|---|
 | Compilação | `bicep build infra/main.bicep` | **0 erros, 0 avisos** |
 | Lint | `bicep lint infra/main.bicep` | **sem achados** |
-| Recursos gerados | inspeção do ARM compilado | **13 recursos**, listados abaixo |
+| Recursos gerados | inspeção do ARM compilado | **17 recursos**, listados abaixo |
 | Segredo fixo | varredura por padrões de senha/chave | **nenhum**; `senhaDoBanco` é `securestring` e não consta do arquivo de exemplo |
 
-### Os 13 recursos que seriam criados
+### Os 17 recursos que seriam criados
 
 | # | Tipo | SKU / configuração | Versão de API |
 |---|---|---|---|
@@ -89,28 +89,53 @@ Bicep CLI version 0.47.16 (3f73e1a234)
 | 11 | `Microsoft.App/managedEnvironments` | consumo (sem workload profile dedicado) | 2024-03-01 |
 | 12 | `Microsoft.App/containerApps` — **API** | 0,25 vCPU / 0,5 GiB, min 1, max 1, ingress HTTPS | 2024-03-01 |
 | 13 | `Microsoft.App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** | 2024-03-01 |
+| 14 | `Microsoft.Authorization/roleAssignments` | API → `Storage Blob Data Contributor` no **contêiner** | 2022-04-01 |
+| 15 | `Microsoft.Authorization/roleAssignments` | API → `Storage Blob Delegator` na conta | 2022-04-01 |
+| 16 | `Microsoft.Authorization/roleAssignments` | API → `AcrPull` no registro | 2022-04-01 |
+| 17 | `Microsoft.Authorization/roleAssignments` | workers → `AcrPull` no registro | 2022-04-01 |
 
-### O armazenamento dos comprovantes, e o que ele ainda não é
+### O armazenamento dos comprovantes
 
-O template passava `Torre__Armazenamento__Conta` e `Torre__Armazenamento__Contedor` para a API. **Nenhuma
-das duas existia no código**: não há opção com esse nome nem adaptador de Blob. Elas pareciam configuração
-e não configuravam nada — a aplicação usava disco local o tempo todo, em silêncio, e o contêiner
-`comprovantes` ficaria vazio para sempre.
-
-Agora o provedor é declarado, e a declaração diz a verdade:
+O template passava `Torre__Armazenamento__Conta` e `Torre__Armazenamento__Contedor`, que **não existiam no
+código**. Hoje existem, com outro nome e com adaptador de verdade por trás:
 
 ```text
-Torre__Armazenamento__Provedor                        = local
-Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento = true
+Torre__Armazenamento__Provedor            = blob
+Torre__Armazenamento__Blob__Conta         = <conta>
+Torre__Armazenamento__Blob__Contedor      = comprovantes
+Torre__Armazenamento__Blob__Autenticacao  = identidade-gerenciada
 ```
 
-A segunda variável existe para que ninguém faça isso sem perceber: sem ela o processo **recusa subir** em
-produção, porque comprovante gravado em disco de contêiner **some em qualquer reinício ou nova revisão**.
-Para a demonstração — em que o simulador reencena tudo — é aceitável. Para operação real, não é.
+Nenhuma chave de conta em lugar nenhum: a URL assinada é gerada com **chave de delegação de usuário**,
+pedida ao Azure em nome da identidade gerenciada da Container App. A chave de conta continua existindo
+como opção, mas a validação de subida **recusa** usá-la fora de Development/Testing — ela só serve ao
+emulador, que não implementa delegação.
 
-O recurso 6 (Storage Account) e o contêiner `comprovantes` continuam no template de propósito: são o
-destino do adaptador de Blob quando ele existir, e custam praticamente nada vazios. Enquanto isso, pedir
-`Provedor=blob` falha na subida com a mensagem certa, em vez de cair no disco local por baixo do pano.
+Os workers recebem a mesma declaração de propósito (configuração uniforme entre os processos), mas **não**
+recebem papel no Storage: eles nunca resolvem `IObjectStorage`.
+
+### Papéis atribuídos, e o que isso exige de quem aplica
+
+Até aqui o template não atribuía papel nenhum, e o motivo registrado era que atribuir papel é operação de
+diretório. A decisão mudou: sem papel, a API não puxa a própria imagem nem assina leitura de comprovante,
+e o primeiro provisionamento virava um procedimento de três passos que alguém ia esquecer.
+
+**Consequência:** quem aplica o template precisa de permissão para atribuir papel no grupo de recursos —
+`User Access Administrator` ou `Owner`. Colaborador simples não basta.
+
+| Identidade | Papel | Escopo | Por quê |
+|---|---|---|---|
+| API | `Storage Blob Data Contributor` | contêiner `comprovantes` | ler, baixar para calcular o resumo, gravar o metadado do resumo |
+| API | `Storage Blob Delegator` | conta de armazenamento | obter a chave que assina as SAS. Operação de conta; não existe por contêiner |
+| API | `AcrPull` | registro | puxar a imagem |
+| Workers | `AcrPull` | registro | puxar a imagem |
+
+Escopo mínimo em cada caso: o papel de dado fica no **contêiner**, não na conta. `Storage Blob Delegator`
+não dá acesso a dado nenhum sozinho — só permite pedir a chave de delegação, e a SAS emitida com ela
+nunca ultrapassa o que a identidade já podia fazer.
+
+Um papel personalizado poderia remover `delete` do conjunto do Contributor. Não foi feito: papel
+personalizado é mais uma coisa a versionar e manter, e o ganho aqui é pequeno.
 
 ### O registro que faltava
 
@@ -146,38 +171,23 @@ az deployment group what-if \
                imagemDosWorkers="<registro>/torre-logistica-workers:<versão>"
 ```
 
-## A ordem do primeiro provisionamento
+## O primeiro provisionamento
 
-O template cria o registro **e** as duas aplicações que puxam imagem dele, mas não atribui papel — e sem o
-papel `AcrPull` a primeira revisão não consegue puxar. Não é descuido: atribuir papel é operação de
-diretório, e o motivo de mantê-la fora está logo abaixo. A consequência é que o primeiro provisionamento
-tem três passos, nesta ordem:
+Um comando só. Os papéis vão no template, então não há mais o passo intermediário de atribuí-los à mão
+entre criar e subir.
 
 ```bash
-# 1. Cria tudo. As duas aplicações sobem, e a primeira revisão falha ao puxar a imagem.
-az deployment group create -g <grupo> --template-file infra/main.bicep --parameters ...
-
-# 2. Dá a cada identidade o direito de puxar.
-REGISTRO=$(az acr show -g <grupo> -n <prefixo>registro --query id -o tsv)
-for app in api workers; do
-  az role assignment create --role AcrPull --scope "$REGISTRO" \
-    --assignee-object-id "$(az containerapp show -g <grupo> -n <prefixo>-$app --query identity.principalId -o tsv)" \
-    --assignee-principal-type ServicePrincipal
-done
-
-# 3. Reaplica. Agora a revisão puxa e sobe.
 az deployment group create -g <grupo> --template-file infra/main.bicep --parameters ...
 ```
 
-Da segunda vez em diante só o passo 3 é necessário. O workflow de deploy assume que os papéis já existem.
+Quem executa precisa poder atribuir papel no grupo de recursos (`User Access Administrator` ou `Owner`).
 
 ## Depois de aplicar
 
 Três coisas que o template **não** faz, de propósito:
 
-1. **Papéis das identidades gerenciadas.** API e workers têm identidade própria e precisam de leitura no
-   cofre e de puxar do registro; a API também precisa de escrita no contêiner de comprovantes. Atribuir
-   papel é operação de diretório e costuma exigir permissão que uma pipeline de aplicação não deveria ter.
+1. **Papel no cofre.** Os papéis de Storage e de registro estão no template; o do Key Vault não, porque
+   nada lê segredo de lá ainda — a cadeia de conexão vai por `secretRef` do próprio Container App.
 2. **Migrations.** O banco sobe vazio. Aplicar schema é passo de deploy, não de infraestrutura — misturar
    os dois faz um `what-if` de infraestrutura parecer inofensivo quando não é.
 3. **Frontends.** As três aplicações web são arquivos estáticos, não guardam segredo e não precisam de

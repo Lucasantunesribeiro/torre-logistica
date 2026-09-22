@@ -248,17 +248,13 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
             { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
             { name: 'Torre__Cors__OrigensPermitidas__0', value: split(origensPermitidas, ',')[0] }
-            // Armazenamento dos comprovantes. Estas duas variáveis eram `Conta` e `Contedor`, e não
-            // existiam no código: nenhuma opção com esse nome, nenhum adaptador de Blob. Ficavam ali
-            // parecendo configuração e não configuravam nada — a aplicação usava disco local o tempo
-            // todo, em silêncio.
-            //
-            // Enquanto não houver adaptador de Blob, o provedor é declarado como local e a aceitação é
-            // explícita. O custo está declarado junto: comprovante gravado aqui vive no disco da
-            // réplica e SOME em qualquer reinício ou nova revisão. Para uma demonstração em que o
-            // simulador reencena tudo, é aceitável; para operação real, não é.
-            { name: 'Torre__Armazenamento__Provedor', value: 'local' }
-            { name: 'Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento', value: 'true' }
+            // Comprovantes no Blob privado, com identidade gerenciada. Nenhuma chave de conta: a SAS de
+            // leitura é assinada com chave de delegação pedida ao Azure em nome desta identidade, então
+            // não há segredo permanente para guardar nem para vazar.
+            { name: 'Torre__Armazenamento__Provedor', value: 'blob' }
+            { name: 'Torre__Armazenamento__Blob__Conta', value: armazenamento.name }
+            { name: 'Torre__Armazenamento__Blob__Contedor', value: contedorDeComprovantes.name }
+            { name: 'Torre__Armazenamento__Blob__Autenticacao', value: 'identidade-gerenciada' }
           ]
           probes: [
             {
@@ -335,8 +331,14 @@ resource workers 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
             // Os workers registram a mesma camada de infraestrutura, então a validação de subida cobra
             // deles a mesma declaração de armazenamento — mesmo sem gravarem comprovante.
-            { name: 'Torre__Armazenamento__Provedor', value: 'local' }
-            { name: 'Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento', value: 'true' }
+            // Mesma declaração da API, de propósito: configuração uniforme entre os dois processos
+            // evita que um worker futuro que toque em comprovante caia no disco local sem ninguém
+            // perceber. O adaptador só é construído quando IObjectStorage é resolvido, e os workers
+            // nunca o resolvem — por isso eles NÃO recebem papel no Storage (menor privilégio).
+            { name: 'Torre__Armazenamento__Provedor', value: 'blob' }
+            { name: 'Torre__Armazenamento__Blob__Conta', value: armazenamento.name }
+            { name: 'Torre__Armazenamento__Blob__Contedor', value: contedorDeComprovantes.name }
+            { name: 'Torre__Armazenamento__Blob__Autenticacao', value: 'identidade-gerenciada' }
           ]
         }
       ]
@@ -349,6 +351,79 @@ resource workers 'Microsoft.App/containerApps@2024-03-01' = {
         maxReplicas: 1
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Permissões
+// ---------------------------------------------------------------------------
+// Até esta fase o template não atribuía papel nenhum, e o motivo registrado era que atribuir papel é
+// operação de diretório. A decisão mudou por uma razão concreta: sem papel, a API não consegue nem puxar
+// a própria imagem nem assinar leitura de comprovante, e o primeiro provisionamento virava um
+// procedimento de três passos que alguém ia esquecer. Quem aplica o template precisa, portanto, de
+// permissão para atribuir papel no grupo de recursos — `User Access Administrator` ou `Owner`.
+//
+// Escopo mínimo em cada caso: papel de dado fica no CONTÊINER, não na conta.
+
+@description('Storage Blob Data Contributor — ler, gravar e alterar metadado dos blobs.')
+var papelDeDadosDeBlob = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+
+@description('Storage Blob Delegator — obter a chave de delegação que assina as SAS.')
+var papelDeDelegacao = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'db58b8e5-c6ad-4a2a-8342-4190687cbf4a')
+
+@description('AcrPull — puxar imagem do registro.')
+var papelDePullDoRegistro = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+
+// A API escreve metadado no blob (o resumo SHA-256 calculado uma vez), então leitura pura não basta.
+// O escopo é o contêiner `comprovantes`: nada de outro contêiner que a conta venha a ter.
+resource apiEscreveComprovantes 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: contedorDeComprovantes
+  name: guid(contedorDeComprovantes.id, api.id, papelDeDadosDeBlob)
+  properties: {
+    roleDefinitionId: papelDeDadosDeBlob
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// A chave de delegação é operação de CONTA — não existe versão por contêiner. É o único papel aqui com
+// escopo de conta, e ele não dá acesso a dado nenhum por si só: só permite pedir a chave que assina SAS,
+// e a SAS resultante nunca ultrapassa o que a identidade já podia fazer.
+resource apiAssinaLeitura 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: armazenamento
+  name: guid(armazenamento.id, api.id, papelDeDelegacao)
+  properties: {
+    roleDefinitionId: papelDeDelegacao
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Os workers NÃO recebem papel no Storage: eles nunca resolvem IObjectStorage. Se um dia passarem a
+// gravar ou ler comprovante, a falta aparece como 403 do Azure — e é aqui que se corrige.
+resource apiPuxaImagem 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: registro
+  name: guid(registro.id, api.id, papelDePullDoRegistro)
+  properties: {
+    roleDefinitionId: papelDePullDoRegistro
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workersPuxamImagem 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: registro
+  name: guid(registro.id, workers.id, papelDePullDoRegistro)
+  properties: {
+    roleDefinitionId: papelDePullDoRegistro
+    principalId: workers.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
