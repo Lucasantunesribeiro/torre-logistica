@@ -16,8 +16,47 @@ public sealed class OpcoesDeArmazenamento
     /// <summary>Seção correspondente na configuração.</summary>
     public const string Secao = "Torre:Armazenamento";
 
+    /// <summary>Provedor de disco local, com URL assinada servida pela própria API.</summary>
+    public const string ProvedorLocal = "local";
+
+    /// <summary>Provedor de objeto em nuvem. Reservado: ainda não implementado (ADR 0007).</summary>
+    public const string ProvedorBlob = "blob";
+
+    /// <summary>
+    /// Qual adaptador de <c>IObjectStorage</c> usar: <c>local</c> ou <c>blob</c>.
+    /// </summary>
+    /// <remarks>
+    /// Explícito de propósito. Antes não existia escolha — o disco local era o único caminho e ninguém
+    /// declarava nada, então subir em produção com armazenamento efêmero era o comportamento padrão e
+    /// silencioso. Agora quem quer disco local em produção precisa dizer isso em voz alta, em
+    /// <see cref="PermitirLocalForaDeDesenvolvimento"/>.
+    /// </remarks>
+    public string Provedor { get; set; } = ProvedorLocal;
+
     /// <summary>Diretório do storage local. Vazio usa uma pasta sob o diretório de dados do processo.</summary>
     public string? Diretorio { get; set; }
+
+    /// <summary>
+    /// Autoriza o provedor local fora de desenvolvimento e teste.
+    /// </summary>
+    /// <remarks>
+    /// Sem isto, o processo **recusa subir**: comprovante em disco de contêiner some no primeiro
+    /// reinício, e perder prova de entrega em silêncio é pior que não subir. Ligar é uma decisão
+    /// consciente de quem aceita esse custo — num ambiente de demonstração, por exemplo.
+    /// </remarks>
+    public bool PermitirLocalForaDeDesenvolvimento { get; set; }
+
+    /// <summary>
+    /// Diretório efetivo do provedor local, com o padrão aplicado.
+    /// </summary>
+    /// <remarks>
+    /// Mora aqui, e não no construtor do adaptador, porque a validação de subida precisa do mesmo
+    /// caminho que o adaptador vai usar. Duas cópias da regra dariam um processo que valida um diretório
+    /// e escreve em outro.
+    /// </remarks>
+    public string DiretorioEfetivo => string.IsNullOrWhiteSpace(Diretorio)
+        ? Path.Combine(AppContext.BaseDirectory, "armazenamento")
+        : Diretorio;
 
     /// <summary>Endereço base público da API, usado para montar as URLs assinadas.</summary>
     [Required(AllowEmptyStrings = false, ErrorMessage = "Informe o endereço base da API para as URLs assinadas.")]
@@ -36,15 +75,27 @@ public sealed class OpcoesDeArmazenamento
     public TimeSpan ValidadeDaUrlDeLeitura { get; set; } = TimeSpan.FromMinutes(5);
 }
 
-/// <summary>Validação das opções na subida.</summary>
-public sealed class ValidacaoDeOpcoesDeArmazenamento : IValidateOptions<OpcoesDeArmazenamento>
+/// <summary>
+/// Validação das opções na subida.
+/// </summary>
+/// <remarks>
+/// Roda por <c>ValidateOnStart</c>, e é isso que muda o momento da falha. O adaptador local é um
+/// singleton resolvido sob demanda: enquanto a checagem do diretório morava no construtor dele, um
+/// diretório sem permissão só aparecia como <c>500</c> na primeira entrega com comprovante — horas depois
+/// da implantação, para um motorista na rua. Aqui, o processo nem sobe.
+/// </remarks>
+public sealed class ValidacaoDeOpcoesDeArmazenamento(IHostEnvironment ambiente) : IValidateOptions<OpcoesDeArmazenamento>
 {
+    private readonly IHostEnvironment _ambiente = ambiente ?? throw new ArgumentNullException(nameof(ambiente));
+
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, OpcoesDeArmazenamento options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         var falhas = new List<string>();
+
+        ValidarProvedor(options, falhas);
 
         if (!Uri.TryCreate(options.EnderecoBase, UriKind.Absolute, out _))
         {
@@ -62,6 +113,63 @@ public sealed class ValidacaoDeOpcoesDeArmazenamento : IValidateOptions<OpcoesDe
         }
 
         return falhas.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(falhas);
+    }
+
+    private void ValidarProvedor(OpcoesDeArmazenamento options, List<string> falhas)
+    {
+        var provedor = (options.Provedor ?? string.Empty).Trim();
+
+        if (string.Equals(provedor, OpcoesDeArmazenamento.ProvedorBlob, StringComparison.OrdinalIgnoreCase))
+        {
+            // Falha explícita em vez de cair no disco local: um fallback silencioso aqui gravaria
+            // comprovante no contêiner enquanto todo mundo acreditaria que ele está no Blob.
+            falhas.Add(
+                $"{OpcoesDeArmazenamento.Secao}:Provedor='{OpcoesDeArmazenamento.ProvedorBlob}' ainda não tem adaptador "
+                + "implementado. Implemente IObjectStorage para o Blob antes de usá-lo.");
+            return;
+        }
+
+        if (!string.Equals(provedor, OpcoesDeArmazenamento.ProvedorLocal, StringComparison.OrdinalIgnoreCase))
+        {
+            falhas.Add(
+                $"{OpcoesDeArmazenamento.Secao}:Provedor='{provedor}' não existe. Use "
+                + $"'{OpcoesDeArmazenamento.ProvedorLocal}' ou '{OpcoesDeArmazenamento.ProvedorBlob}'.");
+            return;
+        }
+
+        var ehAmbienteDeDesenvolvimento = _ambiente.IsDevelopment() || _ambiente.IsEnvironment("Testing");
+
+        if (!ehAmbienteDeDesenvolvimento && !options.PermitirLocalForaDeDesenvolvimento)
+        {
+            falhas.Add(
+                $"{OpcoesDeArmazenamento.Secao}:Provedor='{OpcoesDeArmazenamento.ProvedorLocal}' no ambiente "
+                + $"{_ambiente.EnvironmentName} guarda comprovante em disco do processo, que some no reinício. "
+                + $"Para aceitar isso conscientemente, ligue {OpcoesDeArmazenamento.Secao}:"
+                + $"{nameof(OpcoesDeArmazenamento.PermitirLocalForaDeDesenvolvimento)}.");
+            return;
+        }
+
+        ValidarDiretorio(options.DiretorioEfetivo, falhas);
+    }
+
+    private static void ValidarDiretorio(string diretorio, List<string> falhas)
+    {
+        // Criar e escrever de verdade, não só perguntar se existe: no contêiner, o processo roda sem
+        // privilégio e a pasta de instalação pertence ao root. Só a escrita revela isso.
+        try
+        {
+            Directory.CreateDirectory(diretorio);
+
+            var sonda = Path.Combine(diretorio, $".escrita-{Environment.ProcessId}");
+            File.WriteAllBytes(sonda, []);
+            File.Delete(sonda);
+        }
+        catch (Exception excecao) when (excecao is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            falhas.Add(
+                $"{OpcoesDeArmazenamento.Secao}:Diretorio não é gravável em '{diretorio}': {excecao.GetType().Name}. "
+                + "Aponte para um caminho que o usuário do processo possa escrever.");
+        }
     }
 }
 
@@ -185,9 +293,9 @@ public sealed class ArmazenamentoLocalDeObjetos : IObjectStorage
         _assinatura = assinatura ?? throw new ArgumentNullException(nameof(assinatura));
         _relogio = relogio ?? throw new ArgumentNullException(nameof(relogio));
 
-        _diretorio = string.IsNullOrWhiteSpace(_opcoes.Diretorio)
-            ? Path.Combine(AppContext.BaseDirectory, "armazenamento")
-            : _opcoes.Diretorio;
+        // O mesmo caminho que ValidacaoDeOpcoesDeArmazenamento já provou gravável na subida. Aqui o
+        // CreateDirectory é idempotente e barato; quem falha cedo é a validação, não este construtor.
+        _diretorio = _opcoes.DiretorioEfetivo;
 
         Directory.CreateDirectory(_diretorio);
     }

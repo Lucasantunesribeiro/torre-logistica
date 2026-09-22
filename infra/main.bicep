@@ -248,8 +248,17 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
             { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
             { name: 'Torre__Cors__OrigensPermitidas__0', value: split(origensPermitidas, ',')[0] }
-            { name: 'Torre__Armazenamento__Conta', value: armazenamento.name }
-            { name: 'Torre__Armazenamento__Contedor', value: contedorDeComprovantes.name }
+            // Armazenamento dos comprovantes. Estas duas variáveis eram `Conta` e `Contedor`, e não
+            // existiam no código: nenhuma opção com esse nome, nenhum adaptador de Blob. Ficavam ali
+            // parecendo configuração e não configuravam nada — a aplicação usava disco local o tempo
+            // todo, em silêncio.
+            //
+            // Enquanto não houver adaptador de Blob, o provedor é declarado como local e a aceitação é
+            // explícita. O custo está declarado junto: comprovante gravado aqui vive no disco da
+            // réplica e SOME em qualquer reinício ou nova revisão. Para uma demonstração em que o
+            // simulador reencena tudo, é aceitável; para operação real, não é.
+            { name: 'Torre__Armazenamento__Provedor', value: 'local' }
+            { name: 'Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento', value: 'true' }
           ]
           probes: [
             {
@@ -324,6 +333,10 @@ resource workers 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             { name: 'DOTNET_ENVIRONMENT', value: 'Production' }
             { name: 'Torre__BancoDeDados__CadeiaDeConexao', secretRef: 'cadeia-de-conexao' }
+            // Os workers registram a mesma camada de infraestrutura, então a validação de subida cobra
+            // deles a mesma declaração de armazenamento — mesmo sem gravarem comprovante.
+            { name: 'Torre__Armazenamento__Provedor', value: 'local' }
+            { name: 'Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento', value: 'true' }
           ]
         }
       ]

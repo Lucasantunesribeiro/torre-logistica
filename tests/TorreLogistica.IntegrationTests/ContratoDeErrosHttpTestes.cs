@@ -97,9 +97,92 @@ public sealed class ContratoDeErrosHttpTestes(ContainerPostgis banco) : TesteDeI
         Assert.DoesNotContain("at TorreLogistica", corpo, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Corpo que o cliente mandou errado é erro do cliente: 400, nunca 500.
+    /// </summary>
+    /// <remarks>
+    /// O caminho exercitado é o de produção — vínculo de parâmetro tipado de Minimal API num endpoint
+    /// real, não uma rota sintética. É ali que o JSON é lido, e era ali que a falha virava 500.
+    /// </remarks>
+    [Theory]
+    [InlineData("sintaxe quebrada", "{\"nome\": ")]
+    [InlineData("chave sem valor", "{\"nome\":}")]
+    [InlineData("tipo incompatível", "{\"nome\": 123}")]
+    [InlineData("corpo vazio", "")]
+    public async Task CorpoJsonMalformadoResponde400ComProblemDetails(string caso, string corpo)
+    {
+        using var cliente = Cliente();
+        var token = await TokenDeSupervisorAsync(cliente);
+
+        using var resposta = await EnviarAsync(cliente, HttpMethod.Post, "/api/clientes", token, Json(corpo));
+        var texto = await resposta.Content.ReadAsStringAsync(Cancelamento);
+
+        Assert.True(
+            resposta.StatusCode == HttpStatusCode.BadRequest,
+            $"{caso}: esperado 400, veio {(int)resposta.StatusCode}. Corpo: {texto}");
+        Assert.Equal("application/problem+json", resposta.Content.Headers.ContentType?.MediaType);
+
+        using var json = JsonDocument.Parse(texto);
+        var raiz = json.RootElement;
+        Assert.Equal("corpo_invalido", raiz.GetProperty("codigo").GetString());
+        Assert.Equal("urn:torre-logistica:erro:corpo_invalido", raiz.GetProperty("type").GetString());
+        Assert.Equal(400, raiz.GetProperty("status").GetInt32());
+
+        // Correlação preservada: é ela que liga esta resposta à linha de log.
+        Assert.False(string.IsNullOrWhiteSpace(raiz.GetProperty("idDeCorrelacao").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(raiz.GetProperty("traceId").GetString()));
+
+        // Nada de implementação interna no corpo.
+        foreach (var vazamento in new[] { "at TorreLogistica", "stackTrace", "JsonException", "BadHttpRequest", "System.Text.Json", "LineNumber" })
+        {
+            Assert.DoesNotContain(vazamento, texto, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>O contrário da correção: JSON bem formado segue o fluxo normal, sem virar 400.</summary>
+    [Fact]
+    public async Task CorpoJsonValidoContinuaSendoProcessado()
+    {
+        using var cliente = Cliente();
+        var token = await TokenDeSupervisorAsync(cliente);
+
+        using var criado = await EnviarAsync(
+            cliente, HttpMethod.Post, "/api/clientes", token, Json("{\"nome\":\"Cliente do contrato\"}"));
+
+        // E a validação de modelo continua respondendo 400 por conta própria, com o seu código.
+        using var semNome = await EnviarAsync(cliente, HttpMethod.Post, "/api/clientes", token, Json("{\"cnpj\":\"00\"}"));
+
+        Assert.Equal(HttpStatusCode.Created, criado.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, semNome.StatusCode);
+        Assert.NotEqual("corpo_invalido", await CodigoDoErroAsync(semNome));
+    }
+
+    /// <summary>
+    /// A guarda que impede a correção de esconder defeito nosso: exceção interna continua 500.
+    /// </summary>
+    [Fact]
+    public async Task FalhaInternaNaoViraErroDeCliente()
+    {
+        using var cliente = Cliente();
+        var token = await TokenDeOperadorAsync(cliente);
+
+        using var resposta = await EnviarAsync(cliente, HttpMethod.Get, FiltroDeEndpointsDeTeste.RotaDeErroInesperado, token);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, resposta.StatusCode);
+        Assert.Equal("erro_inesperado", await CodigoDoErroAsync(resposta));
+    }
+
+    private static StringContent Json(string corpo) => new(corpo, System.Text.Encoding.UTF8, "application/json");
+
     private async Task<string> TokenDeOperadorAsync(HttpClient cliente)
     {
         var conta = (await Cenario.CriarOrganizacaoAsync(Perfil.Operador)).Com(Perfil.Operador);
+        return (await EntrarAsync(cliente, conta)).TokenDeAcesso;
+    }
+
+    private async Task<string> TokenDeSupervisorAsync(HttpClient cliente)
+    {
+        var conta = (await Cenario.CriarOrganizacaoAsync(Perfil.Supervisor)).Com(Perfil.Supervisor);
         return (await EntrarAsync(cliente, conta)).TokenDeAcesso;
     }
 }

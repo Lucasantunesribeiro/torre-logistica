@@ -90,6 +90,28 @@ Bicep CLI version 0.47.16 (3f73e1a234)
 | 12 | `Microsoft.App/containerApps` — **API** | 0,25 vCPU / 0,5 GiB, min 1, max 1, ingress HTTPS | 2024-03-01 |
 | 13 | `Microsoft.App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** | 2024-03-01 |
 
+### O armazenamento dos comprovantes, e o que ele ainda não é
+
+O template passava `Torre__Armazenamento__Conta` e `Torre__Armazenamento__Contedor` para a API. **Nenhuma
+das duas existia no código**: não há opção com esse nome nem adaptador de Blob. Elas pareciam configuração
+e não configuravam nada — a aplicação usava disco local o tempo todo, em silêncio, e o contêiner
+`comprovantes` ficaria vazio para sempre.
+
+Agora o provedor é declarado, e a declaração diz a verdade:
+
+```text
+Torre__Armazenamento__Provedor                        = local
+Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento = true
+```
+
+A segunda variável existe para que ninguém faça isso sem perceber: sem ela o processo **recusa subir** em
+produção, porque comprovante gravado em disco de contêiner **some em qualquer reinício ou nova revisão**.
+Para a demonstração — em que o simulador reencena tudo — é aceitável. Para operação real, não é.
+
+O recurso 6 (Storage Account) e o contêiner `comprovantes` continuam no template de propósito: são o
+destino do adaptador de Blob quando ele existir, e custam praticamente nada vazios. Enquanto isso, pedir
+`Provedor=blob` falha na subida com a mensagem certa, em vez de cair no disco local por baixo do pano.
+
 ### O registro que faltava
 
 O workflow de deploy já publicava em `<registro>.azurecr.io`, mas o template não criava registro nenhum: a

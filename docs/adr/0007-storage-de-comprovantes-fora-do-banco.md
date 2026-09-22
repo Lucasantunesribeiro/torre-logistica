@@ -59,6 +59,23 @@ abstração existe justamente para que ela não obrigue a reescrever o domínio.
   público com prazo.
 - Política de retenção e ciclo de vida do objeto entram na Fase 20.
 
+## Adendo — Fase 25: qual adaptador sobe é declarado
+
+A abstração previa a troca do disco local por objeto em nuvem. Até aqui, porém, **só existe o adaptador
+local**, e nada obrigava a dizer isso: subir em produção com comprovante em disco de contêiner era o
+comportamento padrão e silencioso — e disco de contêiner some no reinício.
+
+Agora `Torre:Armazenamento:Provedor` é explícito (`local` ou `blob`) e a validação roda na subida:
+
+- `blob` **recusa subir** enquanto não houver adaptador. Sem fallback: cair no disco local em silêncio
+  gravaria prova de entrega num lugar que todo mundo acreditaria ser o Blob.
+- `local` fora de desenvolvimento e teste **recusa subir** sem
+  `PermitirLocalForaDeDesenvolvimento` ligado, que é a aceitação consciente do custo.
+- o diretório é criado e sondado com uma escrita real na subida — não na primeira entrega com foto.
+
+Implementar o adaptador de Blob continua pendente, e a Storage Account descrita em `infra/` é o destino
+dele.
+
 ## Como isto é verificado
 
 Nesta fase, pela direção registrada e pelo limite de corpo configurado no Kestrel.

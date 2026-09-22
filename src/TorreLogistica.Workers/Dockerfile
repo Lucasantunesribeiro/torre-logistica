@@ -39,6 +39,12 @@ RUN dotnet publish src/TorreLogistica.Workers/TorreLogistica.Workers.csproj \
 FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine AS execucao
 WORKDIR /aplicacao
 
+# Mesmo diretório de storage da API: este processo também registra a camada de infraestrutura, então
+# a validação de subida cobra um caminho gravável dele também. Criado como root, entregue ao usuário.
+ENV Torre__Armazenamento__Diretorio=/var/tmp/torre-logistica/armazenamento
+RUN mkdir -p /var/tmp/torre-logistica/armazenamento \
+    && chown -R "$APP_UID" /var/tmp/torre-logistica
+
 # Runtime, e não ASP.NET Core: este processo não sobe servidor HTTP, e carregar o que não se usa é
 # superfície a mais para nada.
 USER $APP_UID

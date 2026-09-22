@@ -43,6 +43,15 @@ RUN dotnet publish src/TorreLogistica.Api/TorreLogistica.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS execucao
 WORKDIR /aplicacao
 
+# Diretório do storage local, criado enquanto ainda somos root e entregue ao usuário da aplicação.
+# Antes não existia: o padrão do adaptador era uma pasta sob /aplicacao, que pertence ao root, e o
+# processo sem privilégio só descobria isso ao gravar o primeiro comprovante — em produção, horas
+# depois de subir. Fica em /var/tmp por ser o lugar do padrão de diretórios do Linux para dado
+# temporário que sobrevive a reinício de processo, e não em /tmp, que alguns runtimes montam em RAM.
+ENV Torre__Armazenamento__Diretorio=/var/tmp/torre-logistica/armazenamento
+RUN mkdir -p /var/tmp/torre-logistica/armazenamento \
+    && chown -R "$APP_UID" /var/tmp/torre-logistica
+
 # Usuário sem privilégio, fornecido pela própria imagem. Processo de borda rodando como root é o tipo
 # de detalhe que só importa no dia em que alguém encontra uma falha de execução remota.
 USER $APP_UID

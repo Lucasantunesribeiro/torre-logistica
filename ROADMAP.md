@@ -5195,12 +5195,12 @@ primeiro provisionamento (criar → atribuir `AcrPull` → reaplicar) está em `
 Validação: `bicep build` e `bicep lint` sem erro nem aviso; `senhaDoBanco` continua `securestring`; nenhum
 segredo fixo no template; **nenhum recurso pago criado** — a compilação é local e offline.
 
-### Observações registradas, não corrigidas nesta passagem
+### Observações registradas neste preflight
 
-| Achado | Onde apareceu | Por que fica para depois |
+| Achado | Onde apareceu | Destino |
 |---|---|---|
-| Corpo JSON malformado devolve **500**, não 400 | login com senha contendo `\r` durante a medição | é taxonomia de erro (§89), toca todos os endpoints e não estava no escopo deste preflight; pertence à Fase 26 |
-| Provedor de armazenamento local falha em contêiner | a API sem `Torre__Armazenamento__Conta` tenta criar `/aplicacao/armazenamento` e não tem permissão | no Azure o provedor é o Blob; o sintoma é 500 em tempo de execução em vez de falha na subida |
+| Corpo JSON malformado devolve **500**, não 400 | login com senha contendo retorno de carro durante a medição | **corrigido** logo abaixo |
+| Provedor de armazenamento local falha em contêiner | a API tenta criar `/aplicacao/armazenamento` sem permissão | **corrigido** logo abaixo — e o defeito era maior: não existe adaptador de Blob |
 
 ### O que falta para a fase fechar (🟨)
 
@@ -5212,11 +5212,130 @@ segredo fixo no template; **nenhum recurso pago criado** — a compilação é l
 | Papéis das identidades gerenciadas (`AcrPull`, cofre, blob) | operação de diretório, feita após o provisionamento |
 | Destino dos frontends | decisão à parte; são estáticos e sem segredo |
 | Medição com latência de rede | só no ambiente publicado |
+| Adaptador de Blob para comprovantes | **não implementado**; sem ele o comprovante do ambiente publicado é efêmero (ver correção do defeito 2) |
+
+## Correção dos dois defeitos do preflight
+
+> Ainda **🟨**, ainda **nada provisionado**. Estes eram os dois achados que o preflight registrou sem
+> corrigir. Ambos tinham a mesma forma: o sistema errava **tarde**, quando errar cedo era possível.
+
+### Defeito 1 — corpo JSON ilegível virava erro do servidor
+
+**Causa raiz, e ela é diferente do que o preflight supôs.** O problema não era só "falta tratamento":
+era `RouteHandlerOptions.ThrowOnBadRequest`, que o ASP.NET Core liga **só em Development**. Isso produzia
+dois comportamentos para a mesma requisição:
+
+| Ambiente | O que acontecia |
+|---|---|
+| Development | a falha de leitura virava exceção, caía no manipulador genérico e respondia **500** |
+| Testing e Production | não virava exceção; respondia **400**, mas fora do contrato da API — sem `codigo`, sem `type` |
+
+Os dois errados, de formas diferentes — e foi a segunda que o preflight não viu, porque só observou o
+contêiner em Development.
+
+**Correção, centralizada em dois pontos e em nenhum endpoint:**
+
+1. `ThrowOnBadRequest = true` em **todo** ambiente, em `Program.cs`. Dev e produção passam a percorrer o
+   mesmo caminho.
+2. `ManipuladorDeCorpoInvalido`, primeiro da cadeia de `IExceptionHandler`, antes do de domínio e do
+   genérico. Responde `400 corpo_invalido` — ou `413 corpo_grande_demais`, respeitando o status que a
+   própria exceção carrega.
+
+**A guarda contra o efeito colateral óbvio.** O manipulador trata **só** `BadHttpRequestException`, que a
+plataforma lança exclusivamente ao ler a requisição. Um `JsonException` nosso, ao serializar resposta,
+continua sendo 500. Há teste para os dois lados: um que exige 400 e outro que exige que a rota de falha
+interna continue em 500.
+
+A mensagem da exceção não vai para o corpo — ela nomeia o parâmetro do endpoint, o caminho dentro do JSON
+e a posição do byte. Fica no log, com o identificador de correlação, que a resposta preserva.
+
+> O `catch (BadHttpRequestException)` do endpoint de upload de arquivo **fica**: ali a exceção significa
+> uma coisa específica — arquivo maior que o autorizado — e devolve `413 arquivo_grande_demais`. Não é
+> duplicação do tratamento genérico; é um significado local que vence antes dele.
+
+### Defeito 2 — armazenamento local falhava em uso, não na subida
+
+**Causa raiz, também maior do que o preflight registrou.** Eram três coisas empilhadas:
+
+1. O diretório padrão do adaptador local é uma pasta sob o diretório do processo, que no contêiner
+   pertence ao root. O processo roda sem privilégio (UID 1654) e não consegue criar nada ali.
+2. O adaptador é um singleton resolvido **sob demanda**, e o `Directory.CreateDirectory` morava no
+   construtor dele. A falha só aparecia na primeira entrega com comprovante — em produção, horas depois
+   da implantação, para um motorista na rua.
+3. E o que o preflight não viu: o Bicep passava `Torre__Armazenamento__Conta` e
+   `Torre__Armazenamento__Contedor`, e **nenhuma das duas existe no código**. Não há opção com esse nome
+   nem adaptador de Blob — só o local. As variáveis pareciam configuração e não configuravam nada: a
+   aplicação usaria disco local no Azure, em silêncio, com a Storage Account vazia para sempre.
+
+**Correção:**
+
+| Peça | O que mudou |
+|---|---|
+| `Torre:Armazenamento:Provedor` | novo, explícito: `local` ou `blob`. Não se deduz mais |
+| `PermitirLocalForaDeDesenvolvimento` | novo. Sem ele, `local` fora de Development/Testing **recusa subir** |
+| `DiretorioEfetivo` | o padrão passou a morar nas opções, para validação e adaptador usarem o mesmo caminho |
+| `ValidacaoDeOpcoesDeArmazenamento` | roda em `ValidateOnStart`: cria o diretório e **grava uma sonda real** |
+| `Provedor=blob` | falha na subida com "ainda não tem adaptador" — nunca cai no local por baixo do pano |
+| Dockerfiles (API e workers) | criam `/var/tmp/torre-logistica/armazenamento` como root e o entregam ao `$APP_UID` |
+| `main.bicep` | trocou as duas variáveis inexistentes pelas duas reais, com o custo declarado em comentário |
+
+`/var/tmp` e não `/tmp`: o padrão de diretórios do Linux reserva `/var/tmp` para dado temporário que
+sobrevive a reinício de processo, e alguns runtimes montam `/tmp` em memória.
+
+### Evidência — contêineres contra PostgreSQL + PostGIS real
+
+Imagens reconstruídas: API **196 MB**, workers **155 MB** (mesmos tamanhos de antes).
+
+| Verificação | Resultado |
+|---|---|
+| Produção **sem** declarar armazenamento | `OptionsValidationException` na subida, **código de saída 1** |
+| Produção com a declaração do Bicep | sobe; `/health/live` **200** e `/health/ready` **200** |
+| Diretório no contêiner | `drwxr-xr-x app app /var/tmp/torre-logistica/armazenamento`; escrita OK como `uid=1654(app)` |
+| JSON quebrado, chave sem valor, tipo incompatível, corpo vazio | **400 `corpo_invalido`** nos quatro, em Production |
+| JSON válido | segue o fluxo: **401 `credenciais_invalidas`**, com `idDeCorrelacao` presente |
+| API executa laço de fundo | **0 ocorrências** no log |
+| Workers assumiram os laços | `ProcessadorDeWebhooks` e `ServicoDeVerificacaoDeInfraestrutura` ativos |
+| Workers têm porta publicada | **nenhuma** (`portas=map[]`) |
+| Usuário dos dois processos | UID **1654**, sem privilégio |
+| Simulador contra a imagem | 6/6 histórias encenadas, saída 0 |
+
+> O simulador não grava arquivo nenhum no storage — ele envia `arquivos = []` de propósito. Zero
+> arquivos no diretório é o comportamento correto dele, não falha de armazenamento. A prova funcional
+> do adaptador vem de `ComprovantesTestes`, na suíte de integração, que sobe uma foto de verdade.
+
+### Testes acrescentados
+
+| Onde | Quantos | O que travam |
+|---|:---:|---|
+| `ContratoDeErrosHttpTestes` | 6 | 4 casos de corpo ilegível (sintaxe, chave sem valor, tipo incompatível, vazio), JSON válido seguindo o fluxo, e falha interna continuando 500 |
+| `ArmazenamentoNaSubidaTestes` | 9 | provedor local nos dois ambientes de desenvolvimento, diretório sem permissão, provedor desconhecido, `blob` sem adaptador, produção sem e com declaração, caminho efetivo, e as validações antigas continuando válidas |
+
+### Bateria completa depois das duas correções
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| Integração (completa, PostgreSQL + PostGIS reais) | **556** | ✅ 0 falha, 2 puladas, 752 s |
+| `TorreLogistica.UnitTests` | **704** | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `apps/operacao` · `apps/motorista` · `apps/rastreamento` | 38 · 76 · 17 | ✅ |
+| `dotnet format --verify-no-changes` | — | ✅ |
+| `bicep build` · `bicep lint` | — | ✅ 0 erro, 0 aviso, sem achados; 13 recursos |
+| **Total** | **1.413** | ✅ |
+
+São 15 provas a mais que o preflight: 6 de contrato de erro e 9 de armazenamento na subida.
+
+### O que continua pendente
+
+| Item | Situação |
+|---|---|
+| Adaptador de Blob para comprovantes | **não implementado**. A Storage Account do template é o destino dele |
+| Comprovante no ambiente publicado | efêmero enquanto o adaptador não existir — declarado em configuração, não escondido |
 
 ## Commits
 
 `refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
 `test: corrige causa raiz do alerta de permanencia e congela sizing e regiao (Fase 25)`
+`fix: corpo json ilegivel responde 400 e armazenamento falha na subida (Fase 25)`
 
 ---
 

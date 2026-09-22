@@ -105,6 +105,20 @@ Categoria desconhecida cai em 500, nunca em 200. Há teste para isso.
 Autenticação, autorização e rate limit **não** estão nessa lista de propósito: são
 decisões de borda HTTP, e o domínio não conhece requisição.
 
+**Corpo que não dá para ler é 400, em qualquer ambiente.** JSON com sintaxe quebrada,
+campo com tipo incompatível ou corpo vazio onde ele é obrigatório são erro de quem
+chamou, e `ManipuladorDeCorpoInvalido` os responde como `corpo_invalido`
+(`corpo_grande_demais` quando o limite de tamanho é o motivo). Duas coisas o tornam
+necessário:
+
+- `RouteHandlerOptions.ThrowOnBadRequest` é ligado explicitamente. O padrão do
+  ASP.NET Core só o liga em Development, e a assimetria produzia dois comportamentos
+  para a mesma requisição: 500 em desenvolvimento e um 400 fora do contrato da API em
+  produção.
+- O manipulador trata **só** `BadHttpRequestException`, que a plataforma lança apenas
+  ao ler a requisição. `JsonException` nosso, ao serializar uma resposta, continua
+  sendo 500 — defeito interno não vira erro do cliente. Há teste para os dois lados.
+
 Toda resposta de erro é `application/problem+json` e traz `codigo`, `traceId` e
 `idDeCorrelacao`. Mensagem de exceção nunca vai para o corpo: texto de exceção carrega
 caminho de arquivo, nome de tabela e trecho de configuração — material de
@@ -608,7 +622,27 @@ console: GET /api/entregas/{id}/comprovante → metadados + URLs assinadas de le
 | Integridade | `comprovantes` e `arquivos_do_comprovante` são somente-inserção por trigger |
 | Autorização | registrar é do motorista da entrega; ler é do console; arquivo só por URL assinada no prazo |
 | Política | `Torre:Comprovantes:ExigirNaConclusao` recusa conclusão sem prova (`422 comprovante_obrigatorio`) |
-| Storage desta fase | disco local com URL assinada servida pela API; S3 ou compatível é decisão da Fase 25 |
+| Storage desta fase | disco local com URL assinada servida pela API; objeto em nuvem continua **não implementado** |
+
+### Qual adaptador de storage sobe, e o que ele cobra para subir
+
+`Torre:Armazenamento:Provedor` é declarado, não deduzido, e a validação roda em
+`ValidateOnStart` — o processo nem sobe se algo não fecha:
+
+| Situação | O que acontece |
+|---|---|
+| `local`, em Development ou Testing | sobe; o diretório é criado e uma sonda de escrita é gravada e apagada |
+| `local`, fora deles, **sem** `PermitirLocalForaDeDesenvolvimento` | **recusa subir**: comprovante em disco de contêiner some no reinício |
+| `local`, fora deles, **com** a permissão ligada | sobe, e a aceitação do custo ficou registrada em configuração |
+| diretório não gravável | **recusa subir**, dizendo qual caminho e por quê |
+| `blob` | **recusa subir**: não existe adaptador. Nunca cai no disco local por baixo do pano |
+| qualquer outro valor | **recusa subir** |
+
+`Torre:Armazenamento:Diretorio` tem padrão sob o diretório do processo, que dentro do
+contêiner pertence ao root — por isso as duas imagens apontam para
+`/var/tmp/torre-logistica/armazenamento`, criado no Dockerfile e entregue ao usuário
+sem privilégio. Antes disso, um diretório sem permissão só aparecia como `500` na
+primeira entrega com comprovante, horas depois da implantação.
 
 Decisões e limitações em [ADR 0023](./adr/0023-prova-de-entrega.md), que implementa o [ADR 0007](./adr/0007-storage-de-comprovantes-fora-do-banco.md).
 

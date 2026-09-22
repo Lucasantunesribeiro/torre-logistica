@@ -102,7 +102,15 @@ try
             }
         });
 
+    // Falha ao ler o corpo da requisição vira exceção em TODO ambiente, não só em Development.
+    // O padrão do ASP.NET Core é o contrário, e a assimetria custava caro: em desenvolvimento o
+    // JSON quebrado explodia em 500, e em produção respondia 400 sem o contrato de erro da API —
+    // dois comportamentos diferentes para a mesma requisição. Ligado aqui, os dois viram o mesmo
+    // caminho, tratado por ManipuladorDeCorpoInvalido.
+    construtor.Services.Configure<RouteHandlerOptions>(opcoes => opcoes.ThrowOnBadRequest = true);
+
     // A ordem importa: o manipulador específico decide antes do genérico.
+    construtor.Services.AddExceptionHandler<ManipuladorDeCorpoInvalido>();
     construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoDeDominio>();
     construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoNaoTratada>();
 
