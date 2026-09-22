@@ -32,12 +32,34 @@ escalar sem duplicar o trabalho de fundo, e o trabalho de fundo não podia parar
 | Por que fica viva | conexão persistente do console (ADR 0017) | os laços só existem enquanto o processo vive |
 | `minReplicas` | 1 | 1 |
 | `maxReplicas` | 1 — ver abaixo | 1 — dois despachantes disputariam o mesmo outbox sem ganho |
-| Recursos | 0,5 vCPU / 1 GiB | 0,25 vCPU / 0,5 GiB |
+| Recursos | 0,25 vCPU / 0,5 GiB | 0,25 vCPU / 0,5 GiB |
 
 A separação é estrutural, não configuracional: o registro das dependências continua nos dois processos,
 porque a API **lê** o que os workers produzem, mas o registro dos laços (`AdicionarProcessamentoDe…`)
 existe só no host de workers. Uma opção de configuração poderia ser ligada por engano; a ausência de uma
 chamada, não.
+
+### Região: East US
+
+Comparadas East US e Brazil South com os preços de varejo de 21/09/2026. O compute do Container Apps custa
+**igual** nas duas; a diferença se concentra no banco — B1ms a US$ 0,035/h contra US$ 0,017/h, e
+armazenamento a US$ 0,2185/GB contra US$ 0,115/GB —, que é justamente a parcela que roda 730 horas por mês.
+Brazil South sai 45–50 % mais caro no total.
+
+A latência favorece Brazil South com folga (~15 ms contra ~130 ms de São Paulo). Num ambiente de
+demonstração, o que essa diferença atrasa é a primeira impressão de quem abre o mapa, não uma decisão
+operacional. Para operação brasileira real a conta se inverte, e isso fica registrado: a escolha vale para
+o portfólio, não para sempre.
+
+### Registro das imagens
+
+O workflow de deploy já publicava em `<registro>.azurecr.io` e o template não criava registro nenhum. O
+preflight desta fase corrigiu a inconsistência com um **Container Registry Basic** (US$ 5,07/mês), sem
+usuário administrador, de onde as duas aplicações puxam com identidade gerenciada.
+
+Publicar imagens públicas no `ghcr.io` custaria zero e era alternativa real — nada de secreto vai na
+imagem. Perdeu por US$ 5: um caminho a menos de credencial para explicar, e o workflow já estava escrito
+para ACR.
 
 ### Por que não as outras
 
@@ -101,10 +123,13 @@ longa duração guardado no repositório.
 
 ## Consequências
 
-Existe um custo mensal fixo enquanto o ambiente estiver de pé: contêiner e banco não dormem. É o preço de
-um sistema que continua operando quando ninguém está olhando — que é, afinal, o que ele se propõe a ser.
+Existe um custo mensal fixo enquanto o ambiente estiver de pé: contêiner e banco não dormem. Com os preços
+de 21/09/2026 em East US, a faixa esperada é **US$ 35 a US$ 40 por mês**, dos quais US$ 25 são fixos
+independentemente de uso (banco, armazenamento e registro). É o preço de um sistema que continua operando
+quando ninguém está olhando — que é, afinal, o que ele se propõe a ser. Como desligar e como apagar tudo
+está em [`docs/cost-model.md`](../cost-model.md#9-como-desligar-tudo-e-parar-a-cobrança).
 
-O template **foi validado**: `bicep build` e `bicep lint` passam sem erro nem aviso, e os 12 recursos que
+O template **foi validado**: `bicep build` e `bicep lint` passam sem erro nem aviso, e os 13 recursos que
 ele geraria estão listados em `infra/README.md`. O que **não** rodou foi o `what-if`, e o motivo não é
 comodidade: ele exige assinatura autenticada e grupo de recursos existente, e nenhum dos dois existe.
 

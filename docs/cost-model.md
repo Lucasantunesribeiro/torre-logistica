@@ -25,10 +25,10 @@ Quatro vêm de medição própria (Fase 22), não de estimativa:
 
 O ROADMAP pede "scale-to-zero **ou** baixo idle cost". Para este sistema, **scale-to-zero não serve**.
 
-Não é preferência: o processo que atende HTTP é o mesmo que hospeda os serviços de segundo plano. Um
-serviço que dorme quando ninguém acessa **para de avaliar SLA, de despachar webhook e de apagar rastro
-vencido**. A entrega que entraria em risco às 3h da manhã só seria marcada quando alguém abrisse o
-console — e o alerta que chega tarde não é alerta, é histórico.
+O trabalho periódico não depende de requisição nenhuma. Um serviço que dorme quando ninguém acessa **para
+de avaliar SLA, de despachar webhook e de apagar rastro vencido**. A entrega que entraria em risco às 3h da
+manhã só seria marcada quando alguém abrisse o console — e o alerta que chega tarde não é alerta, é
+histórico.
 
 Some-se a isso a conexão persistente: dormir derruba todo console conectado.
 
@@ -44,35 +44,198 @@ sem duplicar o trabalho de fundo, e o trabalho de fundo não poderia parar sem d
 |---|---|---|
 | Por que fica viva | conexão persistente do console | os laços só existem enquanto o processo vive |
 | Ingress | HTTPS público | **nenhum** |
-| Tamanho | 0,5 vCPU / 1 GiB | 0,25 vCPU / 0,5 GiB |
+| Tamanho | 0,25 vCPU / 0,5 GiB (medido, seção 6) | 0,25 vCPU / 0,5 GiB |
 
-O custo ocioso passa a ser de **dois** contêineres pequenos em vez de um médio. Na prática isso muda
-pouco: o segundo é metade do primeiro, e o total de CPU reservada é **0,75 vCPU** — menos que uma única
-instância de 1 vCPU que seria necessária se tudo dividisse o mesmo processo sob carga.
+## 3. As quantidades permanentes
 
-## 3. Onde o dinheiro vai
+O que muda é preço unitário. O que não muda são estas quantidades — elas saem de medição, não de palpite,
+e é com elas que qualquer calculadora dá o número do dia.
 
-Em qualquer fornecedor, o custo desta aplicação tem quatro parcelas. A ordem importa: a primeira é a maior.
-
-| Parcela | O que dirige | Quantidade medida |
+| Quantidade | Valor | De onde vem |
 |---|---|---|
-| **Banco gerenciado** | instância sempre ligada + armazenamento + backup | ~30 GB em regime, crescendo ~1 GB/dia até o teto da retenção |
-| **Compute** | duas instâncias pequenas sempre vivas | **0,75 vCPU e 1,5 GiB no total**: 0,5/1 GiB na API e 0,25/0,5 GiB nos workers |
-| **Tráfego** | telemetria de entrada e páginas de saída | ~17 GB/mês de entrada no pico da meta; saída menor |
-| **Objeto** | comprovantes | até 5 MB por entrega concluída com foto |
+| Compute sempre ligado | **0,5 vCPU e 1 GiB** somados | 0,25/0,5 GiB em cada um dos dois processos |
+| Horas por mês | 730 h = **2.628.000 s** por réplica | dois processos com `minReplicas: 1` |
+| Banco | 1 instância `Standard_B1ms` (1 vCore, 2 GiB), **sempre ligada** | ADR 0034 |
+| Armazenamento do banco | **64 GiB** provisionados | ~30 GB em regime + folga de crescimento |
+| Retenção de backup | 7 dias | padrão do Flexible Server |
+| Retenção de log | 30 dias | `main.bicep` |
+| Imagens no registro | 2 imagens de ~200 MB | 196 MB (API) + 155 MB (workers) |
+| Comprovantes | até 5 MB por entrega concluída com foto | ADR 0007 |
+| Tráfego de entrada | ~17 GB/mês no pico da meta | entrada **não é cobrada** |
 
-Observabilidade e filas **não aparecem** porque não são serviços contratados: a telemetria só sai do
-processo quando alguém aponta um coletor (ADR 0030), e a fila é o próprio PostgreSQL (ADR 0026).
+## 4. Região: **East US**
 
-### Por que não há tabela de preços aqui
+Comparação feita com os preços de varejo do mesmo dia, para os dois candidatos pedidos.
 
-Preço unitário de nuvem muda, varia por região e depende de compromisso de uso. Uma tabela cravada neste
-documento estaria errada em poucos meses e — pior — alguém decidiria com base nela sem reconferir.
+| Item | East US | Brazil South | Diferença |
+|---|---:|---:|---:|
+| PostgreSQL B1ms (hora) | US$ 0,017 | US$ 0,035 | **+106 %** |
+| Armazenamento do banco (GB/mês) | US$ 0,115 | US$ 0,2185 | **+90 %** |
+| Backup LRS além da franquia (GB/mês) | US$ 0,095 | US$ 0,095 | igual |
+| Container Apps — vCPU ativo (s) | US$ 0,000024 | US$ 0,000024 | igual |
+| Container Apps — vCPU ocioso (s) | US$ 0,000003 | US$ 0,000003 | igual |
+| Container Apps — memória (GiB·s) | US$ 0,000003 | US$ 0,000003 | igual |
+| Blob Hot LRS (GB/mês) | US$ 0,0208 | US$ 0,0326 | +57 % |
+| Log Analytics — ingestão (GB) | US$ 2,30 | US$ 4,60 | **+100 %** |
+| Container Registry Basic (dia) | US$ 0,1666 | US$ 0,1666 | igual |
+| Saída para internet acima de 100 GB (GB) | US$ 0,08 | US$ 0,12 | +50 % |
 
-O que este documento fixa é o que **não** muda: as quantidades medidas acima. Com elas, a calculadora
-oficial de qualquer fornecedor dá o número do dia, e a comparação continua válida.
+O compute do Container Apps — que é a maior parcela variável — **custa o mesmo nas duas**. A diferença se
+concentra exatamente onde o custo é fixo: o banco, que é a parcela que roda 730 horas por mês sem
+interrupção. Brazil South custa **de 45 % a 50 % a mais no total mensal**, entre US$ 20 e US$ 49 conforme o
+cenário.
 
-## 4. Opções consideradas
+Disponibilidade não desempata: Container Apps, PostgreSQL Flexible Server, Storage e Key Vault existem nas
+duas regiões.
+
+Latência desempata **a favor de Brazil South**, e por muito: de São Paulo são ~10–20 ms contra ~110–140 ms
+para East US. Mas o que essa latência atrasa aqui é a percepção de um avaliador abrindo o mapa, não uma
+decisão operacional — e 130 ms num console que atualiza por evento não é uma diferença que se note sem
+cronômetro. Entre pagar ~US$ 20/mês por isso num ambiente de demonstração e não pagar, não pagar vence.
+
+> A decisão vale **para o ambiente de portfólio**. Uma implantação comercial atendendo operação brasileira
+> real inverteria o peso: aí a latência entra na jornada do motorista em rota, não na primeira impressão de
+> um recrutador, e Brazil South passa a ser a escolha natural.
+
+## 5. Estimativa mensal
+
+**Preços consultados em 21/09/2026**, em dólar, pela [Azure Retail Prices
+API](https://prices.azure.com/api/retail/prices) (`currencyCode=USD`), conferidos contra as páginas
+oficiais de preço e as documentações de faturamento citadas abaixo. Preço unitário de nuvem muda: a data
+acima é parte do número.
+
+### Franquias aplicadas
+
+| Franquia | Valor | Fonte |
+|---|---|---|
+| Container Apps | 180.000 vCPU·s, 360.000 GiB·s e 2 milhões de requisições por assinatura/mês | docs de billing do Container Apps |
+| Log Analytics | 5 GB/mês por conta de cobrança; **31 dias** de retenção inclusos | página de preços do Azure Monitor |
+| Backup do PostgreSQL | 100 % do armazenamento provisionado, ou seja **64 GB** | docs de backup do Flexible Server |
+| Saída para internet | primeiros 100 GB/mês | tabela de banda |
+| Sonda de saúde | requisições de health probe **não são cobradas** | docs de billing do Container Apps |
+
+### O que separa "ativo" de "ocioso"
+
+Vale metade da conta variável, então vale escrever: uma réplica só é cobrada na tarifa ociosa — **oito
+vezes menor** em vCPU — quando está no mínimo de réplicas, não atende requisição HTTP, usa menos de 0,01
+vCPU e recebe menos de 1.000 bytes por segundo. Memória custa igual nos dois estados.
+
+Os workers acordam a cada 5 segundos para olhar o outbox. Cada rodada é curta, mas é exatamente esse tipo
+de atividade que pode tirar a réplica do estado ocioso. O cenário C existe para cobrir a hipótese
+pessimista de que ela nunca entre.
+
+### Três cenários, em East US
+
+| Componente | A — demo ociosa | B — uso moderado | C — limite conservador |
+|---|---:|---:|---:|
+| PostgreSQL B1ms (730 h) | 12,41 | 12,41 | 12,41 |
+| Armazenamento do banco (64 GiB) | 7,36 | 7,36 | 7,36 |
+| Backup acima da franquia | 0,00 | 0,00 | 3,42 |
+| Container Apps — API + workers | 10,21 | 14,47 | 34,02 |
+| Container Apps — requisições | 0,00 | 0,00 | 1,20 |
+| Container Registry Basic | 5,07 | 5,07 | 5,07 |
+| Blob dos comprovantes | 0,00 | 0,04 | 0,42 |
+| Log Analytics | 0,00 | 0,00 | 23,00 |
+| Key Vault | 0,06 | 0,60 | 3,00 |
+| Saída para internet | 0,00 | 0,00 | 12,00 |
+| **Total (US$/mês)** | **35,11** | **39,95** | **101,89** |
+
+O que cada cenário supõe:
+
+| | A | B | C |
+|---|---|---|---|
+| API em estado ativo | 0 % | 33 % (8 h/dia) | 100 % |
+| Workers em estado ativo | 0 % | 25 % | 100 % |
+| Requisições | 20 mil | 500 mil | 5 milhões |
+| Log ingerido | 0,5 GB | 4 GB | 15 GB |
+| Backup acumulado | 15 GB | 45 GB | 100 GB |
+| Saída | 5 GB | 40 GB | 250 GB |
+
+**Faixa esperada: US$ 35 a US$ 40 por mês.** O cenário C não é previsão — é teto: ele supõe as duas
+réplicas nunca ociosas, 15 GB de log e 250 GB de saída ao mesmo tempo, o que uma demonstração de portfólio
+não produz.
+
+### Quem domina o custo
+
+Nos cenários realistas, três parcelas somam **90 %** da conta, e todas as três são fixas:
+
+1. **PostgreSQL** (US$ 19,77 fixos): instância mais 64 GiB. Não varia com uso nenhum — é a maior parcela.
+2. **Container Apps** (US$ 10–14): as duas réplicas que nunca dormem. É o preço da decisão da seção 2.
+3. **Container Registry** (US$ 5,07 fixos).
+
+A única parcela que pode **explodir** é o Log Analytics: cada GB além de 5 custa US$ 2,30, e o cenário C
+sozinho traz US$ 23. Ela é a que mais depende de decisão nossa, não de tráfego — nível de log e o que se
+manda para o workspace. Vale medir na primeira semana.
+
+Como o banco passou a ser a maior parcela, é nele que mora a próxima economia possível: 64 GiB é folga
+para um regime de ~30 GB, e cair para 32 GiB devolveria US$ 3,68/mês. Não foi feito porque reduzir
+armazenamento no Flexible Server **não é reversível** — só se cresce — e 2 GiB de índice a mais por dia de
+operação consomem essa folga depressa.
+
+## 6. Sizing da API: 0,25 vCPU / 0,5 GiB, e por quê
+
+**A Fase 22 não respondia essa pergunta.** Ela mediu latência, plano de consulta e crescimento do banco —
+**não** mediu CPU nem memória do processo da API. Usar aqueles números para justificar o sizing seria citar
+uma medição que não existe. Então a medição foi feita agora.
+
+### Como foi medido
+
+A imagem `torre-logistica-api:separada` — a mesma que iria para o Azure — rodou contra PostgreSQL + PostGIS
+real, com `docker run --cpus … --memory …` impondo exatamente o teto do Container App. Sobre ela, duas
+cargas ao mesmo tempo:
+
+- o **simulador** encenando as seis histórias da demonstração (ADR 0006), que é a carga de escrita real;
+- **seis consoles simultâneos** lendo `/api/entregas`, `/api/alertas`, `/api/motoristas` e `/api/rotas` em
+  rodízio, a 4 requisições por segundo somadas, durante 100 segundos.
+
+### O que saiu
+
+| | **0,25 vCPU / 0,5 GiB** | 0,5 vCPU / 1 GiB |
+|---|---:|---:|
+| Requisições atendidas | 2.215 | 2.219 |
+| Erros | **nenhum** | nenhum |
+| p50 | **8,0 ms** | 9,6 ms |
+| p95 | **51,0 ms** | 52,5 ms |
+| p99 | **102,1 ms** | 142,5 ms |
+| Pior caso | 563,8 ms | 331,0 ms |
+| Memória em uso | **181 MiB** (35 % do teto) | 184 MiB (18 % do teto) |
+| Demonstração completa | 101 s, 6/6 histórias | 94 s, 6/6 histórias |
+| Arranque até `/health/ready` 200 | 18 s | 9 s |
+| Morto por falta de memória | **não** | não |
+
+### A leitura
+
+A memória usada é **a mesma nos dois** — 182 MiB — porque o processo usa o que precisa, não o que tem. Com
+teto de 512 MiB isso deixa 2,8× de folga. Dobrar o teto não reduziu latência nenhuma: p50 e p95 são
+indistinguíveis, e o p99 até piorou no tamanho maior, o que é ruído.
+
+O único preço real da redução é o **arranque, que dobra** (9 s → 18 s), porque compilar o código na
+primeira execução é o momento em que a CPU importa. Com `minReplicas: 1`, isso acontece em deploy e em
+reinício de plataforma — não numa visita.
+
+**Decisão: 0,25 vCPU / 0,5 GiB**, aplicado em `infra/main.bicep`. Economiza:
+
+| | A | B | C |
+|---|---:|---:|---:|
+| API 0,5 vCPU / 1 GiB | 41,02 | 50,47 | 121,60 |
+| **API 0,25 vCPU / 0,5 GiB** | **35,11** | **39,95** | **101,89** |
+| Economia | 5,91 | 10,52 | 19,71 |
+
+São 12 % a 21 % da conta, sem degradação mensurável na carga que a demonstração produz.
+
+### Quando subir de volta
+
+Voltar é uma linha em `infra/main.bicep`. Os gatilhos, medidos no ambiente publicado:
+
+- p95 do console acima de ~150 ms com o simulador rodando;
+- memória passando de ~380 MiB (75 % do teto), o que costuma vir de muitas conexões SignalR abertas;
+- qualquer reinício por falta de memória.
+
+O que esta medição **não** cobre: dezenas de conexões SignalR simultâneas (os seis clientes eram HTTP),
+latência de rede entre aplicação e banco — aqui os dois estavam na mesma máquina — e o alvo de 33
+posições/s da Fase 22, que é meta de ingestão, não carga de demonstração.
+
+## 7. Opções consideradas
 
 ### Descartadas
 
@@ -88,22 +251,29 @@ oficial de qualquer fornecedor dá o número do dia, e a comparação continua v
 
 | Opção | A favor | Contra |
 |---|---|---|
-| **Azure Container Apps** + PostgreSQL Flexible Server | WebSocket suportado; escala configurável com mínimo de 1 réplica (baixo ocioso); PostGIS disponível; TLS e domínio inclusos | ecossistema diferente do resto do portfólio, se ele for AWS |
-| **AWS Lightsail Containers** + RDS PostgreSQL | preço fixo e previsível, que é exatamente o que um portfólio precisa; TLS incluso | menos recursos gerenciados em volta; Lightsail é um canto próprio da AWS |
-| **AWS EC2 pequena** + RDS | controle total e custo baixo | manutenção do sistema operacional vira trabalho recorrente — o que um projeto de portfólio não deveria pagar |
+| **Azure Container Apps** + PostgreSQL Flexible Server | WebSocket suportado; mínimo de 1 réplica com tarifa ociosa; PostGIS disponível; TLS e domínio inclusos | ecossistema diferente do resto do portfólio, se ele for AWS |
+| **AWS Lightsail Containers** + RDS PostgreSQL | preço fixo e previsível; TLS incluso | menos recursos gerenciados em volta; Lightsail é um canto próprio da AWS |
+| **AWS EC2 pequena** + RDS | controle total e custo baixo | manutenção do sistema operacional vira trabalho recorrente |
 
-O empate técnico é real: as três atendem WebSocket, PostGIS e processo sempre vivo. O desempate é de
-**produto** — qual nuvem este portfólio quer demonstrar — e de quanto se aceita pagar por mês.
+### Escolhida: Azure Container Apps + PostgreSQL Flexible Server, em East US
 
-### Escolhida: Azure Container Apps + PostgreSQL Flexible Server
-
-Decisão de produto, tomada por quem paga a conta. O peso do desempate foi a diversificação do portfólio:
-a Central Antifraude já é AWS, e o ROADMAP abre esta fase proibindo copiar aquela arquitetura.
+Decisão de produto, tomada por quem paga a conta. O peso do desempate foi a diversificação do portfólio: a
+Central Antifraude já é AWS, e o ROADMAP abre esta fase proibindo copiar aquela arquitetura.
 
 O detalhamento está em [ADR 0034](./adr/0034-hospedagem.md), e a infraestrutura escrita — **validada e não
 aplicada** — em [`infra/`](../infra/README.md).
 
-## 5. O que já está construído e exercitado
+### O registro de imagens, e a alternativa que não foi escolhida
+
+O preflight encontrou uma inconsistência: o workflow de deploy publicava em `<registro>.azurecr.io` e o
+template não criava registro nenhum. A infraestrutura descrita não bastava para o deploy descrito.
+
+Corrigido com um **Container Registry Basic** (US$ 5,07/mês). A alternativa era publicar as imagens
+públicas no `ghcr.io`, que custaria zero — nada de secreto vai na imagem, porque segredo vem do ambiente e
+do cofre. Perdeu por US$ 5: manter registro privado e identidade gerenciada é um caminho a menos para
+explicar e um segredo a menos para vazar, e o workflow já estava escrito assim.
+
+## 8. O que já está construído e exercitado
 
 As duas imagens foram construídas e postas para rodar nesta máquina, contra o banco de desenvolvimento
 real — não são template.
@@ -120,17 +290,61 @@ real — não são template.
 A última linha é a prova da separação: a imagem anterior, com os laços dentro da API, enchia o log de
 `Falha na rodada de despacho do outbox` quando o banco estava fora. A atual não registra nenhuma.
 
-E a linha do `/health/live` é a resiliência da Fase 22 onde ela importa: num arranque em que o banco ainda
-não subiu, o contêiner da API não entra em ciclo de reinício.
+## 9. Como desligar tudo e parar a cobrança
 
-## 6. O que falta, e o que depende de autorização
+Enquanto o ambiente estiver de pé há custo fixo: contêiner e banco não dormem. Três níveis, do reversível
+ao definitivo.
+
+### Reduzir sem apagar (volta em minutos)
+
+```bash
+# Os dois processos param de existir como réplica; o ambiente e o banco continuam.
+az containerapp update -g <grupo> -n <prefixo>-api     --min-replicas 0 --max-replicas 0
+az containerapp update -g <grupo> -n <prefixo>-workers --min-replicas 0 --max-replicas 0
+```
+
+Zera a parcela de Container Apps (US$ 16–54). **Não** zera o banco, o armazenamento nem o registro — e o
+sistema deixa de avaliar SLA, despachar webhook e apagar rastro vencido, que é exatamente o que a seção 2
+diz não fazer em operação normal. Serve para pausar uma demonstração, não para operar.
+
+### Parar o banco (até 7 dias)
+
+```bash
+az postgres flexible-server stop -g <grupo> -n <prefixo>-pg
+```
+
+Suspende a cobrança de compute do banco (US$ 12,41). Armazenamento e backup continuam cobrados, e o Azure
+religa o servidor sozinho depois de 7 dias.
+
+### Remover tudo (não tem volta)
+
+```bash
+az group delete --name <grupo> --yes
+```
+
+Apaga os 13 recursos de uma vez e encerra **toda** a cobrança. Três avisos:
+
+1. **Os backups do banco vão junto** e não são recuperáveis.
+2. **O cofre fica em soft delete por 7 dias** e o nome continua reservado nesse período; para reaproveitar
+   o mesmo nome antes disso, use `az keyvault purge --name <prefixo>-cofre`. O cofre em soft delete não é
+   cobrado.
+3. Confira a fatura no dia seguinte: recurso apagado no meio do mês ainda gera linha proporcional.
+
+Para checar antes de apagar o que exatamente será destruído:
+
+```bash
+az resource list -g <grupo> -o table
+```
+
+## 10. O que falta, e o que depende de autorização
 
 | Item | Situação |
 |---|---|
 | Escolha do fornecedor | ✅ feita: Azure Container Apps + PostgreSQL Flexible Server |
-| IaC | ✅ escrita e **validada**: `bicep build` e `bicep lint` sem achados; 12 recursos |
+| Região | ✅ **East US**, pela seção 4 |
+| IaC | ✅ escrita e **validada**: `bicep build` e `bicep lint` sem achados; 13 recursos |
+| Estimativa de custo | ✅ preços de 21/09/2026; faixa esperada US$ 35–40/mês |
 | `what-if` | ❌ exige assinatura autenticada e grupo de recursos existente — nenhum dos dois existe |
 | Provisionamento | **exige aprovação explícita** — nenhum recurso foi criado |
 | Deploy | **exige autorização explícita**, na mensagem que o pedir |
-| Custo mensal real | sai da calculadora do Azure com as quantidades da seção 3 |
 | Medição com latência de rede | `docs/performance.md` foi medido com aplicação e banco na mesma máquina |

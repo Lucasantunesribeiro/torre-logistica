@@ -7,8 +7,12 @@
 
 | Arquivo | O que descreve |
 |---|---|
-| `main.bicep` | ambiente de contêiner, **duas** aplicações (API e workers), PostgreSQL com PostGIS, armazenamento privado, cofre e workspace de log |
+| `main.bicep` | ambiente de contêiner, **duas** aplicações (API e workers), PostgreSQL com PostGIS, registro das imagens, armazenamento privado, cofre e workspace de log |
 | `parametros.exemplo.json` | os parâmetros; a senha **não aparece** — ela vem de fora |
+
+**Região pretendida: East US.** A comparação com Brazil South, com preços do dia, está em
+[`docs/cost-model.md`](../docs/cost-model.md#4-região-east-us): o compute do Container Apps custa igual nas
+duas, e a diferença se concentra no banco, que é justamente a parcela que roda 730 horas por mês.
 
 ## Dois processos, e por quê
 
@@ -20,7 +24,7 @@ A API e os workers são aplicações separadas porque fazem coisas diferentes:
 | Por que fica viva | conexão persistente do console (SignalR, ADR 0017) | os laços só existem enquanto o processo vive |
 | `minReplicas` | 1 | 1 |
 | `maxReplicas` | 1 (ver abaixo) | 1 (dois processos disputariam o mesmo outbox sem ganho) |
-| CPU / memória | 0,5 vCPU / 1 GiB | 0,25 vCPU / 0,5 GiB |
+| CPU / memória | 0,25 vCPU / 0,5 GiB | 0,25 vCPU / 0,5 GiB |
 | O que executa | borda HTTP, autenticação, consultas, tempo real | outbox, reavaliação de previsão, alertas, retenção e medidas |
 
 Juntos num processo só — como estavam até esta fase — os dois se amarravam: a API não podia escalar sem
@@ -65,25 +69,36 @@ Bicep CLI version 0.47.16 (3f73e1a234)
 |---|---|---|
 | Compilação | `bicep build infra/main.bicep` | **0 erros, 0 avisos** |
 | Lint | `bicep lint infra/main.bicep` | **sem achados** |
-| Recursos gerados | inspeção do ARM compilado | **12 recursos**, listados abaixo |
+| Recursos gerados | inspeção do ARM compilado | **13 recursos**, listados abaixo |
 | Segredo fixo | varredura por padrões de senha/chave | **nenhum**; `senhaDoBanco` é `securestring` e não consta do arquivo de exemplo |
 
-### Os 12 recursos que seriam criados
+### Os 13 recursos que seriam criados
 
-| # | Tipo | Versão de API |
-|---|---|---|
-| 1 | `Microsoft.OperationalInsights/workspaces` | 2023-09-01 |
-| 2 | `Microsoft.DBforPostgreSQL/flexibleServers` | 2024-08-01 |
-| 3 | `Microsoft.DBforPostgreSQL/flexibleServers/configurations` (PostGIS) | 2024-08-01 |
-| 4 | `Microsoft.DBforPostgreSQL/flexibleServers/databases` | 2024-08-01 |
-| 5 | `Microsoft.DBforPostgreSQL/flexibleServers/firewallRules` | 2024-08-01 |
-| 6 | `Microsoft.Storage/storageAccounts` | 2023-05-01 |
-| 7 | `Microsoft.Storage/storageAccounts/blobServices` | 2023-05-01 |
-| 8 | `Microsoft.Storage/storageAccounts/blobServices/containers` | 2023-05-01 |
-| 9 | `Microsoft.KeyVault/vaults` | 2023-07-01 |
-| 10 | `Microsoft.App/managedEnvironments` | 2024-03-01 |
-| 11 | `Microsoft.App/containerApps` — **API** | 2024-03-01 |
-| 12 | `Microsoft.App/containerApps` — **workers** | 2024-03-01 |
+| # | Tipo | SKU / configuração | Versão de API |
+|---|---|---|---|
+| 1 | `Microsoft.OperationalInsights/workspaces` | PerGB2018, retenção 30 dias | 2023-09-01 |
+| 2 | `Microsoft.DBforPostgreSQL/flexibleServers` | **Standard_B1ms** Burstable, PG 17, 64 GiB, backup 7 dias, sem HA | 2024-08-01 |
+| 3 | `Microsoft.DBforPostgreSQL/flexibleServers/configurations` | `azure.extensions = POSTGIS` | 2024-08-01 |
+| 4 | `Microsoft.DBforPostgreSQL/flexibleServers/databases` | `torre_logistica`, UTF8 | 2024-08-01 |
+| 5 | `Microsoft.DBforPostgreSQL/flexibleServers/firewallRules` | serviços do Azure | 2024-08-01 |
+| 6 | `Microsoft.Storage/storageAccounts` | **Standard_LRS**, sem acesso público, TLS 1.2 | 2023-05-01 |
+| 7 | `Microsoft.Storage/storageAccounts/blobServices` | padrão | 2023-05-01 |
+| 8 | `Microsoft.Storage/storageAccounts/blobServices/containers` | `comprovantes`, acesso `None` | 2023-05-01 |
+| 9 | `Microsoft.ContainerRegistry/registries` | **Basic**, sem usuário administrador | 2023-11-01-preview |
+| 10 | `Microsoft.KeyVault/vaults` | **standard**, RBAC, soft delete 7 dias | 2023-07-01 |
+| 11 | `Microsoft.App/managedEnvironments` | consumo (sem workload profile dedicado) | 2024-03-01 |
+| 12 | `Microsoft.App/containerApps` — **API** | 0,25 vCPU / 0,5 GiB, min 1, max 1, ingress HTTPS | 2024-03-01 |
+| 13 | `Microsoft.App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** | 2024-03-01 |
+
+### O registro que faltava
+
+O workflow de deploy já publicava em `<registro>.azurecr.io`, mas o template não criava registro nenhum: a
+infraestrutura descrita não era suficiente para o deploy descrito. O preflight desta fase encontrou a
+inconsistência e o recurso 9 a corrige.
+
+Basic em vez de Standard porque o que separa os dois é cota inclusa (10 GB contra 100) e banda — duas
+imagens de ~200 MB com histórico de tags cabem em 10 GB. Sem usuário administrador: a senha do registro
+seria mais um segredo de longa duração, que é o que a identidade gerenciada evita.
 
 ### O que **não** foi executado
 
@@ -109,13 +124,38 @@ az deployment group what-if \
                imagemDosWorkers="<registro>/torre-logistica-workers:<versão>"
 ```
 
+## A ordem do primeiro provisionamento
+
+O template cria o registro **e** as duas aplicações que puxam imagem dele, mas não atribui papel — e sem o
+papel `AcrPull` a primeira revisão não consegue puxar. Não é descuido: atribuir papel é operação de
+diretório, e o motivo de mantê-la fora está logo abaixo. A consequência é que o primeiro provisionamento
+tem três passos, nesta ordem:
+
+```bash
+# 1. Cria tudo. As duas aplicações sobem, e a primeira revisão falha ao puxar a imagem.
+az deployment group create -g <grupo> --template-file infra/main.bicep --parameters ...
+
+# 2. Dá a cada identidade o direito de puxar.
+REGISTRO=$(az acr show -g <grupo> -n <prefixo>registro --query id -o tsv)
+for app in api workers; do
+  az role assignment create --role AcrPull --scope "$REGISTRO" \
+    --assignee-object-id "$(az containerapp show -g <grupo> -n <prefixo>-$app --query identity.principalId -o tsv)" \
+    --assignee-principal-type ServicePrincipal
+done
+
+# 3. Reaplica. Agora a revisão puxa e sobe.
+az deployment group create -g <grupo> --template-file infra/main.bicep --parameters ...
+```
+
+Da segunda vez em diante só o passo 3 é necessário. O workflow de deploy assume que os papéis já existem.
+
 ## Depois de aplicar
 
 Três coisas que o template **não** faz, de propósito:
 
 1. **Papéis das identidades gerenciadas.** API e workers têm identidade própria e precisam de leitura no
-   cofre; a API também precisa de escrita no contêiner de comprovantes. Atribuir papel é operação de
-   diretório e costuma exigir permissão que uma pipeline de aplicação não deveria ter.
+   cofre e de puxar do registro; a API também precisa de escrita no contêiner de comprovantes. Atribuir
+   papel é operação de diretório e costuma exigir permissão que uma pipeline de aplicação não deveria ter.
 2. **Migrations.** O banco sobe vazio. Aplicar schema é passo de deploy, não de infraestrutura — misturar
    os dois faz um `what-if` de infraestrutura parecer inofensivo quando não é.
 3. **Frontends.** As três aplicações web são arquivos estáticos, não guardam segredo e não precisam de

@@ -15,6 +15,15 @@ public sealed class AlertasTestes(ContainerPostgis banco) : TesteDePrevisao(banc
 {
     protected override IReadOnlyDictionary<string, string?> ConfiguracaoAdicional => new Dictionary<string, string?>(base.ConfiguracaoAdicional)
     {
+        // O estrangulamento de recálculo por posição fica desligado aqui, e o motivo é o relógio falso.
+        // Em produção ele mede 30 s de tempo real e economiza recálculo sem perder nada: o que escapa é
+        // recuperado pela reavaliação periódica. Nestes testes o relógio salta de 8 em 8 minutos enquanto
+        // um pedido espera na fila, e o pedido da posição anterior acaba processado já com o relógio no
+        // instante da posição seguinte — queimando a janela de 30 s que a próxima posição precisaria.
+        // Quem decide o alerta passa a ser de que lado da troca de vez da fila o salto caiu. Desligado, a
+        // última posição sempre dispara uma avaliação; nenhuma asserção deixa de valer, porque nenhum
+        // teste desta classe é sobre o estrangulamento.
+        ["Torre:Previsao:IntervaloMinimoEntreRecalculosPorPosicao"] = "00:00:00",
         ["Torre:Alertas:TempoSemPosicaoParaOffline"] = "00:10:00",
         ["Torre:Alertas:TempoParadoParaAlerta"] = "00:15:00",
         ["Torre:Alertas:TempoParadoAtendendoParadaParaAlerta"] = "00:30:00",

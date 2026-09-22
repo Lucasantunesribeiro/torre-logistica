@@ -143,6 +143,27 @@ resource contedorDeComprovantes 'Microsoft.Storage/storageAccounts/blobServices/
 }
 
 // ---------------------------------------------------------------------------
+// Registro das imagens
+// ---------------------------------------------------------------------------
+// O workflow de deploy já publicava em `<registro>.azurecr.io` e este template não criava registro
+// nenhum: a infraestrutura descrita não era suficiente para o deploy descrito. Corrigido aqui.
+//
+// Basic, e não Standard: o que muda entre os dois é cota de armazenamento incluso (10 GB contra 100) e
+// banda. Duas imagens de ~200 MB com histórico de tags cabem em 10 GB com folga.
+//
+// Sem usuário administrador: a senha do registro seria mais um segredo de longa duração para guardar,
+// justamente o que a identidade gerenciada existe para evitar.
+resource registro 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
+  name: '${prefixo}registro'
+  location: regiao
+  sku: { name: 'Basic' }
+  properties: {
+    adminUserEnabled: false
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Segredos
 // ---------------------------------------------------------------------------
 // Cofre com RBAC em vez de política de acesso: identidade gerenciada recebe papel, e ninguém guarda
@@ -194,6 +215,14 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         transport: 'auto'
         allowInsecure: false
       }
+      // Puxa a imagem com a identidade gerenciada, não com senha de registro. Exige o papel AcrPull,
+      // atribuído depois do provisionamento — a ordem está em infra/README.md.
+      registries: [
+        {
+          server: registro.properties.loginServer
+          identity: 'system'
+        }
+      ]
       secrets: [
         {
           name: 'cadeia-de-conexao'
@@ -207,9 +236,13 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'api'
           image: imagemDaApi
           resources: {
-            // Medido: a carga alvo cabe nisto com folga. Subir daqui é decisão com número, não palpite.
-            cpu: json('0.5')
-            memory: '1Gi'
+            // Medido, não estimado. Com o simulador encenando as seis histórias e seis consoles lendo ao
+            // mesmo tempo, esta imagem limitada a 0,25 vCPU / 512 MiB atendeu 2.215 requisições sem erro,
+            // com p50 de 8 ms e p95 de 51 ms — os mesmos números de 0,5 vCPU / 1 GiB — usando 181 MiB.
+            // O que dobra ao reduzir é só o arranque (9 s → 18 s), e com minReplicas 1 isso acontece em
+            // deploy, não em visita. Subir de volta é esta linha; o gatilho está em docs/cost-model.md.
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
@@ -265,6 +298,12 @@ resource workers 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       // Sem bloco de ingress: nenhuma porta é publicada, e não há endereço por onde alcançar este
       // processo de fora. Um erro de regra de rede não consegue expor o que não tem entrada.
+      registries: [
+        {
+          server: registro.properties.loginServer
+          identity: 'system'
+        }
+      ]
       secrets: [
         {
           name: 'cadeia-de-conexao'
@@ -311,3 +350,6 @@ output identidadeDosWorkers string = workers.identity.principalId
 
 @description('Servidor do banco.')
 output servidorDoBanco string = banco.properties.fullyQualifiedDomainName
+
+@description('Registro das imagens, para onde o workflow publica e de onde as aplicações puxam.')
+output servidorDoRegistro string = registro.properties.loginServer

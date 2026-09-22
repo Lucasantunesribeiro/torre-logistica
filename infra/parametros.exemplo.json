@@ -5,6 +5,9 @@
     "prefixo": {
       "value": "torrelog"
     },
+    "regiao": {
+      "value": "eastus"
+    },
     "usuarioDoBanco": {
       "value": "torre"
     },

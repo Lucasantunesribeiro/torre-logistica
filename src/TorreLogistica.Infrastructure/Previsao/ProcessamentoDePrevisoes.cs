@@ -199,6 +199,12 @@ public sealed class ProcessadorDePrevisoes(
 
         if (solicitacao.Origem == OrigemDoRecalculo.Posicao && !LiberarRecalculoPorPosicao(rotaId))
         {
+            // Descarte previsto, e ainda assim registrado: trabalho que some sem deixar rastro custa uma
+            // investigação inteira quando alguém pergunta por que a previsão não mudou.
+            log.LogDebug(
+                "Recálculo da rota {RotaId} pedido por posição foi dispensado: o anterior rodou há menos de {Intervalo}.",
+                rotaId,
+                opcoes.Value.IntervaloMinimoEntreRecalculosPorPosicao);
             return;
         }
 
@@ -272,8 +278,9 @@ public static class ConfiguracaoDePrevisao
     /// Registra opções, provedor de rotas simulado, fila de recálculo e o processador em segundo plano.
     /// </summary>
     /// <remarks>
-    /// Só a API chama: é ela que recebe os eventos e publica o tempo real. O host de workers não registra,
-    /// e o contexto de persistência sem fila simplesmente não pede recálculo.
+    /// Os dois processos chamam: a API porque lê a previsão que os workers produzem, e os workers porque
+    /// são eles que a recalculam. O que só os workers registram é o laço, em
+    /// <see cref="AdicionarProcessamentoDePrevisoes"/>.
     /// </remarks>
     public static IServiceCollection AdicionarPrevisaoDeChegada(this IServiceCollection servicos, IConfiguration configuracao)
     {

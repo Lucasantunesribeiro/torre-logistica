@@ -858,12 +858,15 @@ Decisões em [ADR 0033](./adr/0033-entrada-da-demonstracao.md); capturas planeja
 
 ```text
 Azure Container Apps Environment
-  ├── torrelog-api      ingress HTTPS · min 1 · max 1 · 0,5 vCPU
+  ├── torrelog-api      ingress HTTPS · min 1 · max 1 · 0,25 vCPU
   └── torrelog-workers  SEM ingress   · min 1 · max 1 · 0,25 vCPU
         outbox · previsão · alertas · retenção · medidas
   → PostgreSQL Flexible Server 17 + POSTGIS
   → Storage Account privado (comprovantes)
   → Key Vault com RBAC + identidade gerenciada
+  → Container Registry Basic (as duas imagens; pull por identidade gerenciada)
+
+região East US · 13 recursos · US$ 35–40/mês estimados (preços de 21/09/2026)
 ```
 
 | Decisão | Por quê |
@@ -876,6 +879,8 @@ Azure Container Apps Environment
 | Retenção **sem** Job | os workers já estão vivos pelo outbox; um Job seria um terceiro recurso para 12 ms de trabalho |
 | `azure.extensions = POSTGIS` | sem isso o `CREATE EXTENSION` da migration falha e a aplicação sobe para morrer na primeira consulta geográfica |
 | Papéis, migrations e frontends fora do template | cada um por um motivo, registrado no `infra/README.md` |
+| **East US**, não Brazil South | o compute do Container Apps custa igual nas duas; o banco custa o dobro no Brasil, e é ele que roda 730 h/mês. A latência maior atrasa a primeira impressão de quem abre o mapa, não uma decisão operacional |
+| Registro **no template** | o workflow já publicava em `azurecr.io` e o template não criava registro: a infraestrutura descrita não bastava para o deploy descrito |
 | Deploy só `workflow_dispatch` | um deploy que acontece porque alguém mergeou é um deploy que ninguém decidiu |
 
 As duas imagens foram construídas e exercitadas contra o banco real: API com 196 MB e workers com 155 MB

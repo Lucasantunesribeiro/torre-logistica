@@ -139,13 +139,13 @@ Não antecipar:
 | 16 | API de Integração e Importação | ✅ |
 | 17 | Webhooks e Backbone Assíncrono | ✅ |
 | 18 | Console Operacional e Mapa | ✅ |
-| 19 | Indicadores e Analytics | ⬜ |
-| 20 | Segurança e Privacidade | ⬜ |
-| 21 | Observabilidade | ⬜ |
-| 22 | Performance e Resiliência | ⬜ |
-| 23 | Simulador e Seed Narrativo | ⬜ |
-| 24 | UX Final e Modo Demonstração | ⬜ |
-| 25 | Infraestrutura e Deploy | ⬜ |
+| 19 | Indicadores e Analytics | ✅ |
+| 20 | Segurança e Privacidade | ✅ |
+| 21 | Observabilidade | ✅ |
+| 22 | Performance e Resiliência | ✅ |
+| 23 | Simulador e Seed Narrativo | ✅ |
+| 24 | UX Final e Modo Demonstração | ✅ |
+| 25 | Infraestrutura e Deploy | 🟨 |
 | 26 | Validação em Produção e Pentest | ⬜ |
 | 27 | Release v1.0.0 | ⬜ |
 
@@ -5034,64 +5034,189 @@ A última linha é a prova da separação: a imagem anterior, com os laços dent
 **Comportamento preservado.** As 5 suítes que dependem dos laços foram executadas **antes e depois** da
 mudança, com o mesmo resultado: 33 provas, 1 falha. A falha
 (`MotoristaParadoAbreAlertaPelaPermanenciaCalculadaNoPostgis`) foi confirmada como **pré-existente** —
-reproduzida no código anterior, guardado com `git stash`. Ela passa quando a suíte completa roda (Fase 23,
-546 provas) e falha em subconjunto, o que indica dependência de ordem, não regressão desta mudança.
+reproduzida no código anterior, guardado com `git stash`.
 
-### Os 12 recursos que seriam criados
+> A causa suposta aqui — "dependência de ordem" — estava **errada**. O preflight encontrou a causa real
+> (estrangulamento de recálculo decidido pelo relógio de processamento) e a corrigiu. Está logo abaixo.
+
+## Preflight da Fase 25
+
+> A fase continua **🟨**. Este preflight fechou tudo o que podia ser fechado sem tocar na conta do Azure:
+> suíte completa verde, causa raiz do teste que falhava, região definida, custo com preço do dia e sizing
+> medido. **Nada foi provisionado, nenhum login foi feito.**
+
+### 1. Suíte completa — verde
+
+| Suíte | Provas | Resultado |
+|---|:---:|:---:|
+| Integração (**completa**, PostgreSQL + PostGIS reais) | **550** | ✅ 0 falha, 2 puladas |
+| `TorreLogistica.UnitTests` | 695 | ✅ |
+| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
+| `apps/operacao` · `apps/motorista` · `apps/rastreamento` | 38 · 76 · 17 | ✅ |
+| Formatação | `dotnet format --verify-no-changes` | ✅ |
+| **Total** | **1.398** | ✅ |
+
+A suíte de integração completa estava pendente desde a Fase 24, quando o sistema a interrompeu por falta
+de memória. Rodou inteira agora, em 932 s. As 2 puladas são os benchmarks sob demanda (`TORRE_CARGA=1`),
+que continuam desligados por decisão da Fase 22.
+
+### 2. `MotoristaParadoAbreAlertaPelaPermanenciaCalculadaNoPostgis` — causa raiz e correção
+
+A hipótese anterior ("dependência de ordem") estava **errada**. O teste falhava de forma reprodutível, e a
+causa foi encontrada instrumentando o motor de alertas e a fila de recálculo.
+
+**O que acontecia.** A última das três posições do teste nunca produzia avaliação nenhuma. A sonda mostrou
+o motivo exato: o pedido de recálculo dela era **estrangulado** por
+`Torre:Previsao:IntervaloMinimoEntreRecalculosPorPosicao`, que vale 30 s.
+
+```text
+posição 2 enviada  → pedido entra na fila         (relógio em t+8 min)
+Tempo.Advance(8 min)                              (relógio salta para t+16 min)
+pedido da posição 2 é processado                  → registra "último recálculo = t+16 min"
+posição 3 enviada  → pedido processado            → t+16 − t+16 = 0 s < 30 s → DESCARTADO
+```
+
+O estrangulamento decide pelo relógio **do momento em que processa**, não do momento em que o pedido
+nasceu. Em produção isso é inofensivo: o relógio anda sozinho e um pedido processado com um instante de
+atraso lê praticamente o mesmo "agora"; o que escapa é recuperado pela reavaliação periódica. Sob relógio
+falso, que salta 8 minutos de uma vez enquanto um pedido espera na fila, o pedido antigo é processado já
+com o relógio no instante da posição seguinte — e queima a janela de 30 s que ela precisaria.
+
+E, como o relógio só anda quando o teste o manda andar, depois da última posição não havia mais nenhuma
+varredura periódica para recuperar. O alerta nunca abria.
+
+**Não é bug de produção.** O estrangulamento é deliberado (posição GPS chega a cada poucos segundos;
+recalcular a cada uma não muda decisão e custa consulta ao provedor) e seu prejuízo é limitado pela
+reavaliação periódica, que roda a cada minuto.
+
+**Correção — no teste, e sem enfraquecer nada.** `AlertasTestes` passou a desligar o estrangulamento:
+
+```csharp
+["Torre:Previsao:IntervaloMinimoEntreRecalculosPorPosicao"] = "00:00:00",
+```
+
+Nenhuma asserção mudou, nenhum teste foi pulado ou desabilitado, e nenhuma cobertura se perdeu — não havia
+teste algum sobre o estrangulamento (verificado por varredura). O que ele era nesta classe é um confundidor
+invisível: decidia o resultado por qual lado da troca de vez da fila o salto do relógio caía. As 11 provas
+de `AlertasTestes` passam, e a suíte completa também.
+
+**Melhoria de produção que a investigação rendeu.** O descarte era **silencioso** — foi preciso instrumentar
+o código para vê-lo. Passou a registrar em `LogDebug` qual rota teve recálculo dispensado e por qual
+intervalo. Trabalho que some sem deixar rastro custa uma investigação inteira quando alguém pergunta por
+que a previsão não mudou.
+
+### 3. Região: **East US**
+
+Preços de varejo consultados em **21/09/2026** pela Azure Retail Prices API (pública, sem autenticação).
+
+| Item | East US | Brazil South |
+|---|---:|---:|
+| PostgreSQL B1ms (hora) | US$ 0,017 | US$ 0,035 (**+106 %**) |
+| Armazenamento do banco (GB/mês) | US$ 0,115 | US$ 0,2185 (**+90 %**) |
+| Container Apps — vCPU ativo / ocioso / memória | idênticos | idênticos |
+| Log Analytics — ingestão (GB) | US$ 2,30 | US$ 4,60 (**+100 %**) |
+| Saída acima de 100 GB (GB) | US$ 0,08 | US$ 0,12 |
+
+O compute — maior parcela variável — **custa o mesmo nas duas**. A diferença se concentra no banco, que é
+justamente o que roda 730 h/mês. Brazil South sai 45–50 % mais caro. Disponibilidade não desempata: os
+quatro serviços existem nas duas. Latência favorece Brazil South (~15 ms contra ~130 ms de São Paulo), mas
+o que ela atrasa num ambiente de demonstração é a primeira impressão de quem abre o mapa, não uma decisão
+operacional.
+
+Registrado que a escolha vale **para o portfólio**: uma implantação comercial atendendo operação brasileira
+inverteria o peso.
+
+### 4. Estimativa mensal (East US, preços de 21/09/2026)
+
+| Componente | A — ociosa | B — moderado | C — teto conservador |
+|---|---:|---:|---:|
+| PostgreSQL B1ms (730 h) | 12,41 | 12,41 | 12,41 |
+| Armazenamento do banco (64 GiB) | 7,36 | 7,36 | 7,36 |
+| Backup acima da franquia de 64 GB | 0,00 | 0,00 | 3,42 |
+| Container Apps — API + workers | 10,21 | 14,47 | 34,02 |
+| Container Apps — requisições | 0,00 | 0,00 | 1,20 |
+| Container Registry Basic | 5,07 | 5,07 | 5,07 |
+| Blob dos comprovantes | 0,00 | 0,04 | 0,42 |
+| Log Analytics | 0,00 | 0,00 | 23,00 |
+| Key Vault | 0,06 | 0,60 | 3,00 |
+| Saída para internet | 0,00 | 0,00 | 12,00 |
+| **Total (US$/mês)** | **35,11** | **39,95** | **101,89** |
+
+Franquias aplicadas: Container Apps (180.000 vCPU·s, 360.000 GiB·s, 2 M requisições), Log Analytics (5 GB
+e 31 dias de retenção), backup do PostgreSQL (100 % do storage provisionado), saída (100 GB). Sonda de
+saúde não é cobrada.
+
+**Faixa esperada: US$ 35 a US$ 40/mês.** Dominam três parcelas fixas: banco (US$ 19,77), Container Apps
+(US$ 10–14) e registro (US$ 5,07). A única que pode explodir é o Log Analytics.
+
+### 5. Sizing da API: reduzido para 0,25 vCPU / 0,5 GiB, com medição
+
+A Fase 22 **não** respondia a pergunta: mediu latência, plano de consulta e crescimento do banco, nunca
+CPU nem memória do processo. A medição foi feita agora, com a imagem que iria para o Azure rodando sob o
+teto exato do Container App, contra PostGIS real, com o simulador encenando as seis histórias **e** seis
+consoles lendo ao mesmo tempo por 100 s.
+
+| | **0,25 vCPU / 0,5 GiB** | 0,5 vCPU / 1 GiB |
+|---|---:|---:|
+| Requisições / erros | 2.215 / **0** | 2.219 / 0 |
+| p50 · p95 · p99 | 8,0 · 51,0 · 102,1 ms | 9,6 · 52,5 · 142,5 ms |
+| Memória | 181 MiB (35 % do teto) | 184 MiB (18 % do teto) |
+| Demonstração | 101 s, 6/6 histórias | 94 s, 6/6 histórias |
+| Arranque até `/health/ready` | 18 s | 9 s |
+
+Mesma memória nos dois, latência indistinguível, 2,8× de folga. O único preço é o arranque dobrar — e com
+`minReplicas: 1` isso acontece em deploy, não em visita. **Economia: US$ 5,91 a US$ 19,71/mês** conforme o
+cenário; 12 % a 21 % da conta. Gatilhos para voltar atrás estão em `docs/cost-model.md`.
+
+### 6. Defeito de infraestrutura encontrado: faltava o registro
+
+O workflow de deploy publicava em `<registro>.azurecr.io` e o `main.bicep` **não criava registro nenhum** —
+a infraestrutura descrita não bastava para o deploy descrito. Corrigido com um Container Registry Basic
+(US$ 5,07/mês), sem usuário administrador, com pull por identidade gerenciada. A ordem obrigatória do
+primeiro provisionamento (criar → atribuir `AcrPull` → reaplicar) está em `infra/README.md`.
+
+### Os 13 recursos que seriam criados
 
 | # | Tipo | SKU / configuração |
 |---|---|---|
 | 1 | `OperationalInsights/workspaces` | PerGB2018, retenção 30 dias |
-| 2 | `DBforPostgreSQL/flexibleServers` | **Standard_B1ms** (Burstable), PG 17, 64 GB, backup 7 dias, sem HA |
+| 2 | `DBforPostgreSQL/flexibleServers` | **Standard_B1ms** (Burstable), PG 17, 64 GiB, backup 7 dias, sem HA |
 | 3 | `…/configurations` | `azure.extensions = POSTGIS` |
 | 4 | `…/databases` | `torre_logistica`, UTF8 |
 | 5 | `…/firewallRules` | serviços do Azure |
 | 6 | `Storage/storageAccounts` | **Standard_LRS**, sem acesso público, TLS 1.2 |
 | 7-8 | `…/blobServices` e `…/containers` | contêiner `comprovantes`, acesso `None` |
-| 9 | `KeyVault/vaults` | **standard**, RBAC, soft delete 7 dias |
-| 10 | `App/managedEnvironments` | consumo |
-| 11 | `App/containerApps` — **API** | 0,5 vCPU / 1 GiB, min 1, max 1, ingress HTTPS |
-| 12 | `App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** |
+| 9 | `ContainerRegistry/registries` | **Basic**, sem usuário administrador |
+| 10 | `KeyVault/vaults` | **standard**, RBAC, soft delete 7 dias |
+| 11 | `App/managedEnvironments` | consumo (sem workload profile dedicado) |
+| 12 | `App/containerApps` — **API** | 0,25 vCPU / 0,5 GiB, min 1, max 1, ingress HTTPS |
+| 13 | `App/containerApps` — **workers** | 0,25 vCPU / 0,5 GiB, min 1, max 1, **sem ingress** |
 
-**Impacto de custo esperado:** três parcelas sempre ligadas — banco `B1ms` com 64 GB, 0,75 vCPU e 1,5 GiB
-de contêiner somados, e o workspace de log. O armazenamento cresce ~1 GB/dia até o teto de 30 dias da
-retenção. Cofre, storage e ambiente têm custo desprezível neste volume. Os valores em moeda saem da
-calculadora do Azure com essas quantidades — este documento não crava preço porque preço unitário muda e
-envelheceria a decisão.
+Validação: `bicep build` e `bicep lint` sem erro nem aviso; `senhaDoBanco` continua `securestring`; nenhum
+segredo fixo no template; **nenhum recurso pago criado** — a compilação é local e offline.
 
-### Execução
+### Observações registradas, não corrigidas nesta passagem
 
-| Suíte | Provas | Resultado |
-|---|:---:|:---:|
-| `TorreLogistica.UnitTests` | 695 | ✅ |
-| `TorreLogistica.ArchitectureTests` | 22 | ✅ |
-| Integração — 5 suítes dependentes dos laços | 33 | ⚠️ 1 falha **pré-existente**, idêntica antes e depois |
-| Formatação | `dotnet format --verify-no-changes` | ✅ |
-| Solução | 0 erro, 0 aviso | ✅ |
-
-### Defeitos encontrados e corrigidos nesta revisão
-
-| Defeito | Como apareceu | Correção |
+| Achado | Onde apareceu | Por que fica para depois |
 |---|---|---|
-| **Workers subiam e morriam** | `Unable to resolve service for type 'MedidasDaOperacao'` ao montar o primeiro serviço de fundo | o host registrava só a camada de infraestrutura; faltava `AdicionarCamadaDeApplication()`. Só apareceu porque a imagem foi **posta para rodar**, não apenas construída |
-| Registro duplicado do laço de previsão | dois `ProcessadorDePrevisoes` na suíte de teste | uma edição anterior abortou num `assert` antes de gravar, e as linhas antigas continuaram em `AdicionarPrevisaoDeChegada` |
-| Mensagem de log falsa | "nenhum job registrado nesta fase" | era verdade na Fase 0; agora os laços moram ali |
+| Corpo JSON malformado devolve **500**, não 400 | login com senha contendo `\r` durante a medição | é taxonomia de erro (§89), toca todos os endpoints e não estava no escopo deste preflight; pertence à Fase 26 |
+| Provedor de armazenamento local falha em contêiner | a API sem `Torre__Armazenamento__Conta` tenta criar `/aplicacao/armazenamento` e não tem permissão | no Azure o provedor é o Blob; o sintoma é 500 em tempo de execução em vez de falha na subida |
 
 ### O que falta para a fase fechar (🟨)
 
 | Item | Bloqueio |
 |---|---|
-| Provisionar os 12 recursos | **autorização explícita** |
+| Provisionar os 13 recursos | **autorização explícita** |
 | `az deployment group what-if` | assinatura autenticada + grupo de recursos |
 | Deploy da aplicação | **autorização explícita** |
-| Papéis das identidades gerenciadas | operação de diretório, feita após o provisionamento |
+| Papéis das identidades gerenciadas (`AcrPull`, cofre, blob) | operação de diretório, feita após o provisionamento |
 | Destino dos frontends | decisão à parte; são estáticos e sem segredo |
 | Medição com latência de rede | só no ambiente publicado |
-| Suíte de integração completa | pendente desde a Fase 24 (interrompida por memória) |
 
-## Commit da revisão
+## Commits
 
 `refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
+`test: corrige causa raiz do alerta de permanencia e congela sizing e regiao (Fase 25)`
 
 ---
 
