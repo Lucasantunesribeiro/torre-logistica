@@ -5207,9 +5207,9 @@ segredo fixo no template; **nenhum recurso pago criado** — a compilação é l
 
 | Item | Bloqueio |
 |---|---|
-| Provisionar os 17 recursos | **autorização explícita** |
-| `az deployment group what-if` | assinatura autenticada + grupo de recursos |
-| Deploy da aplicação | **autorização explícita** |
+| ~~Provisionar os 17 recursos~~ | ✅ **executado** e desfeito por decisão de custo — ver a seção final |
+| ~~`az deployment group what-if`~~ | ✅ **executado**: 17 Create, 0 Modify, 0 Delete |
+| Ambiente publicado | **redesenho necessário**: a demonstração precisa caber em US$ 0/mês |
 | Destino dos frontends | decisão à parte; são estáticos e sem segredo |
 | Medição com latência de rede | só no ambiente publicado |
 
@@ -5580,6 +5580,125 @@ desligada — era exatamente o que o pedido proibia, e é o que teria mascarado 
 
 São 8 provas a mais que o adaptador de Blob: 6 de composição do processo de trabalho e 2 da API.
 
+## Provisionamento real no Azure: executado, e desfeito por decisão de custo
+
+> A Fase 25 **continua 🟨**. A arquitetura foi validada contra o Azure real; o ambiente foi destruído por
+> decisão explícita de custo, e a estratégia de deploy da demonstração precisa ser redesenhada.
+
+### O que foi executado
+
+Autorização de provisionamento dada, Azure CLI 2.90.0 instalada, autenticada na assinatura
+**Azure for Students** (`3a7e3e97-119f-45a4-8367-41a8c2123feb`), papel **Owner** confirmado, 7 providers
+registrados, Resource Group criado, `what-if` executado e deployment aplicado.
+
+### Três descobertas que só o Azure real revelou
+
+**1. A região aprovada era impossível — por dois motivos independentes.**
+
+| Restrição | Evidência |
+|---|---|
+| PostgreSQL Flexible Server | `az postgres flexible-server list-skus --location eastus` → *"Provisioning is restricted in this region"*, 0 edições retornadas |
+| Azure Policy da assinatura | `Allowed resource deployment regions` → `listOfAllowedLocations = [canadacentral, eastus, eastus2, southafricanorth, southcentralus]` |
+
+O cruzamento das duas peneiras deixou **duas** regiões viáveis: `canadacentral` e `southafricanorth`.
+`westus3` — a primeira alternativa, de preço idêntico a East US — passou no teste do PostgreSQL e foi
+barrada pela política, que só apareceu no `what-if`.
+
+Escolhida **Canada Central**: US$ 41,78/mês contra US$ 39,95 do plano original, latência equivalente.
+
+**2. O `what-if` fez o trabalho dele.** Com os 17 recursos aprovados: **17 Create, 0 Modify, 0 Delete**,
+SKUs corretos, tudo na região certa. Foi ele que pegou a política de regiões **antes** de existir meio
+ambiente provisionado.
+
+**3. O deployment falhou por um limite de plataforma que nenhum teste local poderia prever.**
+
+```
+ExpressEnvironmentFeatureNotSupported
+'System-assigned managed identity for container registry authentication' is not
+supported for container app 'torrelog-api' on express environments.
+```
+
+O Azure passou a criar ambientes de Container Apps no modo **express** por padrão. Ambiente express recusa
+autenticação no registro por identidade **atribuída pelo sistema** — que é exatamente o desenho aprovado.
+
+Duas hipóteses testadas, uma descartada:
+
+| Hipótese | Teste | Resultado |
+|---|---|---|
+| O ambiente vira express por não declarar `workloadProfiles` | declarei no Bicep, apaguei o ambiente, reapliquei | **errada** — mesmo erro |
+| — | criei ambiente pela CLI com `--enable-workload-profiles true` e comparei o JSON | idêntico; `environmentType` nulo em 4 versões de API |
+| O limite é só da identidade *do sistema* | `az containerapp create --registry-identity <identidade-de-usuário>` | **confirmada** — `Succeeded` |
+
+A correção seria trocar identidade do sistema por identidade de usuário. Ela **não foi aplicada**: a
+decisão de custo chegou antes.
+
+### O ambiente foi destruído
+
+Decisão explícita: a Torre Logística não pode gerar custo mensal nem consumir crédito da assinatura.
+
+| Recurso criado | Destruído |
+|---|---|
+| `torrelog-pg` — PostgreSQL 17 Flexible Server, Standard_B1ms, 64 GiB | ✅ |
+| `torrelogregistro` — Container Registry Basic | ✅ |
+| `torrelogarquivos` — Storage Account Standard_LRS | ✅ |
+| `torrelog-logs` — Log Analytics PerGB2018 | ✅ |
+| `torrelog-cofre` — Key Vault standard | ✅ removido **e expurgado** do soft delete |
+| `torrelog-ambiente` — Container Apps managed environment | ✅ |
+| `torrelog-identidade` — identidade gerenciada de usuário | ✅ |
+| Role assignment `AcrPull` | ✅ |
+| Resource Group `torre-logistica-rg` | ✅ |
+
+Verificação independente, em toda a assinatura:
+
+```
+Storage Accounts       total= 0 | da Torre: NENHUM
+Container Registries   total= 0 | da Torre: NENHUM
+PostgreSQL servers     total= 0 | da Torre: NENHUM
+Recursos (assinatura)  total= 6 | da Torre: NENHUM
+role assignments       total= 4 | apontando para escopo da Torre: 0 | órfãs: 0
+Key Vaults em soft delete: nenhum
+```
+
+Os 6 recursos restantes são todos do projeto `tenant-core`, **não tocado**.
+
+**Custo recorrente da Torre Logística no Azure: zero.**
+
+### O que o Azure real provou, e o que continua sem prova
+
+| Item | Situação |
+|---|---|
+| Template Bicep aplica no Azure real | ✅ 12 dos 17 recursos criados sem erro |
+| PostgreSQL 17 Burstable B1ms com 64 GiB | ✅ criado |
+| ACR Basic sem usuário administrador | ✅ criado; imagens enviadas e digests conferidos |
+| Storage privado, Key Vault RBAC, Log Analytics | ✅ criados |
+| Identidade gerenciada **de usuário** puxa do ACR | ✅ provado |
+| Identidade gerenciada **do sistema** puxa do ACR | ❌ recusado por ambiente express |
+| `GetUserDelegationKey` e RBAC de blob no Azure real | ❌ **continua sem prova** — depende das apps no ar |
+| SignalR através do Container Apps | ❌ sem prova |
+| Migrations contra o PostgreSQL do Azure | ❌ sem prova |
+
+### Imagens publicadas antes da destruição
+
+Construídas do commit `edd929685ac4` e enviadas ao ACR:
+
+```
+torre-logistica-api     sha256:e67d272f076a6173d54d56b35a698714f95cfd0a45dcc1fdeef61bfedfb49256
+torre-logistica-workers sha256:e9003d8e761c548d47b031aebc9303f03c0cb7a2074969114d22705c5bf8f3bb
+```
+
+O registro foi destruído junto; os digests ficam como registro de que o caminho de build e push funciona.
+
+### O que falta para a Fase 25 fechar
+
+| Item | Situação |
+|---|---|
+| Arquitetura de produção | ✅ desenhada, validada e **exercitada contra o Azure real** |
+| Ambiente de produção no ar | ❌ e **não haverá** enquanto valer a restrição de custo zero |
+| Estratégia de deploy da **demonstração** | ❌ **a redesenhar**, com restrição rígida de US$ 0/mês |
+| Identidade de usuário no Bicep | ❌ correção conhecida, não aplicada |
+
+A Fase 25 só fecha quando existir um ambiente publicado — e ele agora precisa caber em custo mensal zero.
+
 ## Commits
 
 `refactor: separa lacos de fundo da api em processo de workers proprio (Fase 25)`
@@ -5587,6 +5706,7 @@ São 8 provas a mais que o adaptador de Blob: 6 de composição do processo de t
 `fix: corpo json ilegivel responde 400 e armazenamento falha na subida (Fase 25)`
 `feat: adaptador de azure blob storage para comprovantes, com identidade gerenciada (Fase 25)`
 `refactor: divide o composition root para cada processo registrar so o que usa (Fase 25)`
+`docs: registra o provisionamento real no azure e sua destruicao por custo (Fase 25)`
 
 ---
 

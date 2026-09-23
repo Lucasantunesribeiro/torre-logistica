@@ -1,6 +1,8 @@
 # ADR 0034 — Hospedagem: contêiner sempre vivo, porque o sistema trabalha quando ninguém olha
 
-**Status:** aceito — Fase 25 (escolhido e escrito; **nada provisionado**)
+**Status:** aceito como **arquitetura de produção** — Fase 25. Provisionado no Azure real, validado e
+**destruído por decisão de custo**. A arquitetura de **demonstração** é outra decisão, ainda em aberto,
+com restrição rígida de US$ 0/mês.
 **Decisores:** Lucas (decisão de produto e custo) e time técnico
 **Relacionados:** [0001](./0001-monolito-modular.md), [0002](./0002-postgresql-postgis.md), [0017](./0017-tempo-real-da-operacao.md), [0026](./0026-webhooks-e-backbone-assincrono.md), [0029](./0029-retencao-de-localizacao.md), [0030](./0030-observabilidade.md)
 
@@ -39,7 +41,21 @@ porque a API **lê** o que os workers produzem, mas o registro dos laços (`Adic
 existe só no host de workers. Uma opção de configuração poderia ser ligada por engano; a ausência de uma
 chamada, não.
 
-### Região: East US
+### Região: East US era a escolha, e a assinatura não permite
+
+A decisão original foi East US, por custo. O provisionamento real mostrou que ela é **impossível nesta
+assinatura**, por duas restrições independentes:
+
+- o PostgreSQL Flexible Server tem provisionamento **restrito** em East US, East US 2, West US 2 e West
+  Europe;
+- uma Azure Policy da assinatura (`Allowed resource deployment regions`) só permite `canadacentral`,
+  `eastus`, `eastus2`, `southafricanorth`, `southcentralus`.
+
+A interseção deixou **Canada Central** e **South Africa North**. O provisionamento usou **Canada Central**,
+a US$ 41,78/mês — US$ 1,83 acima do plano, com latência equivalente. O raciocínio de custo original fica
+registrado abaixo, porque continua sendo o critério.
+
+### O raciocínio original de região
 
 Comparadas East US e Brazil South com os preços de varejo de 21/09/2026. O compute do Container Apps custa
 **igual** nas duas; a diferença se concentra no banco — B1ms a US$ 0,035/h contra US$ 0,017/h, e
@@ -120,6 +136,28 @@ um deploy que acontece porque alguém mergeou algo é um deploy que ninguém dec
 
 A autenticação é federada — o workflow troca o token do GitHub por um do Azure na hora, sem segredo de
 longa duração guardado no repositório.
+
+### O que o Azure real recusou: identidade do sistema para puxar do registro
+
+O template usava `identity: { type: 'SystemAssigned' }` nas duas Container Apps. O deployment falhou:
+
+```
+ExpressEnvironmentFeatureNotSupported
+'System-assigned managed identity for container registry authentication' is not
+supported for container app 'torrelog-api' on express environments.
+```
+
+O Azure passou a criar ambientes de Container Apps no modo **express** por padrão, e não há propriedade no
+template que mude isso — testado com `workloadProfiles` declarado explicitamente e comparado contra um
+ambiente criado pela CLI com `--enable-workload-profiles true`: JSON idêntico.
+
+A correção está identificada e **provada**: identidade gerenciada **atribuída pelo usuário** funciona
+(`az containerapp create --registry-identity <identidade> → Succeeded`). Ela não chegou a ser aplicada
+porque a restrição de custo zero chegou antes. Fica registrada aqui como o próximo passo de quem retomar
+esta arquitetura.
+
+As alternativas recusadas continuam recusadas: senha do registro e credencial de administrador do ACR são
+segredo de longa duração, que é exatamente o que a identidade gerenciada existe para evitar.
 
 ## Consequências
 

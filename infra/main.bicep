@@ -187,6 +187,23 @@ resource ambiente 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${prefixo}-ambiente'
   location: regiao
   properties: {
+    // O perfil precisa ser declarado, e não herdado por omissão. Sem esta lista o Azure cria um
+    // ambiente "express" — mais rápido de provisionar e com menos recursos —, e ambiente express
+    // RECUSA autenticação no registro por identidade gerenciada:
+    //   ExpressEnvironmentFeatureNotSupported: 'System-assigned managed identity for container
+    //   registry authentication' is not supported for container app ... on express environments.
+    //
+    // A alternativa que o erro sugere seria remover a identidade e usar senha do registro — ou seja,
+    // trocar identidade gerenciada por segredo de longa duração. Declarar o perfil resolve sem isso.
+    //
+    // Consumption, e não Dedicated: o custo não muda. A taxa de gestão de plano só existe com perfil
+    // dedicado (docs de billing do Container Apps).
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {

@@ -2,9 +2,35 @@
 
 > Documento da Fase 25. Ele existe para uma decisão ser tomada com número em vez de hábito — o ROADMAP é
 > explícito: *não copiar automaticamente a arquitetura Lambda da Central Antifraude*.
->
-> **Nada foi provisionado.** Criar recurso com risco de cobrança exige aprovação, e a escolha do
-> fornecedor é decisão de produto, não técnica reversível.
+
+## 0. Dois ambientes, duas restrições — leia isto primeiro
+
+Este documento descreve a **arquitetura de produção**. Ela foi provisionada no Azure real, validada, e
+**destruída por decisão explícita de custo**. O que muda é o destino, não o desenho.
+
+| | Arquitetura de **produção** | Arquitetura de **demonstração** |
+|---|---|---|
+| Situação | ✅ desenhada, validada e exercitada contra o Azure real | ❌ **a definir** |
+| Desenho | Azure Container Apps + PostgreSQL Flexible Server + Blob privado + identidade gerenciada | — |
+| Custo | US$ 35–42/mês, detalhado abaixo | **restrição rígida: US$ 0,00/mês** |
+| Para que serve | mostrar como o sistema seria operado de verdade | pôr a demonstração no ar para um avaliador |
+
+A restrição de custo zero é inegociável e chegou depois de o ambiente já estar parcialmente provisionado.
+Por isso **nada do Azure continua no ar**: nenhum recurso da Torre Logística existe, e o custo recorrente
+dela na assinatura é **zero**. A destruição está documentada no `ROADMAP.md`.
+
+O resto deste documento continua válido como o modelo de custo da arquitetura de produção — e como o
+registro de quanto ela custaria, que é justamente o número que motivou a restrição.
+
+### O que o provisionamento real ensinou, e os números não diziam
+
+| Descoberta | Efeito |
+|---|---|
+| East US é impossível nesta assinatura | duas restrições independentes: PostgreSQL bloqueado na região **e** uma Azure Policy de regiões permitidas |
+| Regiões viáveis: `canadacentral`, `southafricanorth` | Canada Central custa **US$ 41,78/mês**, +1,83 sobre o plano |
+| Container Apps cria ambientes "express" por padrão | ambiente express **recusa** identidade gerenciada do sistema para puxar do registro; a correção é identidade de usuário |
+
+
 
 ## 1. Os requisitos que decidem
 
@@ -63,7 +89,7 @@ e é com elas que qualquer calculadora dá o número do dia.
 | Comprovantes | até 5 MB por entrega concluída com foto | ADR 0007 |
 | Tráfego de entrada | ~17 GB/mês no pico da meta | entrada **não é cobrada** |
 
-## 4. Região: **East US**
+## 4. Região: East US era a escolha — e é impossível nesta assinatura
 
 Comparação feita com os preços de varejo do mesmo dia, para os dois candidatos pedidos.
 
@@ -85,8 +111,18 @@ concentra exatamente onde o custo é fixo: o banco, que é a parcela que roda 73
 interrupção. Brazil South custa **de 45 % a 50 % a mais no total mensal**, entre US$ 20 e US$ 49 conforme o
 cenário.
 
-Disponibilidade não desempata: Container Apps, PostgreSQL Flexible Server, Storage e Key Vault existem nas
-duas regiões.
+Disponibilidade não desempata **entre essas duas** — mas desempatou contra East US quando o
+provisionamento foi tentado de verdade:
+
+> `az postgres flexible-server list-skus --location eastus`
+> → *"Provisioning is restricted in this region. Please choose a different region."*
+
+E uma segunda peneira, que só apareceu no `what-if`: a Azure Policy `Allowed resource deployment regions`
+da assinatura permite apenas `canadacentral`, `eastus`, `eastus2`, `southafricanorth`, `southcentralus`.
+
+Cruzando as duas, sobraram **`canadacentral`** (US$ 41,78/mês) e **`southafricanorth`** (US$ 45,54). O
+provisionamento real usou Canada Central. A comparação abaixo com Brazil South continua válida como
+raciocínio; o que mudou foi o conjunto de regiões disponíveis.
 
 Latência desempata **a favor de Brazil South**, e por muito: de São Paulo são ~10–20 ms contra ~110–140 ms
 para East US. Mas o que essa latência atrasa aqui é a percepção de um avaliador abrindo o mapa, não uma
