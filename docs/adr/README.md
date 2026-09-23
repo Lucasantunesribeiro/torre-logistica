@@ -35,6 +35,14 @@ Use [`0000-modelo.md`](./0000-modelo.md) como ponto de partida para um ADR novo.
 | [0025](./0025-api-de-integracao.md) | API de integração: credencial de máquina, versão no caminho e idempotência em duas camadas | 16 | aceita |
 | [0026](./0026-webhooks-e-backbone-assincrono.md) | Webhooks: outbox transacional, fila no PostgreSQL e desistência visível | 17 | aceita |
 | [0027](./0027-console-operacional-e-mapa.md) | Console operacional: densidade sobre ornamento, e mapa que não depende de fornecedor | 18 | aceita |
+| [0028](./0028-indicadores-operacionais.md) | Indicadores operacionais: agregação direta, definição junto do número e vazio que não vira zero | 19 | aceita |
+| [0029](./0029-retencao-de-localizacao.md) | Retenção de localização: prazo configurável, corte pelo recebimento e limpeza em lotes | 20 | aceita |
+| [0030](./0030-observabilidade.md) | Observabilidade: OTLP sem fornecedor, rastro que atravessa a fila e medidas de estado fotografadas | 21 | aceita |
+| [0031](./0031-performance-e-resiliencia.md) | Não particionar `posicoes`, e outras decisões que a medição decidiu | 22 | aceita |
+| [0032](./0032-roteiro-da-demonstracao.md) | Roteiro da demonstração: semente para a narrativa, carimbo para a identidade, e o servidor como protagonista | 23 | aceita |
+| [0033](./0033-entrada-da-demonstracao.md) | Entrada da demonstração: o servidor faz o login pelo visitante, com privilégio mínimo | 23 | aceita |
+| [0034](./0034-hospedagem.md) | Hospedagem: contêiner sempre vivo, porque o sistema trabalha quando ninguém olha | 25 | aceita |
+| [0035](./0035-demonstracao-de-custo-zero.md) | Demonstração de custo zero: uma máquina Always Free, e a arquitetura de produção intacta ao lado | 25 | aceita |
 
 ## Regras
 

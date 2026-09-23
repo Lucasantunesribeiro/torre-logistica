@@ -164,6 +164,7 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 | [0032](./docs/adr/0032-roteiro-da-demonstracao.md) | Demonstração: semente para a narrativa, carimbo para a identidade, e o servidor como protagonista |
 | [0033](./docs/adr/0033-entrada-da-demonstracao.md) | Entrada da demonstração: o servidor faz o login pelo visitante, com privilégio mínimo |
 | [0034](./docs/adr/0034-hospedagem.md) | Hospedagem: contêiner sempre vivo, porque o sistema trabalha quando ninguém olha |
+| [0035](./docs/adr/0035-demonstracao-de-custo-zero.md) | Demonstração de custo zero: uma máquina Always Free, e a arquitetura de produção intacta ao lado |
 
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
@@ -179,7 +180,8 @@ a ser desfeita por acidente.
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
 - [`docs/cost-model.md`](./docs/cost-model.md) — gate de arquitetura e o que dirige o custo
-- [`infra/README.md`](./infra/README.md) — infraestrutura escrita, ainda não aplicada
+- [`infra/README.md`](./infra/README.md) — infraestrutura de **produção** (Azure): aplicada de verdade e destruída por decisão de custo
+- [`infra-demo/README.md`](./infra-demo/README.md) — infraestrutura da **demonstração** (Oracle Always Free): US$ 0,00/mês, validada localmente, nada provisionado
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
 - [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 

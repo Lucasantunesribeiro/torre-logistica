@@ -10,10 +10,16 @@ Este documento descreve a **arquitetura de produção**. Ela foi provisionada no
 
 | | Arquitetura de **produção** | Arquitetura de **demonstração** |
 |---|---|---|
-| Situação | ✅ desenhada, validada e exercitada contra o Azure real | ❌ **a definir** |
-| Desenho | Azure Container Apps + PostgreSQL Flexible Server + Blob privado + identidade gerenciada | — |
-| Custo | US$ 35–42/mês, detalhado abaixo | **restrição rígida: US$ 0,00/mês** |
+| Situação | ✅ desenhada, validada e exercitada contra o Azure real | ✅ desenhada e validada localmente; **nada provisionado** |
+| Desenho | Azure Container Apps + PostgreSQL Flexible Server + Blob privado + identidade gerenciada | uma máquina Ampere A1 Always Free da Oracle, com quatro contêineres |
+| Onde está escrita | `infra/` (Bicep) | `infra-demo/` (Terraform + compose) |
+| Custo | US$ 35–42/mês, detalhado abaixo | **US$ 0,00/mês** — seção 11 |
 | Para que serve | mostrar como o sistema seria operado de verdade | pôr a demonstração no ar para um avaliador |
+
+> **A arquitetura de demonstração não é a recomendada para um cliente real.** Ela coloca banco,
+> aplicação e proxy na mesma máquina, sem réplica e sem isolamento de falha. É a forma correta de
+> publicar um portfólio com restrição de custo zero, e seria a forma errada de atender uma operação
+> logística de verdade. Os dois diretórios existem lado a lado para que a diferença seja visível.
 
 A restrição de custo zero é inegociável e chegou depois de o ambiente já estar parcialmente provisionado.
 Por isso **nada do Azure continua no ar**: nenhum recurso da Torre Logística existe, e o custo recorrente
@@ -384,3 +390,62 @@ az resource list -g <grupo> -o table
 | Provisionamento | **exige aprovação explícita** — nenhum recurso foi criado |
 | Deploy | **exige autorização explícita**, na mensagem que o pedir |
 | Medição com latência de rede | `docs/performance.md` foi medido com aplicação e banco na mesma máquina |
+
+---
+
+## 11. A demonstração: US$ 0,00, e como isso é garantido
+
+A decisão está no [ADR 0035](./adr/0035-demonstracao-de-custo-zero.md); os artefatos e as provas, em
+[`infra-demo/README.md`](../infra-demo/README.md). O que interessa a este documento é a conta.
+
+### A conta de gratuidade, recurso a recurso
+
+| Recurso | Quantidade usada | Franquia Always Free | Margem |
+|---|---|---|---|
+| Compute Ampere A1 — OCPU | 2 × 730 h = **1.460 OCPU-hora** | 1.500 OCPU-hora/mês | 40 h |
+| Compute Ampere A1 — memória | 4 GB × 730 h = **2.920 GB-hora** | 9.000 GB-hora/mês | 6.080 GB-hora |
+| Volume de inicialização | **50 GB** | 200 GB somados | 150 GB |
+| VCN | **1** | 2 | 1 |
+| Sub-rede, gateway, rotas, lista de segurança | 1 de cada | sem cobrança na OCI | — |
+| IP público IPv4 | **1, efêmero** | sem cobrança na OCI, efêmero ou reservado | — |
+| Tráfego de saída | irrelevante numa demonstração | 10 TB/mês | — |
+| Compartimento, cotas, orçamento | 1 de cada | sem cobrança | — |
+
+A linha apertada é a primeira: **1.460 de 1.500 OCPU-hora**, folga de 40 horas. É o que torna 2 OCPUs o
+teto, e não uma preferência — 3 OCPUs dariam 2.190 OCPU-hora e a conta deixaria de ser zero. A validação
+em `infra-demo/terraform/variables.tf` recusa o valor antes do `plan`.
+
+### Por que o IPv4 não cobra aqui, e cobra na AWS
+
+Vale registrar porque é contraintuitivo para quem vem da AWS: desde fevereiro de 2024 a AWS cobra
+US$ 0,005 por hora por endereço IPv4 público, atribuído ou não — cerca de US$ 3,60/mês por endereço. A
+Oracle não cobra por endereço IPv4, nem efêmero, nem reservado, nem reservado sem uso.
+
+### Os três muros, em ordem de força
+
+| | Mecanismo | O que faz | Onde está |
+|---|---|---|---|
+| 1 | Conta permanece no nível gratuito | a Oracle **recusa criar** recurso pago. Não é configuração, é o estado da conta | decisão de conta |
+| 2 | Cotas de compartimento | limite **rígido**: pedir além faz o provisionamento **falhar** | `infra-demo/terraform/main.tf` |
+| 3 | Orçamento com alerta em US$ 1 | apenas **avisa** por e-mail; não impede nada | `infra-demo/terraform/main.tf` |
+
+A confusão entre 2 e 3 é comum e cara. **Orçamento na OCI não bloqueia.** Quem bloqueia é a cota. É por
+isso que a política de cotas fecha famílias inteiras — banco gerenciado, balanceador, sistema de
+arquivos — e reabre só o shape gratuito.
+
+O princípio: **preferimos falha de provisionamento a cobrança.**
+
+### O que a demonstração deixa de ter, e o que isso custaria
+
+Não é gratuidade sem preço — é preço pago em outra moeda:
+
+| Ausência | O que custaria em produção | Consequência na demonstração |
+|---|---|---|
+| Banco gerenciado | US$ 12,41/mês (B1ms + 64 GiB) | backup e atualização por conta de quem opera |
+| Réplica e isolamento de falha | mais um de tudo | a máquina é ponto único de falha, declarado |
+| Registro de contêiner | US$ 5,07/mês (ACR Basic) | as imagens são construídas na própria máquina |
+| Storage de objeto | ~US$ 0,50/mês | comprovantes em disco local, com o adaptador declarado |
+| Observabilidade gerenciada | US$ 2,30/GB ingerido | telemetria fica local; o endereço OTLP existe e está vazio |
+
+Somado, é o mesmo sistema rodando por US$ 0,00 em vez de US$ 41,78 — com robustez operacional menor, e
+isso está dito onde precisa estar dito.

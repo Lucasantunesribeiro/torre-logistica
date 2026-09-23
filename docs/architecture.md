@@ -946,7 +946,25 @@ dependência da [ADR 0006](./adr/0006-simulador-externo.md).
 Decisões em [ADR 0033](./adr/0033-entrada-da-demonstracao.md); capturas planejadas em
 [`operacao/screenshots.md`](./operacao/screenshots.md).
 
-## Fase 25 — Hospedagem escolhida, nada provisionado
+## Fase 25 — Duas hospedagens: a de produção e a de custo zero
+
+A fase terminou com **dois** desenhos, e isso não é indecisão: são respostas a duas perguntas
+diferentes. O de produção mostra como o sistema seria operado de verdade — e foi exercitado contra o
+Azure real antes de ser destruído por decisão de custo. O de demonstração põe o sistema no ar por
+US$ 0,00, que virou restrição absoluta.
+
+| | Produção — `infra/` | Demonstração — `infra-demo/` |
+|---|---|---|
+| Nuvem | Azure Container Apps + PostgreSQL gerenciado | uma VM Ampere A1 Always Free da Oracle |
+| Ferramenta | Bicep | Terraform + Docker Compose |
+| Custo | US$ 41,78/mês | **US$ 0,00/mês** |
+| Estado | aplicada e destruída | escrita e validada localmente; nada provisionado |
+
+O que **não** muda entre as duas: o código, o domínio, as migrations, a separação API/workers, o
+SignalR, o PostGIS, o simulador como cliente HTTP e as seis histórias. A demonstração é uma mudança de
+hospedagem, não de arquitetura — ver [ADR 0035](./adr/0035-demonstracao-de-custo-zero.md).
+
+### A de produção
 
 ```text
 Azure Container Apps Environment
@@ -982,6 +1000,34 @@ e `/health/ready` **503**, e **não registra mais nenhuma** "Falha na rodada" �
 laços saíram dela.
 
 Comparação e custo em [`cost-model.md`](./cost-model.md); decisão em [ADR 0034](./adr/0034-hospedagem.md).
+
+### A de demonstração
+
+```text
+VM.Standard.A1.Flex — 2 OCPU arm64 · 4 GB · 50 GB · Always Free
+  └── Caddy      80/443 · TLS por ACME · proxy do SignalR · três aplicações web estáticas
+        ├── API        sem porta publicada
+        ├── Workers    sem porta publicada · rede sem saída
+        └── PostgreSQL + PostGIS   sem porta publicada · rede sem saída
+```
+
+| Decisão | Por quê |
+|---|---|
+| Uma VM, e não um plano gratuito de aplicação | os planos gratuitos dormem, e este sistema despacha outbox a cada 5 s e mantém conexão persistente |
+| **Oracle**, e não AWS/Azure/GCP gratuitos | os outros expiram em 12 meses ou dão 1 GB de memória; **Always** Free não tem prazo |
+| 4 GB, e não os 12 GB permitidos | a pilha medida usa ~0,4 GB; memória alocada e não usada não acelera nada. Triplica a utilização medida (3 % → 10 %) sem, no entanto, sair da faixa de ociosa que autoriza a Oracle a recuperar a máquina — risco declarado, não resolvido |
+| Sem balanceador, mesmo havendo um gratuito | o Caddy já faz TLS, redirecionamento e proxy; o gratuito traria teto de 10 Mbps |
+| Sem Object Storage | comprovantes em disco local, pelo mesmo `IObjectStorage` |
+| Imagem PostGIS **construída aqui** | `postgis/postgis` publica só amd64; as alternativas de terceiros se declaram experimentais |
+| Quatro subdomínios do mesmo domínio | as três aplicações roteiam a partir de `/`; subcaminhos exigiriam mudar o código do produto. E `SameSite=Strict` só vale no mesmo domínio registrável |
+| Imagens construídas na própria máquina | um registro seria mais um recurso e mais um caminho de credencial |
+| Cotas de compartimento, não só orçamento | orçamento na OCI **avisa**; cota **bloqueia**. Preferimos falha de provisionamento a cobrança |
+
+A borda trouxe uma correção que faltava na API: atrás de um proxy, o limite de requisições "por origem"
+contava todo o tráfego como vindo do proxy. `Torre:ProxyReverso` trata `X-Forwarded-For` e
+`X-Forwarded-Proto`, desligado por padrão e recusando subir se for ligado sem declarar de quem confiar.
+
+Detalhes, provas e passo a passo em [`infra-demo/README.md`](../infra-demo/README.md).
 
 ## O que deliberadamente **não** existe ainda
 

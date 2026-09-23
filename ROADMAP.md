@@ -5697,7 +5697,148 @@ O registro foi destruído junto; os digests ficam como registro de que o caminho
 | Estratégia de deploy da **demonstração** | ❌ **a redesenhar**, com restrição rígida de US$ 0/mês |
 | Identidade de usuário no Bicep | ❌ correção conhecida, não aplicada |
 
-A Fase 25 só fecha quando existir um ambiente publicado — e ele agora precisa caber em custo mensal zero.
+## Redesenho da demonstração: US$ 0,00 numa máquina Always Free da Oracle
+
+> A Fase 25 **continua 🟨**. A arquitetura de demonstração está desenhada, construída e validada
+> localmente. **Nada foi provisionado na Oracle**, e provisionar exige autorização explícita.
+
+A restrição virou absoluta: a demonstração não pode ter custo recorrente nem consumir crédito de
+nenhum provedor. A arquitetura de produção (`infra/`, Azure) fica intacta como referência; a de
+demonstração nasce separada, em `infra-demo/`.
+
+Decisão em [ADR 0035](./docs/adr/0035-demonstracao-de-custo-zero.md); provas, comandos e passo a passo
+em [`infra-demo/README.md`](./infra-demo/README.md).
+
+### Por que uma máquina virtual, e não um plano gratuito de aplicação
+
+A Torre Logística pede cinco coisas que os planos gratuitos habituais recusam:
+
+| Exigência | Por quê | O que os planos gratuitos fazem |
+|---|---|---|
+| Processo sempre vivo | outbox a cada 5 s, previsão a cada minuto, motor de alertas | dormem quando ociosos |
+| Conexão persistente | SignalR para o console (ADR 0017) | não suportam WebSocket, ou cobram |
+| PostgreSQL **com PostGIS** | geofence é `ST_DWithin` no banco (ADR 0002) | Postgres sem extensão, ou nenhum |
+| **Dois** processos separados | a própria Fase 25 os separou | um processo por aplicação |
+| Disco que sobrevive | comprovantes e histórico de posição | sistema de arquivos efêmero |
+
+E, entre os níveis gratuitos, a palavra que decide é **Always**: AWS e Azure expiram em 12 meses; o
+`e2-micro` do Google é permanente mas tem 1 GB. O Ampere A1 da Oracle não tem prazo e dá 2 OCPU.
+
+### Os dois gates que podiam invalidar tudo
+
+**1. Custo zero.** Recurso a recurso, com a citação da documentação da Oracle para cada linha, a conta
+fecha — e a linha apertada é uma só: **1.460 de 1.500 OCPU-hora por mês**, folga de 40 horas. É isso
+que faz 2 OCPUs ser teto, não preferência, e `variables.tf` recusa o valor antes do `plan`.
+
+Ficaram de fora, mesmo estando no nível gratuito: o balanceador (o Caddy já faz o trabalho, e o
+gratuito traria teto de 10 Mbps) e o Object Storage (os comprovantes cabem no disco de 50 GB).
+
+**2. ARM64.** Aqui apareceu o achado que redesenhou a pilha:
+
+```text
+docker manifest inspect postgis/postgis:17-3.5  →  linux/amd64, e nada mais
+```
+
+A imagem PostGIS usada em desenvolvimento e nos testes **não existe para arm64** — o README do projeto
+diz isso com todas as letras. As alternativas multiarquitetura de terceiros se declaram experimentais
+("*Status: Experimental*", "*(test) Docker image*"), o que não serve para o banco de uma demonstração
+pública.
+
+A saída foi construir o que o Dockerfile oficial constrói — pacotes PGDG sobre a imagem oficial do
+PostgreSQL — também para arm64, partindo de bookworm porque o bullseye do upstream é Debian 11, cujo
+LTS terminou em agosto de 2026. Isso troca PostGIS 3.5 por 3.6, e a diferença foi conferida contra o
+caso de fronteira que o próprio ROADMAP exige: **299 m dentro, 301 m fora**.
+
+### A emulação não servia, e a compilação cruzada resolveu
+
+A primeira tentativa de construir para arm64 emulou o SDK inteiro por QEMU. Foi interrompida depois de
+**1 h 30 min sem terminar a primeira imagem**.
+
+Os três Dockerfiles .NET passaram a fazer compilação cruzada — `FROM --platform=$BUILDPLATFORM` no
+estágio de compilação e `-a $TARGETARCH` no `restore` e no `publish`, que é o caminho documentado pela
+Microsoft. A mesma imagem passou a levar **146 segundos**. O estágio Node da imagem web recebeu o mesmo
+tratamento, por outro motivo: o que ele produz não tem arquitetura.
+
+### Três defeitos que a fase encontrou e corrigiu
+
+| Defeito | Onde | Por que importava |
+|---|---|---|
+| A API não tratava `X-Forwarded-For` | `src/TorreLogistica.Api/Seguranca/ProxyReverso.cs` (novo) | atrás do Caddy, o limite de tentativas de login por endereço contaria todo o tráfego num balde só: o primeiro visitante a errar a senha cinco vezes bloquearia todos os outros |
+| `Referrer-Policy` do site não sobrescrevia a do trecho importado | `infra-demo/Caddyfile` | o rastreamento público saía com `strict-origin-when-cross-origin`, e o token do link poderia vazar no `Referer` |
+| `header /index.html Cache-Control` não pegava nada | `infra-demo/Caddyfile` | quem abre o site pede `/`, não `/index.html`; uma implantação não chegaria a quem já visitou |
+
+O primeiro é o que o ROADMAP já registrava como pendência desde a Fase 8 (*"o limite por endereço verá
+o do proxy até os cabeçalhos encaminhados serem tratados — Fase 25"*). Ele nasce **desligado**, e ligá-lo
+sem declarar de quem confiar **derruba a subida** — porque "ligado e inseguro" é pior que desligado: cada
+atacante escolheria o próprio endereço e o limite deixaria de existir.
+
+Um quarto achado veio dos próprios testes: a validação das redes confiáveis estava dentro de um
+`Configure`, que é preguiçoso — uma rede mal escrita derrubaria a **primeira requisição de um visitante**
+com a subida já dada como bem-sucedida. Passou a ser analisada na subida.
+
+### O elenco fictício precisava existir antes da história
+
+Um banco recém-criado não tem organização nenhuma, e sem organização não há conta: nem a do visitante
+da demonstração, nem a que o simulador usa para montar o palco. O semeador que fazia isso só rodava em
+Development.
+
+Ele passou a rodar também fora, **por decisão escrita**: `PermitirForaDeDesenvolvimento`, no mesmo
+padrão já aprovado do armazenamento local. Ligado sem essa autorização num ambiente publicado, a API
+**recusa subir** — porque semear em silêncio e não semear em silêncio escondem igualmente a decisão de
+quem a tomou.
+
+### O que foi validado localmente
+
+| Prova | Resultado |
+|---|---|
+| Os cinco artefatos rodam em arm64 | ✅ `docker image inspect` → `linux/arm64` nos cinco |
+| A pilha sobe e fica saudável | ✅ banco, API e web com sonda verde; workers vivo (sem sonda, por desenho) |
+| Só o Caddy publica porta | ✅ banco, workers e API com **nenhuma** porta publicada |
+| O banco não é alcançável pela borda | ✅ redes separadas, a do banco `internal: true` |
+| A borda roteia os quatro nomes | ✅ três aplicações certas + `/health/ready` da API |
+| Recarregar rota interna não dá 404 | ✅ nas três aplicações |
+| PostGIS real na imagem construída | ✅ `postgis 3.6 USE_GEOS=1 USE_PROJ=1`; 299 m dentro, 301 m fora |
+| Migrations e semeadura na subida | ✅ 40 tabelas, 2 organizações, 5 usuários |
+| As seis histórias | ✅ simulador com saída 0; 6 entregas, 32 eventos, 6 alertas, 1 ocorrência |
+| Comprovante sobrevive a reinício | ✅ mesma impressão após `restart` **e** após `down`/`up` |
+| Banco sobrevive a `down`/`up` | ✅ 6 entregas e 32 eventos depois de destruir os contêineres |
+| SignalR através do proxy | ✅ WebSocket declarado; caiu no reinício da API e **reconectou em ~4 s** |
+| Memória | ✅ pico de **346 MiB** durante as histórias; tetos declarados somam 2,6 GB de 4 GB |
+| Terraform | ✅ `fmt` sem mudanças, `validate` OK com `oracle/oci v7.32.0` |
+| Formatação .NET | ✅ `dotnet format --verify-no-changes`: 0 de 347 arquivos |
+
+### A prova que quase passou sem provar nada
+
+A primeira verificação de persistência de comprovante comparou **0 arquivos antes com 0 arquivos
+depois** e se declarou aprovada. A causa: o roteiro do simulador registra o comprovante com
+`arquivos = []` — ele encena a história, não o envio do arquivo.
+
+A persistência foi então provada exercitando o caminho que um motorista de verdade percorre, através
+do Caddy: sessão de motorista → autorização de envio → `PUT` dos bytes na URL assinada → arquivo em
+disco, com dono 1654, idêntico depois de reiniciar e depois de destruir a pilha.
+
+### Uma afirmação deste documento que a medição desmentiu
+
+Antes de medir, este roadmap e o ADR 0035 diziam que pedir 4 GB em vez de 12 GB tirava a máquina da
+faixa de "ociosa" que autoriza a Oracle a recuperá-la. **Está errado.** A pilha usa ~0,4 GB, o que dá
+10 % de 4 GB — abaixo do limiar de 20 %. Pedir menos memória triplica a utilização medida (3 % → 10 %)
+e continua sem cruzar a linha.
+
+O risco de recuperação é **real e fica declarado**. A resposta é tornar a reconstrução barata —
+Terraform e compose versionados, procedimento escrito — e **não** gerar tráfego artificial para
+enganar o critério.
+
+### O que falta para a Fase 25 fechar
+
+| Item | Situação |
+|---|---|
+| Arquitetura de produção | ✅ desenhada, validada e exercitada contra o Azure real |
+| Arquitetura de demonstração | ✅ desenhada, construída e validada localmente |
+| Ambiente de demonstração **no ar** | ❌ exige autorização para provisionar na Oracle |
+| Domínio e registros DNS | ❌ decisão do Lucas; nenhum domínio foi inventado |
+| Declarações de cota conferidas contra a conta real | ❌ só o `apply` as valida |
+
+A fase fecha quando existir um ambiente publicado — e ele agora cabe em custo mensal zero.
 
 ## Commits
 
@@ -5707,6 +5848,10 @@ A Fase 25 só fecha quando existir um ambiente publicado — e ele agora precisa
 `feat: adaptador de azure blob storage para comprovantes, com identidade gerenciada (Fase 25)`
 `refactor: divide o composition root para cada processo registrar so o que usa (Fase 25)`
 `docs: registra o provisionamento real no azure e sua destruicao por custo (Fase 25)`
+`fix: api atras de proxy le o endereco real e semeia o elenco por decisao escrita (Fase 25)`
+`build: imagens .net compilam cruzado para arm64 em vez de emular o sdk (Fase 25)`
+`feat: infraestrutura de demonstracao de custo zero em oracle always free (Fase 25)`
+`docs: separa a arquitetura de producao da de demonstracao e corrige a conta de ociosidade (Fase 25)`
 
 ---
 

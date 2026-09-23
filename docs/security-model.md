@@ -108,8 +108,11 @@ prova instável, que passaria a falhar por carga da máquina.
 | HSTS | ligado fora de desenvolvimento |
 
 A CSP da API bloqueia tudo porque a API não serve página: se um dia uma resposta devolver HTML por engano,
-o navegador não executa nada dele. A CSP das **aplicações web** depende de como forem servidas e é decisão
-da Fase 25 — está registrada como pendência, não como item cumprido.
+o navegador não executa nada dele. A CSP das **aplicações web** depende de como forem servidas, e a Fase 25
+resolveu: quem as serve é o Caddy, e a política é declarada por aplicação em
+[`infra-demo/Caddyfile`](../infra-demo/Caddyfile). Vale notar uma armadilha que ela evita: `connect-src`
+precisa listar a API em `https:` **e** em `wss:`. Uma política que cobrisse só a primeira derrubaria o
+tempo real sem derrubar o resto — o mapa carrega e simplesmente não se move.
 
 **CORS** por lista de origens explícita. Origem desconhecida não recebe liberação, nem no *preflight*.
 
@@ -140,6 +143,30 @@ seria bloqueada por uma política pensada para login.
 
 O limite do rastreamento público é o que torna caro varrer tokens por tentativa — somado à entropia do
 token, que é a defesa principal.
+
+### 6.1 "Por origem" só significa alguma coisa se a origem for a verdadeira
+
+Três das seis linhas acima particionam por **endereço de origem**. Atrás de um proxy reverso, toda
+requisição chega com o endereço do proxy — e aí as três deixam de proteger cada visitante e passam a
+somar todos num balde único: o primeiro a errar a senha cinco vezes bloqueia o resto do mundo. A
+auditoria registra o mesmo endereço em toda linha, e o esquema visto pela aplicação vira `http` mesmo
+quando o visitante chegou por `https`.
+
+A correção é ler `X-Forwarded-For` e `X-Forwarded-Proto`. Ela só é segura quando se sabe **de quem**
+aceitar esses cabeçalhos, porque qualquer cliente pode enviá-los: confiar neles sem saber a origem troca
+um problema por outro pior — em vez de todos dividirem um balde, cada atacante escolhe o seu, e o limite
+por endereço deixa de existir.
+
+Por isso o tratamento (`Torre:ProxyReverso`, em `src/TorreLogistica.Api/Seguranca/ProxyReverso.cs`):
+
+| Decisão | Por quê |
+|---|---|
+| Desligado por padrão | exposta diretamente, a API não deve acreditar em cabeçalho nenhum vindo do cliente |
+| Ligado sem lista de confiança **derruba a subida** | "ligado e inseguro" é pior que "desligado", porque parece resolvido |
+| A lista de confiança herdada do framework é apagada | ela traz o loopback; lista de confiança precisa dizer exatamente de quem se confia |
+| Um salto só | há um proxy só. Ler mais saltos que os reais é ler o que o cliente escreveu |
+| As redes são analisadas na subida, não no primeiro uso | `Configure` é preguiçoso: uma rede mal escrita derrubaria a primeira requisição de um visitante, com a subida já dada como bem-sucedida |
+| É o **primeiro** middleware da fila | quem rodar antes lê o endereço do proxy, e corrigir depois não desfaz a decisão já tomada com o valor errado |
 
 ---
 
@@ -353,8 +380,7 @@ Registrado aqui porque documento de segurança que só lista acertos é peça de
 
 | Lacuna | Situação |
 |---|---|
-| CSP das aplicações web | depende de como forem servidas; decisão da Fase 25 |
-| TLS, WAF e cabeçalhos de borda da hospedagem | Fase 25 |
+| WAF | não há. A defesa é o limite por requisição da própria API, e isso é o que existe |
 | Retenção de comprovantes | o arquivo fica enquanto a entrega existir; prazo próprio exige decisão de produto |
 | Retenção de requisições de integração | apagar a marca de idempotência reabre a porta para duplicata; a janela de garantia é decisão de produto |
 | Rotação automática da chave de criptografia de webhook | hoje é troca manual com reescrita dos segredos |

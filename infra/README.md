@@ -1,7 +1,14 @@
 # Infraestrutura
 
-> **Nada aqui foi aplicado.** Estes arquivos descrevem o que seria criado. Provisionar cobra, e cobrar
-> exige autorização explícita — a desta fase foi para *escrever e validar*, não para *aplicar*.
+> **Esta é a arquitetura de PRODUÇÃO.** Ela foi provisionada de verdade no Azure — 12 recursos criados,
+> imagens enviadas, três limites de plataforma descobertos que nenhum teste local acharia — e depois
+> **destruída por decisão de custo**. Hoje não há nenhum recurso da Torre Logística na assinatura.
+>
+> A demonstração pública roda em outro lugar e por outro desenho: uma máquina Always Free da Oracle,
+> com custo recorrente de US$ 0,00, em [`infra-demo/`](../infra-demo/README.md). Os dois diretórios
+> existem lado a lado de propósito — o de lá **não** é arquitetura recomendada para cliente real.
+>
+> Reaplicar o que está aqui cobra, e cobrar exige autorização explícita.
 
 ## O que existe
 
