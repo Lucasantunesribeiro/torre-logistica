@@ -114,6 +114,10 @@ try
     construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoDeDominio>();
     construtor.Services.AddExceptionHandler<ManipuladorDeExcecaoNaoTratada>();
 
+    // Quando há proxy reverso à frente, é ele quem sabe o endereço real de quem chamou. Desligado,
+    // não muda nada; ligado sem declarar de quem confiar, derruba a subida — ver ProxyReverso.cs.
+    construtor.Services.AdicionarProxyReverso(construtor.Configuration);
+
     construtor.Services
         .AddOptions<OpcoesDeCors>()
         .Bind(construtor.Configuration.GetSection(OpcoesDeCors.Secao));
@@ -186,10 +190,16 @@ try
         aplicacao.Logger.LogInformation("Migrations pendentes aplicadas durante a inicialização da API.");
     }
 
-    if (aplicacao.Environment.IsDevelopment())
-    {
-        await SemeadorDeDesenvolvimento.SemearSeHabilitadoAsync(aplicacao.Services).ConfigureAwait(false);
-    }
+    // Sem a condição de ambiente aqui: quem decide é o próprio semeador, que conhece as duas travas
+    // (estar habilitado e, fora de desenvolvimento, estar autorizado por escrito). Repetir a
+    // verificação aqui faria a demonstração pública não semear em SILÊNCIO — e banco vazio aparece
+    // como "login inválido" para o visitante, a três camadas de distância da causa.
+    await SemeadorDeDesenvolvimento.SemearSeHabilitadoAsync(aplicacao.Services).ConfigureAwait(false);
+
+    // Primeiro de todos, e não por gosto de ordem: quem vier antes lê o endereço do proxy como se
+    // fosse o do cliente. O registro de requisição gravaria o endereço errado e o limite por
+    // endereço contaria todo mundo no mesmo balde — corrigir depois não desfaz nenhuma das duas.
+    aplicacao.UsarProxyReverso();
 
     aplicacao.UseMiddleware<MiddlewareDeCabecalhosDeSeguranca>();
     aplicacao.UseMiddleware<MiddlewareDeCorrelacao>();
