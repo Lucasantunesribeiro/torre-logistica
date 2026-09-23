@@ -9,7 +9,17 @@
 # ---------------------------------------------------------------------------
 # Compilação
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS compilacao
+# `--platform=$BUILDPLATFORM` prende o estágio de compilação à arquitetura de QUEM constrói, e
+# `-a $TARGETARCH` diz ao .NET para gerar código para a arquitetura de DESTINO.
+#
+# Sem as duas linhas, construir para arm64 numa máquina x86 faz o Docker emular o SDK inteiro por
+# QEMU. Funciona, e é impraticável: a restauração e a publicação de um único projeto passaram de
+# uma hora e meia sem terminar, medido nesta máquina. Com compilação cruzada o SDK roda nativo e só
+# o resultado é arm64 — que é o caminho documentado pela Microsoft para imagem multiarquitetura.
+#
+# `ARG TARGETARCH` é preenchido pelo próprio buildx: "amd64" ou "arm64", conforme `--platform`.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS compilacao
+ARG TARGETARCH
 WORKDIR /origem
 
 # Primeiro só o que descreve as dependências. Assim a camada de restauração só é refeita quando um
@@ -23,7 +33,7 @@ COPY src/TorreLogistica.Application/TorreLogistica.Application.csproj src/TorreL
 COPY src/TorreLogistica.Infrastructure/TorreLogistica.Infrastructure.csproj src/TorreLogistica.Infrastructure/
 COPY src/TorreLogistica.Api/TorreLogistica.Api.csproj src/TorreLogistica.Api/
 
-RUN dotnet restore src/TorreLogistica.Api/TorreLogistica.Api.csproj
+RUN dotnet restore -a $TARGETARCH src/TorreLogistica.Api/TorreLogistica.Api.csproj
 
 COPY src/TorreLogistica.Domain/ src/TorreLogistica.Domain/
 COPY src/TorreLogistica.Application/ src/TorreLogistica.Application/
@@ -31,7 +41,9 @@ COPY src/TorreLogistica.Infrastructure/ src/TorreLogistica.Infrastructure/
 COPY src/TorreLogistica.Api/ src/TorreLogistica.Api/
 
 RUN dotnet publish src/TorreLogistica.Api/TorreLogistica.Api.csproj \
+    -a $TARGETARCH \
     --configuration Release \
+    --self-contained false \
     --no-restore \
     --output /publicado
 

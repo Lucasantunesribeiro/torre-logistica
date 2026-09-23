@@ -25,4 +25,8 @@ docs/
 tests/
 apps/
 infra/
+infra-demo/
 *.md
+
+# A imagem web precisa de apps/ e infra-demo/, que estao excluidos acima. Ela nao usa este arquivo:
+# o BuildKit prefere infra-demo/web/Dockerfile.dockerignore, que vale so para aquela build.
