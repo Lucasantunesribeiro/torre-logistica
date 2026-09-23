@@ -1,0 +1,162 @@
+# Borda pública da demonstração.
+#
+# O Caddy faz aqui quatro trabalhos que, somados, substituem o balanceador de carga gerenciado — e é
+# justamente por ele fazê-los que a demonstração não precisa de um. Ver `docs/adr/0035`.
+#
+#   1. TLS: obtém e renova os certificados sozinho, via ACME.
+#   2. Redirecionamento: 80 → 443, criado automaticamente por declarar os sites como `https://`.
+#   3. Proxy reverso para a API, inclusive a conexão persistente do SignalR.
+#   4. Arquivo estático das três aplicações, com cabeçalhos de segurança e cache.
+#
+# ---------------------------------------------------------------------------
+# Domínios
+# ---------------------------------------------------------------------------
+# Todos vêm do ambiente. Não há domínio embutido neste arquivo, nem de exemplo: domínio inventado em
+# arquivo de configuração é o tipo de valor que sobrevive ao copiar-e-colar e vai para produção.
+#
+# Quatro nomes, e não um com subcaminhos, porque as três aplicações roteiam a partir de `/`
+# (`apps/*/src/App.tsx`). Servi-las sob `/motorista` exigiria mudar `base` do Vite e `basename` do
+# roteador nas três — mudança no código do produto para acomodar uma decisão de hospedagem.
+#
+# Os quatro nomes devem ser subdomínios do MESMO domínio registrável. Isso não é estética: o cookie de
+# sessão é `SameSite=Strict` (ADR 0009), e `console.exemplo.com` → `api.exemplo.com` só é considerado
+# "mesmo site" porque o domínio registrável é o mesmo. Nomes de domínios diferentes derrubariam a
+# sessão sem nenhum erro visível.
+#
+# TORRE_ESQUEMA_PUBLICO existe para a validação local, onde não há domínio nem ACME: com `http`, o
+# Caddy serve em texto claro e os nomes podem ser `*.localhost`. Em qualquer ambiente publicado o
+# valor é `https` — que é o padrão quando a variável não vem.
+{
+	# Endereço para o qual a autoridade certificadora avisa sobre expiração.
+	email {$TORRE_EMAIL_ACME}
+
+	# A API de administração do Caddy reconfigura o servidor em tempo de execução. Ela escuta só em
+	# localhost, mas dentro de um contêiner "localhost" inclui qualquer processo que compartilhe a
+	# rede — e ela não é usada aqui.
+	admin off
+}
+
+# ---------------------------------------------------------------------------
+# Blocos reaproveitados
+# ---------------------------------------------------------------------------
+
+(cabecalhos-comuns) {
+	header {
+		# O Caddy anuncia a própria versão em toda resposta. Não é vulnerabilidade; é poupar ao
+		# visitante curioso o trabalho de descobrir qual CVE procurar.
+		-Server
+
+		# Um ano, e incluindo subdomínios: os quatro nomes da demonstração são subdomínios do mesmo
+		# domínio, então a política vale para todos de uma vez.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# Impede o navegador de "adivinhar" o tipo de um arquivo servido. É a defesa que faz um
+		# comprovante enviado por alguém não ser interpretado como script.
+		X-Content-Type-Options "nosniff"
+
+		# Argumento, e não valor fixo, porque o rastreamento público precisa de um valor mais
+		# rígido que os demais. Repetir o cabeçalho no bloco do site NÃO funciona: os dois
+		# `header` são aplicados, e o do trecho importado vence — verificado com `curl -D -`,
+		# que devolvia `strict-origin-when-cross-origin` onde se esperava `no-referrer`.
+		Referrer-Policy {args[0]}
+
+		Cross-Origin-Opener-Policy "same-origin"
+		X-Frame-Options "DENY"
+	}
+}
+
+(aplicacao-de-pagina-unica) {
+	encode zstd gzip
+
+	# O roteamento das três aplicações é do lado do cliente: abrir `/entregas/123` direto na barra de
+	# endereço pede ao servidor um arquivo que não existe. Sem esta linha, recarregar qualquer tela
+	# que não a inicial devolve 404 — e o visitante conclui que o sistema quebrou.
+	try_files {path} /index.html
+	file_server
+
+	# Os arquivos sob /assets carregam hash do conteúdo no nome: mudou o conteúdo, mudou o nome. Podem
+	# ser guardados para sempre. Todo o resto, não — e "todo o resto" é o que importa aqui: o
+	# index.html, que aponta para os nomes novos, o service worker da PWA e o manifesto.
+	#
+	# Os dois casos são declarados como matchers DISJUNTOS de propósito. A primeira versão usava
+	# `header /index.html ...`, e não pegava nada: quem abre o site pede `/`, não `/index.html`, e o
+	# retorno para o index acontece depois. O sintoma seria uma implantação que não chega a quem já
+	# visitou — o pior tipo de defeito de cache, porque só aparece para quem já esteve lá.
+	@versionado path /assets/*
+	@volatil not path /assets/*
+
+	header @versionado Cache-Control "public, max-age=31536000, immutable"
+	header @volatil Cache-Control "no-cache"
+}
+
+# ---------------------------------------------------------------------------
+# Console operacional
+# ---------------------------------------------------------------------------
+{$TORRE_ESQUEMA_PUBLICO:https}://{$TORRE_DOMINIO_CONSOLE} {
+	import cabecalhos-comuns "strict-origin-when-cross-origin"
+	root * /srv/operacao
+	import aplicacao-de-pagina-unica
+
+	# `connect-src` precisa listar a API em https e em wss: a segunda é a conexão persistente do
+	# SignalR, e uma política que cobre só https derruba o tempo real sem derrubar o resto — o mapa
+	# carrega e simplesmente não se move.
+	# `worker-src blob:` e `img-src blob:` são exigência do MapLibre, que desenha o mapa num worker
+	# criado a partir de blob.
+	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://{$TORRE_DOMINIO_API} wss://{$TORRE_DOMINIO_API}; img-src 'self' data: blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+}
+
+# ---------------------------------------------------------------------------
+# PWA do motorista
+# ---------------------------------------------------------------------------
+{$TORRE_ESQUEMA_PUBLICO:https}://{$TORRE_DOMINIO_MOTORISTA} {
+	import cabecalhos-comuns "strict-origin-when-cross-origin"
+	root * /srv/motorista
+	import aplicacao-de-pagina-unica
+
+	# A PWA usa GPS e câmera. `(self)` libera para esta origem e para mais ninguém — inclusive
+	# negando a qualquer moldura que ela venha a embutir.
+	header Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=()"
+	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://{$TORRE_DOMINIO_API} wss://{$TORRE_DOMINIO_API}; img-src 'self' data: blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+}
+
+# ---------------------------------------------------------------------------
+# Rastreamento público
+# ---------------------------------------------------------------------------
+{$TORRE_ESQUEMA_PUBLICO:https}://{$TORRE_DOMINIO_RASTREAMENTO} {
+	import cabecalhos-comuns "no-referrer"
+	root * /srv/rastreamento
+	import aplicacao-de-pagina-unica
+
+	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://{$TORRE_DOMINIO_API}; img-src 'self' data: blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+}
+
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
+{$TORRE_ESQUEMA_PUBLICO:https}://{$TORRE_DOMINIO_API} {
+	import cabecalhos-comuns "no-referrer"
+
+	# O Caddy trata a promoção para WebSocket sem nenhuma configuração — não há `Upgrade` para
+	# encaminhar à mão, e tentar fazê-lo à mão é o erro clássico que quebra o SignalR.
+	#
+	# Ele também acrescenta X-Forwarded-For, -Proto e -Host. Quem os transforma em endereço de origem
+	# real é a API, em `Program.cs`: sem isso o limite por endereço contaria todo o tráfego como
+	# vindo de um único cliente — este proxy — e o primeiro visitante a errar a senha bloquearia
+	# todos os outros.
+	reverse_proxy api:8080 {
+		# A conexão do SignalR fica aberta. O padrão de leitura do Caddy não a interrompe, mas a
+		# escrita sim em cenários de baixo tráfego: quem envia é o servidor, em rajadas espaçadas.
+		flush_interval -1
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Sonda interna
+# ---------------------------------------------------------------------------
+# Não publicada: esta porta não aparece em `ports:` no compose, então só existe dentro da rede do
+# Docker. Serve ao healthcheck do próprio contêiner, que precisa de algo para perguntar sem depender
+# de DNS público nem de certificado.
+:8081 {
+	respond /saude "ok" 200
+	respond 404
+}

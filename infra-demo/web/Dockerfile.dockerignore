@@ -1,0 +1,32 @@
+# Exclusões da imagem web.
+#
+# Este arquivo existe porque o `.dockerignore` da raiz exclui `apps/` — correto para as imagens da API
+# e dos workers, que não têm nada a ver com as aplicações web, e fatal para esta, que é feita delas.
+#
+# O BuildKit procura `<caminho-do-Dockerfile>.dockerignore` antes do `.dockerignore` da raiz. Quando
+# este arquivo existe, ele é o único que vale para esta build.
+
+**/node_modules/
+**/dist/
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Segredo não vai para imagem, nem por acidente. Vale em dobro aqui: tudo o que o Vite enxerga com
+# prefixo VITE_ é embutido no pacote e fica legível para qualquer visitante.
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/*.user
+
+# Nada disso muda o que as aplicações fazem.
+.git/
+.github/
+docs/
+tests/
+src/
+infra/
+*.md

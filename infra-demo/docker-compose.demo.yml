@@ -1,0 +1,318 @@
+# Pilha da demonstração pública da Torre Logística.
+#
+# Roda numa única máquina Ampere A1 do nível Always Free da Oracle Cloud — ver `docs/adr/0035`.
+# Este arquivo NÃO é a arquitetura recomendada para um cliente real; a de produção está em `infra/`.
+#
+#   docker compose -f infra-demo/docker-compose.demo.yml --env-file /etc/torre-logistica/.env.demo up -d --build
+#
+# ---------------------------------------------------------------------------
+# Princípios que este arquivo mantém
+# ---------------------------------------------------------------------------
+#   1. Os workers continuam sendo um PROCESSO À PARTE. Hospedar os laços de fundo dentro da API
+#      economizaria um contêiner e desfaria a separação que a Fase 25 construiu.
+#   2. O banco NÃO tem `ports:`. Ele existe só dentro da rede interna do Docker; não há porta para
+#      alguém encontrar varrendo a internet, nem por erro de firewall.
+#   3. Só o Caddy publica porta. É o único serviço em `ports:`, e só 80 e 443.
+#   4. Todo segredo vem do arquivo de ambiente, que fica fora do repositório e fora da imagem.
+#   5. Todo serviço tem teto de memória. Somados, cabem nos 4 GB da máquina com folga para o SO.
+
+name: torre-logistica-demo
+
+# ---------------------------------------------------------------------------
+# Redes
+# ---------------------------------------------------------------------------
+# Duas, e não uma: o Caddy não precisa alcançar o banco, e o banco não precisa alcançar o Caddy.
+# Com uma rede só, um comprometimento do processo de borda teria rota de rede até o PostgreSQL.
+networks:
+  borda:
+    driver: bridge
+  interna:
+    driver: bridge
+    # Sem saída para a internet a partir desta rede. O banco e os workers falam com quem está dentro;
+    # nada aqui precisa alcançar um endereço externo.
+    internal: true
+
+volumes:
+  # Estado do Caddy: certificados e chaves de conta ACME. Sem persistência, cada reinício pediria
+  # certificado novo — e a autoridade limita quantos emite por semana para o mesmo nome.
+  caddy-estado:
+    name: torre-demo-caddy-estado
+  caddy-configuracao:
+    name: torre-demo-caddy-configuracao
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL + PostGIS
+  # -------------------------------------------------------------------------
+  banco:
+    build:
+      context: ./postgis
+      dockerfile: Dockerfile
+    image: torre-logistica-postgis:17-3.6
+    container_name: torre-demo-banco
+    environment:
+      POSTGRES_DB: ${TORRE_POSTGRES_BANCO}
+      POSTGRES_USER: ${TORRE_POSTGRES_USUARIO}
+      POSTGRES_PASSWORD: ${TORRE_POSTGRES_SENHA}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+
+    # Parâmetros dimensionados para a máquina, não para o padrão de fábrica. O padrão do PostgreSQL
+    # supõe um servidor dedicado; aqui ele divide 4 GB com a API, os workers e o proxy. Sem isto, é
+    # o banco que o núcleo escolhe matar quando a memória aperta.
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=50
+      -c random_page_cost=1.1
+
+    volumes:
+      # Caminho absoluto no hospedeiro, e não volume nomeado do Docker: o dado do banco é o que
+      # precisa sobreviver a `docker compose down -v` digitado sem pensar. Um volume nomeado é
+      # apagado por essa flag; um diretório do hospedeiro, não.
+      - ${TORRE_DIRETORIO_DADOS:-/srv/torre-logistica}/postgres:/var/lib/postgresql/data
+
+    healthcheck:
+      # `pg_isready` sozinho responde antes de o banco aceitar consulta de fato.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -q"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    networks: [interna]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  # -------------------------------------------------------------------------
+  # API
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: src/TorreLogistica.Api/Dockerfile
+    image: torre-logistica-api:demo
+    container_name: torre-demo-api
+    depends_on:
+      banco:
+        condition: service_healthy
+
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 8080
+
+      Torre__BancoDeDados__CadeiaDeConexao: >-
+        Host=banco;Port=5432;Database=${TORRE_POSTGRES_BANCO};Username=${TORRE_POSTGRES_USUARIO};Password=${TORRE_POSTGRES_SENHA}
+
+      # Só a API aplica migration. Ligar isto também nos workers faria dois processos correrem o
+      # mesmo schema ao mesmo tempo na primeira subida.
+      Torre__BancoDeDados__AplicarMigrationsAoIniciar: "true"
+
+      Torre__Cors__OrigensPermitidas__0: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_CONSOLE}
+      Torre__Cors__OrigensPermitidas__1: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_MOTORISTA}
+      Torre__Cors__OrigensPermitidas__2: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_RASTREAMENTO}
+
+      # Sem isto, o limite de tentativas de login contaria todo o tráfego como vindo do Caddy: o
+      # primeiro visitante a errar a senha cinco vezes bloquearia todos os outros.
+      Torre__ProxyReverso__Habilitado: "true"
+      Torre__ProxyReverso__RedesConfiaveis__0: ${TORRE_REDE_DA_BORDA:-172.16.0.0/12}
+      Torre__ProxyReverso__LimiteDeSaltos: "1"
+
+      Torre__TokenDeAcesso__ChaveDeAssinatura: ${TORRE_CHAVE_DE_TOKEN}
+
+      # Comprovantes em disco local, declarado. `PermitirLocalForaDeDesenvolvimento` existe
+      # justamente para que usar disco em ambiente publicado seja uma decisão escrita, e não um
+      # silêncio: fora dela, o adaptador local recusa subir fora de Development.
+      Torre__Armazenamento__Provedor: local
+      Torre__Armazenamento__PermitirLocalForaDeDesenvolvimento: "true"
+      Torre__Armazenamento__Diretorio: /var/opt/torre-logistica/comprovantes
+      Torre__Armazenamento__EnderecoBase: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_API}
+      Torre__Armazenamento__ChaveDeAssinatura: ${TORRE_CHAVE_DE_ARMAZENAMENTO}
+
+      Torre__Webhooks__ChaveDeCriptografia: ${TORRE_CHAVE_DE_WEBHOOKS}
+
+      # O elenco fictício. Um banco recém-criado não tem organização nenhuma, e sem organização não
+      # há conta: nem a do visitante, nem a que o simulador usa para montar o palco. A segunda linha
+      # é a autorização por escrito que o semeador exige fora de desenvolvimento — sem ela, a API
+      # recusa subir em vez de semear calada ou de não semear calada.
+      Torre__Desenvolvimento__Semeadura__Habilitada: "true"
+      Torre__Desenvolvimento__Semeadura__PermitirForaDeDesenvolvimento: "true"
+      Torre__Desenvolvimento__Semeadura__SenhaInicial: ${TORRE_DEMO_SENHA}
+
+      Torre__Demonstracao__Habilitada: "true"
+      Torre__Demonstracao__Organizacao: ${TORRE_DEMO_ORGANIZACAO:-transportadora-aurora}
+      Torre__Demonstracao__Email: ${TORRE_DEMO_EMAIL}
+      Torre__Demonstracao__Senha: ${TORRE_DEMO_SENHA}
+
+    volumes:
+      # Mesmo diretório do hospedeiro montado na API e nos workers. É ele que faz o comprovante
+      # sobreviver a `docker compose down`: o arquivo está no disco da máquina, não na camada
+      # descartável do contêiner.
+      - ${TORRE_DIRETORIO_DADOS:-/srv/torre-logistica}/comprovantes:/var/opt/torre-logistica/comprovantes
+
+    healthcheck:
+      # `/ready` e não `/live`: aqui a pergunta é se a API consegue atender, o que inclui o banco.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+
+    networks: [borda, interna]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 900M
+
+  # -------------------------------------------------------------------------
+  # Processo de trabalho
+  # -------------------------------------------------------------------------
+  workers:
+    build:
+      context: ..
+      dockerfile: src/TorreLogistica.Workers/Dockerfile
+    image: torre-logistica-workers:demo
+    container_name: torre-demo-workers
+    depends_on:
+      banco:
+        condition: service_healthy
+      # A API aplica as migrations. Subir os workers antes disso os faria falhar contra um schema
+      # que ainda não existe — recuperável pelo reinício, mas com ruído no log a cada implantação.
+      api:
+        condition: service_healthy
+
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Torre__BancoDeDados__CadeiaDeConexao: >-
+        Host=banco;Port=5432;Database=${TORRE_POSTGRES_BANCO};Username=${TORRE_POSTGRES_USUARIO};Password=${TORRE_POSTGRES_SENHA}
+      Torre__BancoDeDados__AplicarMigrationsAoIniciar: "false"
+      Torre__Webhooks__ChaveDeCriptografia: ${TORRE_CHAVE_DE_WEBHOOKS}
+      Torre__Retencao__PosicoesBrutas: ${TORRE_RETENCAO_DE_POSICOES:-7.00:00:00}
+
+    # Sem `ports:` e sem `borda`: este processo não atende ninguém e não precisa ser alcançável.
+    networks: [interna]
+
+    # Sem healthcheck, e isso é deliberado. Ele não atende HTTP, então a única sonda possível seria
+    # "o processo existe?" — que é exatamente o que o Docker já sabe: se o processo morre, o
+    # contêiner sai e a política de reinício age. Uma sonda que só repete isso dá a impressão de
+    # verificar algo a mais sem verificar nada.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # -------------------------------------------------------------------------
+  # Borda: as três aplicações web e o proxy reverso
+  # -------------------------------------------------------------------------
+  web:
+    build:
+      context: ..
+      dockerfile: infra-demo/web/Dockerfile
+      args:
+        # O endereço da API é embutido no pacote JavaScript no momento da build. Mudar o domínio
+        # exige reconstruir esta imagem — não basta reiniciar o contêiner.
+        TORRE_URL_DA_API: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_API}
+        TORRE_URL_DO_ESTILO_DO_MAPA: ${TORRE_URL_DO_ESTILO_DO_MAPA:-}
+    image: torre-logistica-web:demo
+    container_name: torre-demo-web
+    depends_on:
+      api:
+        # `service_started`, e não `service_healthy`, de propósito. A API fica insalubre enquanto o
+        # banco esquenta; esperar a saúde dela deixaria a borda fora do ar nesse intervalo, e quem
+        # abrisse o endereço receberia conexão recusada — tela quebrada durante a inicialização é
+        # exatamente o que o projeto proíbe.
+        #
+        # Assim o Caddy sobe junto, serve as três aplicações, e elas mostram o próprio estado de
+        # carregamento enquanto a API ainda não responde.
+        condition: service_started
+
+    environment:
+      TORRE_ESQUEMA_PUBLICO: ${TORRE_ESQUEMA_PUBLICO:-https}
+      TORRE_DOMINIO_CONSOLE: ${TORRE_DOMINIO_CONSOLE}
+      TORRE_DOMINIO_MOTORISTA: ${TORRE_DOMINIO_MOTORISTA}
+      TORRE_DOMINIO_RASTREAMENTO: ${TORRE_DOMINIO_RASTREAMENTO}
+      TORRE_DOMINIO_API: ${TORRE_DOMINIO_API}
+      TORRE_EMAIL_ACME: ${TORRE_EMAIL_ACME}
+
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3. O Caddy o habilita sozinho; sem a porta UDP publicada, o navegador tenta, falha e
+      # volta para HTTP/2 — funciona, com uma ida e volta desperdiçada em cada primeira visita.
+      - "443:443/udp"
+
+    volumes:
+      - caddy-estado:/data
+      - caddy-configuracao:/config
+
+    healthcheck:
+      # Porta 8081: existe só dentro da rede do Docker, porque não está em `ports:`. Perguntar pelo
+      # domínio público faria a sonda depender de DNS e de certificado para responder se o processo
+      # está de pé.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8081/saude || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+    networks: [borda]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  # -------------------------------------------------------------------------
+  # Simulador — sob demanda
+  # -------------------------------------------------------------------------
+  # `profiles` o mantém fora de `up`: ele não é um serviço, é uma encenação que roda e termina.
+  # Subir a pilha não deve disparar o roteiro; quem dispara é quem quer a demonstração encenada:
+  #
+  #   docker compose -f infra-demo/docker-compose.demo.yml --profile roteiro run --rm simulador
+  simulador:
+    profiles: ["roteiro"]
+    build:
+      context: ..
+      dockerfile: src/TorreLogistica.Simulator/Dockerfile
+    image: torre-logistica-simulador:demo
+    container_name: torre-demo-simulador
+    depends_on:
+      api:
+        condition: service_healthy
+
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      # Fala com a API pela rede interna do Docker, sem sair para a internet e voltar. O caminho de
+      # código exercitado é o mesmo; o que muda é só não pagar uma volta pela borda.
+      Torre__Simulador__UrlBaseDaApi: http://api:8080
+
+      # O login da API recusa requisição sem `Origin` conhecido — é a defesa contra CSRF, e ela vale
+      # para todo mundo, inclusive para nós. O simulador não é navegador, mas também não passa por
+      # cima da regra: ele declara quem é, e quem opera decide se aquela origem entra na lista.
+      #
+      # Declara a origem do console porque é exatamente o papel que ele exerce: autentica como
+      # operador e conduz a operação pelos mesmos endpoints que o console usa. Inventar um nome só
+      # para ele obrigaria a alargar a lista de origens permitidas da API por causa de um processo
+      # que nem navegador é.
+      Torre__Simulador__OrigemDeclarada: ${TORRE_ESQUEMA_PUBLICO:-https}://${TORRE_DOMINIO_CONSOLE}
+      Torre__Simulador__Organizacao: ${TORRE_DEMO_ORGANIZACAO:-transportadora-aurora}
+      Torre__Simulador__Senha: ${TORRE_DEMO_SENHA}
+      Torre__Simulador__Semente: ${TORRE_DEMO_SEMENTE:-2026}
+      Torre__Simulador__MultiplicadorDeTempo: ${TORRE_DEMO_MULTIPLICADOR:-60}
+
+    networks: [borda]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 256M

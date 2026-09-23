@@ -1,0 +1,150 @@
+#cloud-config
+#
+# Preparação da máquina da demonstração, executada uma única vez na primeira inicialização.
+#
+# O que este arquivo NÃO faz: clonar o repositório, escrever segredo ou subir a pilha. Segredo
+# passado por metadados de instância fica legível para qualquer processo da máquina pelo serviço de
+# metadados, e legível no estado do Terraform. O arquivo de ambiente é escrito à mão, depois, por
+# quem tem os segredos — o passo a passo está em `infra-demo/README.md`.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - unattended-upgrades
+  - iptables-persistent
+
+write_files:
+  # -------------------------------------------------------------------------
+  # SSH
+  # -------------------------------------------------------------------------
+  # Arquivo separado em sshd_config.d, e não edição do sshd_config: atualização do pacote
+  # sobrescreve o arquivo principal e devolveria silenciosamente os padrões.
+  - path: /etc/ssh/sshd_config.d/99-torre.conf
+    permissions: "0644"
+    content: |
+      # Chave, e só chave. A imagem do Ubuntu na OCI já vem assim; declarar é impedir que uma
+      # atualização ou um ajuste manual distraído reabra a senha.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      PermitEmptyPasswords no
+      X11Forwarding no
+      AllowTcpForwarding no
+      MaxAuthTries 3
+      # Só a conta administrativa da imagem entra. Qualquer conta de serviço criada depois — a do
+      # Docker, por exemplo — fica sem porta de entrada por SSH.
+      AllowUsers ubuntu
+
+  # -------------------------------------------------------------------------
+  # Atualização de segurança automática
+  # -------------------------------------------------------------------------
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+  - path: /etc/apt/apt.conf.d/52torre-unattended
+    permissions: "0644"
+    content: |
+      // Só o repositório de segurança. Atualização de funcionalidade sem ninguém olhando é como
+      // uma demonstração pública quebra num domingo.
+      Unattended-Upgrade::Allowed-Origins {
+          "${distro_id}:${distro_codename}-security";
+          "${distro_id}ESMApps:${distro_codename}-apps-security";
+          "${distro_id}ESM:${distro_codename}-infra-security";
+      };
+      // Reinicia sozinho quando a atualização exigir, de madrugada. A pilha sobe de novo por conta
+      // própria: todo serviço do compose tem `restart: unless-stopped`.
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+  # -------------------------------------------------------------------------
+  # Docker
+  # -------------------------------------------------------------------------
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "live-restore": true
+      }
+
+runcmd:
+  # -------------------------------------------------------------------------
+  # Firewall do sistema operacional
+  # -------------------------------------------------------------------------
+  # A lista de segurança da VCN já filtra antes de o pacote chegar aqui. Este é o segundo muro: se
+  # alguém afrouxar a lista de segurança no console, a máquina continua fechada.
+  #
+  # `-I` e não `-A`: a imagem da Oracle termina a cadeia INPUT com um REJECT, e uma regra
+  # acrescentada ao final nunca seria alcançada.
+  - iptables -I INPUT 1 -p tcp --dport 80 -m conntrack --ctstate NEW -j ACCEPT
+  - iptables -I INPUT 2 -p tcp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+  - iptables -I INPUT 3 -p udp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+  - netfilter-persistent save
+
+  # -------------------------------------------------------------------------
+  # Memória de folga
+  # -------------------------------------------------------------------------
+  # 2 GB de troca numa máquina de 4 GB. Não é para a operação — a pilha medida cabe na memória
+  # física — é para a compilação: construir as imagens usa bem mais que servi-las, e sem troca o
+  # núcleo mata o processo no meio da primeira implantação.
+  #
+  # `swappiness=10` mantém a troca como rede de segurança, e não como uso corrente: o PostgreSQL
+  # paginado para disco fica lento de um jeito que parece defeito de aplicação.
+  - fallocate -l 2G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  - sysctl -w vm.swappiness=10
+  - echo 'vm.swappiness=10' > /etc/sysctl.d/99-torre.conf
+
+  # -------------------------------------------------------------------------
+  # Docker, do repositório oficial
+  # -------------------------------------------------------------------------
+  # Do repositório da Docker, e não do `docker.io` do Ubuntu: a versão do Ubuntu costuma estar
+  # muitas versões atrás e não traz o Compose v2, que este projeto usa.
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  # O socket do Docker continua sendo socket de arquivo, acessível só por quem está no grupo. Não
+  # há porta TCP: quem alcança o socket do Docker é root na máquina, e isso não se publica.
+  - usermod -aG docker ubuntu
+  - systemctl enable --now docker
+
+  # -------------------------------------------------------------------------
+  # Diretórios persistentes
+  # -------------------------------------------------------------------------
+  # O que precisa sobreviver a `docker compose down`, a `docker system prune` e à troca de imagem.
+  - mkdir -p /srv/torre-logistica/postgres /srv/torre-logistica/comprovantes
+
+  # O PostgreSQL do contêiner roda como uid 999 e recusa iniciar se o diretório de dados pertencer
+  # a outro dono. O 1654 é o usuário sem privilégio das imagens .NET, dono dos comprovantes.
+  - chown -R 999:999 /srv/torre-logistica/postgres
+  - chown -R 1654:1654 /srv/torre-logistica/comprovantes
+  - chmod 700 /srv/torre-logistica/postgres
+  - chmod 750 /srv/torre-logistica/comprovantes
+
+  # Onde o arquivo de ambiente vai ser escrito à mão. Só o root lê.
+  - mkdir -p /etc/torre-logistica
+  - chmod 700 /etc/torre-logistica
+
+  - systemctl restart ssh
+
+final_message: "Máquina pronta em $UPTIME s. Falta escrever /etc/torre-logistica/.env.demo e subir o compose — ver infra-demo/README.md."

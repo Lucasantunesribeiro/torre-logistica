@@ -34,12 +34,26 @@ playwright-report/
 .env
 .env.*
 !.env.example
+# Modelo do ambiente da demonstração. Só nomes de variáveis; todo campo de segredo vem vazio.
+!.env.demo.example
 *.pem
 *.key
 *.pfx
 appsettings.Local.json
 appsettings.*.Local.json
 secrets.json
+
+# Terraform — estado, plano e variáveis preenchidas
+# O estado guarda, em texto claro, tudo o que o provedor devolveu. O plano binário guarda o mesmo.
+# `*.tfvars` é onde as credenciais reais são escritas; só o `.example` é versionado.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.auto.tfvars
+*.tfvars
+!*.tfvars.example
 
 # Sistema operacional
 Thumbs.db
