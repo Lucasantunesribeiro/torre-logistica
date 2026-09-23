@@ -231,30 +231,62 @@ Essa diferença de versão não fica no escuro: ver *Equivalência geoespacial*,
 
 > Nada disto foi executado. Não há recurso criado na Oracle, e criar exige autorização explícita.
 
-```bash
-# 1. Credenciais da CLI da Oracle (uma vez)
-oci setup config                     # cria ~/.oci/config
+### Passo 0 — autenticar na Oracle
 
-# 2. Variáveis
+Sem isto, nada abaixo funciona: a CLI e o provedor do Terraform leem o mesmo `~/.oci/config`, e sem
+ele a mensagem é direta — `Could not find config file at ~/.oci/config`.
+
+Dois caminhos, e eles escrevem perfis **diferentes** no mesmo arquivo:
+
+| | `oci session authenticate` | `oci setup config` |
+|---|---|---|
+| Como | abre o navegador; você entra como entraria no console | gera um par de chaves e você cola a pública no console |
+| Guarda | um token de sessão | uma chave privada no disco |
+| Expira | sim (`oci session refresh` renova) | não |
+| No Terraform | `metodo_de_autenticacao = "SecurityToken"` | `metodo_de_autenticacao = "ApiKey"` (padrão) |
+
+Declarar o método errado produz um erro que fala de **chave ausente**, e não do método — por isso a
+variável existe.
+
+```bash
+oci session authenticate --region <sua-região-de-origem> --profile-name DEFAULT
+```
+
+### Passos 1 a 4 — conferir e criar
+
+```bash
 cd infra-demo/terraform
 cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars             # OCID, região de origem, chave pública, seu IP
+$EDITOR terraform.tfvars             # OCID da tenancy, região de ORIGEM, chave pública, seu IP
 
-# 3. Conferir antes de criar
 terraform init
 terraform validate
 terraform plan                       # leia a saída `conferencia_de_gratuidade`
-
-# 4. Criar
 terraform apply
 ```
 
-A saída `ip_publico` é o endereço para o qual os **quatro registros A** precisam apontar — console,
-motorista, rastreamento e API — **antes** da primeira subida do compose: o Caddy pede o certificado no
-momento em que sobe, e a autoridade certificadora confere o DNS naquele instante.
+### Os quatro nomes, e o momento certo de criar os registros
 
-Os quatro nomes precisam ser subdomínios do **mesmo domínio registrável**. Não é estética: o cookie de
-sessão é `SameSite=Strict` (ADR 0009), e só é "mesmo site" o que compartilha o domínio registrável.
+| Hostname | Serve |
+|---|---|
+| `operacao.torre.lucasafvr.com.br` | console operacional |
+| `motorista.torre.lucasafvr.com.br` | PWA do motorista |
+| `rastrear.torre.lucasafvr.com.br` | rastreamento público |
+| `api.torre.lucasafvr.com.br` | API e a conexão persistente do SignalR |
+
+Os quatro são subdomínios de **`lucasafvr.com.br`**, que é o domínio registrável. Não é estética: o
+cookie de sessão é `SameSite=Strict` (ADR 0009), e só é "mesmo site" o que compartilha o domínio
+registrável — nomes de domínios diferentes derrubariam a sessão sem nenhum erro visível.
+
+A ordem importa e não é negociável:
+
+1. `terraform apply` cria a máquina e devolve `ip_publico`;
+2. os **quatro registros A** apontam para esse IP;
+3. **só então** o compose sobe.
+
+Subir o compose antes do DNS não quebra nada de forma permanente, mas o Caddy pede o certificado no
+instante em que sobe, a autoridade certificadora confere o DNS naquele momento, e cada tentativa
+falha consome parte do limite semanal de emissão da Let's Encrypt para esses nomes.
 
 ### Se aparecer "Out of host capacity"
 

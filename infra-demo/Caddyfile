@@ -19,9 +19,9 @@
 # roteador nas três — mudança no código do produto para acomodar uma decisão de hospedagem.
 #
 # Os quatro nomes devem ser subdomínios do MESMO domínio registrável. Isso não é estética: o cookie de
-# sessão é `SameSite=Strict` (ADR 0009), e `console.exemplo.com` → `api.exemplo.com` só é considerado
-# "mesmo site" porque o domínio registrável é o mesmo. Nomes de domínios diferentes derrubariam a
-# sessão sem nenhum erro visível.
+# sessão é `SameSite=Strict` (ADR 0009), e `operacao.torre.lucasafvr.com.br` → `api.torre.lucasafvr.com.br`
+# só é considerado "mesmo site" porque o domínio registrável dos dois é `lucasafvr.com.br`. Nomes de
+# domínios diferentes derrubariam a sessão sem nenhum erro visível.
 #
 # TORRE_ESQUEMA_PUBLICO existe para a validação local, onde não há domínio nem ACME: com `http`, o
 # Caddy serve em texto claro e os nomes podem ser `*.localhost`. Em qualquer ambiente publicado o

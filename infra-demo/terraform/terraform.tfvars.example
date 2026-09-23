@@ -9,12 +9,23 @@
 # OCID da conta. Console da Oracle → Perfil → Tenancy.
 ocid_da_tenancy = "ocid1.tenancy.oc1..SUBSTITUA"
 
-# Precisa ser a região de ORIGEM da conta: a capacidade Always Free de Ampere A1 só existe nela.
-# Console da Oracle → o nome no canto superior direito mostra qual é.
+# Precisa ser a região de ORIGEM (home region) da conta: a capacidade Always Free de Ampere A1 só
+# existe nela. O valor abaixo é um exemplo — confirme o seu com:
+#
+#   oci iam region-subscription list --query 'data[?"is-home-region"].{regiao:"region-name"}'
+#
+# Console da Oracle → o nome no canto superior direito também mostra.
 regiao = "sa-saopaulo-1"
 
 # Perfil dentro de ~/.oci/config.
 perfil_da_cli = "DEFAULT"
+
+# Como o perfil acima foi criado:
+#   "SecurityToken"  se por `oci session authenticate` (login pelo navegador)
+#   "ApiKey"         se por `oci setup config` (par de chaves)
+#
+# Errar aqui produz uma mensagem sobre chave ausente, que não diz nada sobre o método.
+metodo_de_autenticacao = "SecurityToken"
 
 # Opcional. Vazio usa o primeiro domínio de disponibilidade da região.
 #

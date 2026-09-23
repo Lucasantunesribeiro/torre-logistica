@@ -32,6 +32,28 @@ variable "perfil_da_cli" {
   default     = "DEFAULT"
 }
 
+variable "metodo_de_autenticacao" {
+  description = <<-TEXTO
+    Como o provedor autentica.
+
+      ApiKey        par de chaves gerado localmente, com a chave pública colada no console da
+                    Oracle. Não expira.
+      SecurityToken token de sessão obtido por `oci session authenticate`, que abre o navegador.
+                    Nada de chave para gerenciar; em troca o token expira.
+
+    Se o perfil foi criado por `oci session authenticate`, este valor PRECISA ser SecurityToken —
+    senão o provedor procura uma `key_file` que aquele perfil não tem, e a mensagem de erro fala de
+    chave ausente em vez de falar do método errado.
+  TEXTO
+  type        = string
+  default     = "ApiKey"
+
+  validation {
+    condition     = contains(["ApiKey", "SecurityToken", "InstancePrincipal"], var.metodo_de_autenticacao)
+    error_message = "Use ApiKey, SecurityToken ou InstancePrincipal."
+  }
+}
+
 variable "dominio_de_disponibilidade" {
   description = <<-TEXTO
     Nome do domínio de disponibilidade onde criar a máquina, por exemplo "abcd:SA-SAOPAULO-1-AD-1".

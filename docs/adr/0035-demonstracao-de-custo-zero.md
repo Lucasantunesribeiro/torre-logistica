@@ -136,6 +136,26 @@ demonstração com visitantes reais isso acontece às vezes — mas não é algo
 **O risco de recuperação é real, e fica declarado como real.** A resposta a ele é tornar a
 reconstrução barata, não evitar que ele exista.
 
+### Os quatro hostnames
+
+| Hostname | Serve |
+|---|---|
+| `operacao.torre.lucasafvr.com.br` | console operacional |
+| `motorista.torre.lucasafvr.com.br` | PWA do motorista |
+| `rastrear.torre.lucasafvr.com.br` | rastreamento público |
+| `api.torre.lucasafvr.com.br` | API e a conexão persistente do SignalR |
+
+Quatro nomes, e não um com subcaminhos, porque as três aplicações roteiam a partir de `/`
+(`apps/*/src/App.tsx`): servi-las sob `/motorista` exigiria mudar `base` do Vite e `basename` do
+roteador nas três — mudança no código do produto para acomodar uma decisão de hospedagem.
+
+Os quatro são subdomínios de **`lucasafvr.com.br`**, e isso é requisito, não preferência: o cookie de
+sessão é `SameSite=Strict` (ADR 0009), e o navegador só considera "mesmo site" o que compartilha o
+domínio registrável. Hospedar a API sob outro domínio derrubaria a sessão sem erro visível.
+
+Nenhum deles aparece embutido em código ou configuração: os quatro entram por variável de ambiente,
+no `Caddyfile`, no `docker-compose.demo.yml` e no argumento de build das aplicações web.
+
 ### O que deliberadamente não entra
 
 | Recurso | Está no Always Free? | Por que fica fora mesmo assim |

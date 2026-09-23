@@ -50,7 +50,7 @@ ENV VITE_URL_DO_ESTILO_DO_MAPA=$TORRE_URL_DO_ESTILO_DO_MAPA
 # configuração na importação do módulo. A verificação abaixo existe para a mensagem ser sobre o que
 # realmente falta, e não um erro de Zod no meio de um log de bundler.
 RUN test -n "$TORRE_URL_DA_API" \
-    || (echo "ERRO: informe --build-arg TORRE_URL_DA_API=https://api.seu-dominio" >&2 && exit 1)
+    || (echo "ERRO: informe --build-arg TORRE_URL_DA_API=https://api.torre.lucasafvr.com.br" >&2 && exit 1)
 
 RUN npm run build --workspaces
 
