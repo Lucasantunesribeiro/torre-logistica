@@ -82,11 +82,23 @@ resource "oci_limits_quota" "somente_always_free" {
     # 1. Fecha tudo em computação, depois reabre exatamente o shape gratuito.
     "zero compute-core quota /*/ in compartment ${oci_identity_compartment.torre.name}",
     "set compute-core quota standard-a1-core-count to ${var.ocpus} in compartment ${oci_identity_compartment.torre.name}",
-    "set compute-core quota standard-a1-memory-count to ${var.memoria_em_gb} in compartment ${oci_identity_compartment.torre.name}",
     # A cota regional é separada da cota por domínio de disponibilidade. Definir só uma das duas
     # deixa a outra no limite de serviço padrão — ou seja, deixa a porta que se quis fechar aberta.
     "set compute-core quota standard-a1-core-regional-count to ${var.ocpus} in compartment ${oci_identity_compartment.torre.name}",
-    "set compute-core quota standard-a1-memory-regional-count to ${var.memoria_em_gb} in compartment ${oci_identity_compartment.torre.name}",
+
+    # NÃO existe cota de memória. A primeira versão deste arquivo tentava
+    # `standard-a1-memory-count` e `standard-a1-memory-regional-count`, e a OCI recusou os dois na
+    # criação, com a mensagem exata:
+    #
+    #   400-InvalidParameter: The specified quota `standard-a1-memory-count` is not a valid quota
+    #   name for service `compute-core`
+    #
+    # `standard-a1-memory-count` existe como LIMITE de serviço (aparece em `oci limits value list`,
+    # valendo 12), mas não como COTA. Nome de limite e nome de cota são vocabulários diferentes, e
+    # só o serviço sabe a diferença — `terraform validate` não olha o texto destas linhas.
+    #
+    # O que sobra protegendo a memória: o limite da própria tenancy, de 12 GB, que nenhuma cota
+    # precisa reforçar porque ele já é teto rígido. E a cota de núcleos, que continua valendo.
 
     # 2. Disco: só o volume de inicialização da única máquina.
     "set block-storage quota total-storage-gb to ${var.tamanho_do_disco_em_gb} in compartment ${oci_identity_compartment.torre.name}",
