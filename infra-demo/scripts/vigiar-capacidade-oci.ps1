@@ -51,7 +51,9 @@ param(
     [double] $Ocpus = 1,
     [double] $MemoriaGb = 4,
 
-    [int] $IntervaloEmMinutos = 15,
+    # 5 minutos: nao sabemos quanto tempo uma janela de capacidade A1 dura, e 15 minutos pode
+    # perder uma janela curta. Uma consulta a cada 5 minutos continua sendo cadencia leve.
+    [int] $IntervaloEmMinutos = 5,
     [int] $DuracaoMaximaEmHoras = 12,
 
     # Teto de ciclos, útil para conferir o mecanismo sem esperar 12 horas.
@@ -128,7 +130,14 @@ function Consultar-Capacidade {
 
     $saida = & $CaminhoDaCli @argumentos 2>&1
     if ($LASTEXITCODE -ne 0) {
-        return [pscustomobject]@{ Estado = 'ERRO_NA_CONSULTA'; Quantidade = $null; Detalhe = ($saida | Out-String).Trim() }
+        $texto = ($saida | Out-String)
+        # Throttling NAO e ausencia de capacidade, e nao e erro de configuracao: e a Oracle pedindo
+        # para diminuir o ritmo. Tratar como "sem capacidade" esconderia uma janela aberta; tratar
+        # como erro fatal encerraria a vigilia por um pedido de paciencia.
+        if ($texto -match 'TooManyRequests|429|Too many requests') {
+            return [pscustomobject]@{ Estado = 'THROTTLING'; Quantidade = $null; Detalhe = $texto.Trim() }
+        }
+        return [pscustomobject]@{ Estado = 'ERRO_NA_CONSULTA'; Quantidade = $null; Detalhe = $texto.Trim() }
     }
 
     try {
@@ -208,6 +217,14 @@ function Invocar-GateDeCriacao {
     }
 }
 
+function Resumir {
+    $duracao = (Get-Date) - $inicio
+    return ("resumo: {0:hh\:mm\:ss} de vigilia | {1} consultas | {2} sem capacidade | " +
+            "{3} disponivel | {4} throttling | {5} tentativas reais de criacao | {6} erros inesperados") -f
+           $duracao, $contagem.Consultas, $contagem.SemCapacidade, $contagem.Disponivel,
+           $contagem.Throttling, $contagem.TentativasReais, $contagem.ErrosInesperados
+}
+
 # ---------------------------------------------------------------------------
 # Laço
 # ---------------------------------------------------------------------------
@@ -217,7 +234,21 @@ Escrever "intervalo $IntervaloEmMinutos min  |  duracao maxima $DuracaoMaximaEmH
 Escrever "registro em $ArquivoDeRegistro"
 
 $limite = (Get-Date).AddHours($DuracaoMaximaEmHoras)
+$inicio = Get-Date
 $ciclo = 0
+
+# Contadores do relatorio final. Vigilia que roda 12 horas e nao sabe dizer o que viu nao serve
+# para decidir a proxima janela.
+$contagem = @{
+    Consultas        = 0
+    SemCapacidade    = 0
+    Disponivel       = 0
+    Throttling       = 0
+    TentativasReais  = 0
+    ErrosInesperados = 0
+}
+$errosSeguidos = 0
+$esperaAtual = $IntervaloEmMinutos * 60
 
 while ((Get-Date) -lt $limite) {
     $ciclo++
@@ -227,6 +258,7 @@ while ((Get-Date) -lt $limite) {
     }
 
     $resultado = Consultar-Capacidade
+    $contagem.Consultas++
     if ($EstadoSimulado) {
         Escrever "  (estado real: $($resultado.Estado) — sobreposto por -EstadoSimulado $EstadoSimulado)" 'Yellow'
         $resultado = [pscustomobject]@{ Estado = $EstadoSimulado; Quantidade = $null; Detalhe = $null }
@@ -236,13 +268,19 @@ while ((Get-Date) -lt $limite) {
     switch ($resultado.Estado) {
         'AVAILABLE' {
             Escrever "ciclo $ciclo  AVAILABLE  (disponiveis: $quantidade)" 'Green'
+            $contagem.Disponivel++
+            $errosSeguidos = 0
+            $esperaAtual = $IntervaloEmMinutos * 60
+            $contagem.TentativasReais++
             $desfecho = Invocar-GateDeCriacao
             if ($desfecho -eq 'CRIADA') {
                 Escrever "=== vigilia encerrada: VM criada. PARE AQUI — nao configure nada ===" 'Green'
+                Escrever (Resumir)
                 exit 0
             }
             if ($desfecho -eq 'PARAR') {
                 Escrever "=== vigilia encerrada por seguranca ===" 'Red'
+                Escrever (Resumir)
                 exit 2
             }
             if ($desfecho -eq 'SIMULADO') {
@@ -252,17 +290,34 @@ while ((Get-Date) -lt $limite) {
         }
         'OUT_OF_HOST_CAPACITY' {
             # Nao chama o Terraform. E a razao de existir desta ferramenta.
+            $contagem.SemCapacidade++
+            $errosSeguidos = 0
+            $esperaAtual = $IntervaloEmMinutos * 60
             Escrever "ciclo $ciclo  OUT_OF_HOST_CAPACITY  — sem chamar o Terraform"
         }
+        'THROTTLING' {
+            # Backoff: dobra a espera, com teto de 30 minutos. Nunca acelera.
+            $contagem.Throttling++
+            $esperaAtual = [Math]::Min($esperaAtual * 2, 1800)
+            Escrever "ciclo $ciclo  THROTTLING (429) - sem chamar o Terraform; proxima consulta em $([int]($esperaAtual/60)) min" 'Yellow'
+        }
         default {
-            Escrever "ciclo $ciclo  estado inesperado: $($resultado.Estado)" 'Yellow'
+            $contagem.ErrosInesperados++
+            $errosSeguidos++
+            Escrever "ciclo $ciclo  estado inesperado: $($resultado.Estado)  (seguidos: $errosSeguidos)" 'Yellow'
             if ($resultado.Detalhe) { Escrever "    $($resultado.Detalhe.Substring(0, [Math]::Min(200, $resultado.Detalhe.Length)))" 'Yellow' }
+            if ($errosSeguidos -ge 5) {
+                Escrever "=== vigilia encerrada: 5 erros inesperados seguidos ===" 'Red'
+                Escrever (Resumir)
+                exit 3
+            }
         }
     }
 
     if ($CiclosMaximos -gt 0 -and $ciclo -ge $CiclosMaximos) { continue }
-    Start-Sleep -Seconds ($IntervaloEmMinutos * 60)
+    Start-Sleep -Seconds $esperaAtual
 }
 
 Escrever "=== vigilia encerrada sem capacidade na janela de $DuracaoMaximaEmHoras h ===" 'White'
+Escrever (Resumir)
 exit 1
