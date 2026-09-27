@@ -630,3 +630,136 @@ terraform validate            Success! The configuration is valid.
 ```
 
 **Não houve `plan` nem `apply`.** Os dois exigem credencial da Oracle, e nada foi provisionado.
+
+---
+
+# Vigília de capacidade — `scripts/vigiar-capacidade-oci.ps1`
+
+## Por que existe
+
+A máquina Ampere A1 é o único recurso deste plano que pode ser recusado por motivo que não é cota
+nem custo: **falta de estoque**. Foram **38 tentativas de `terraform apply` em cinco janelas**, todas
+com `500-InternalError, Out of host capacity`, com 2 OCPU e com 1 OCPU.
+
+Tentar criar para descobrir se dá é caro e cego: cada ciclo gasta uma chamada de criação e só
+responde sim ou não. A Oracle oferece a pergunta direta — o **Compute Capacity Report** — que diz se
+existe capacidade para um shape específico num domínio de disponibilidade **sem criar nada**.
+
+A vigília pergunta a cada 15 minutos e só chama o Terraform quando a resposta é `AVAILABLE`.
+
+## Identidade própria, com privilégio mínimo
+
+A vigília **não** usa a sessão humana. Ela tem usuário técnico, grupo e chave próprios:
+
+| | |
+|---|---|
+| Usuário | `torre-capacity-watcher` — sem senha de console |
+| Grupo | `torre-capacity-watchers` |
+| Política | `torre-capacity-watch`, na raiz da tenancy |
+| Chave | par RSA 2048 exclusivo, fora do repositório |
+| Perfil | `TORRE_WATCH`, em arquivo de configuração **próprio** |
+
+As cinco declarações da política:
+
+```text
+Allow group torre-capacity-watchers to manage instance-family        in compartment torre-demo
+Allow group torre-capacity-watchers to use    volume-family          in compartment torre-demo
+Allow group torre-capacity-watchers to use    virtual-network-family in compartment torre-demo
+Allow group torre-capacity-watchers to manage compute-capacity-reports in tenancy
+Allow group torre-capacity-watchers to read   instance-images        in tenancy
+```
+
+A quinta foi acrescentada porque o teste provou que faltava — o Terraform resolve a imagem do Ubuntu
+por consulta na raiz da tenancy, e sem ela o `plan` morria com `404 NotAuthorizedOrNotFound`. Foi a
+única adição; nada foi ampliado por conveniência.
+
+### Por que o arquivo de configuração é separado
+
+O perfil `TORRE_WATCH` **não** fica em `~/.oci/config`, e não é preciosismo: o leitor de configuração
+da OCI é o `ConfigParser` do Python, cuja seção `[DEFAULT]` é **herdada por todas as outras**. Posto
+lá, o perfil técnico herdava o `security_token_file` da sessão humana e a autenticação falhava com
+`NotAuthenticated`. Em arquivo próprio, sem seção `DEFAULT`, não há o que herdar.
+
+## O que a vigília pode e o que não pode
+
+Medido, não presumido — 13 verificações contra a conta real:
+
+| Deve permitir | Resultado | | Deve negar | Resultado |
+|---|---|---|---|---|
+| Compute Capacity Report | ✅ | | instâncias na raiz (LinkGuardião) | ✅ negado |
+| ler sub-rede da Torre | ✅ | | VCN do LinkGuardião | ✅ negado |
+| ler VCN da Torre | ✅ | | volumes de boot na raiz | ✅ negado |
+| ler instâncias da Torre | ✅ | | usuários da tenancy | ✅ negado |
+| ler imagens da plataforma | ✅ | | políticas | ✅ negado |
+| domínios de disponibilidade | ✅ | | criar usuário IAM | ✅ negado |
+| | | | **apagar a VCN da própria Torre** | ✅ negado |
+
+A última linha merece atenção: `use virtual-network-family` deixa usar a rede e **não** deixa
+destruí-la. A vigília cria a máquina e não consegue desfazer o resto.
+
+> **Uma medição enganou antes de acertar.** A primeira matriz acusou três negações falsas. A causa
+> era propagação: política e chave de API recém-criadas levam dezenas de segundos para valer em toda
+> a região, e nesse intervalo a mesma chamada alterna entre 200 e 401. Medido depois: **0 falhas em
+> 40 chamadas**. Conclusão tirada cedo demais teria culpado a política.
+
+## Como funciona cada ciclo
+
+```text
+Compute Capacity Report
+      │
+      ├── OUT_OF_HOST_CAPACITY ──► registra e dorme 15 min   (Terraform NÃO é chamado)
+      │
+      └── AVAILABLE
+              │
+              ├─► terraform plan -target=oci_core_instance.torre -out=torre-capacidade.tfplan
+              │
+              ├─► confere o plano: precisa ser EXATAMENTE 1 mudança, e ela precisa ser
+              │   `create` de `oci_core_instance`. Qualquer outra coisa PARA a vigília.
+              │
+              └─► terraform apply <aquele mesmo plano>
+                      │
+                      ├── sucesso ─────────────► PARA. A VM existe; nada é configurado.
+                      ├── "Out of host capacity" ─► a capacidade sumiu entre o relatório e a
+                      │                             criação. Esperado. Volta a vigiar.
+                      └── outro erro ──────────► PARA por segurança.
+```
+
+Não há geração de plano entre a conferência e a aplicação — é onde uma diferença entraria sem
+ninguém ver.
+
+## Uso
+
+```powershell
+# Um ciclo, sem criar nada — confere o mecanismo
+.\vigiar-capacidade-oci.ps1 -CompartimentoOcid <ocid do torre-demo> -CiclosMaximos 1
+
+# Exercita o ramo AVAILABLE sem capacidade real e sem criar VM
+.\vigiar-capacidade-oci.ps1 -CompartimentoOcid <ocid> -CiclosMaximos 1 -Simular -EstadoSimulado AVAILABLE
+
+# Vigília de 12 horas, a cada 15 minutos
+.\vigiar-capacidade-oci.ps1 -CompartimentoOcid <ocid>
+```
+
+`-EstadoSimulado` só é aceito junto com `-Simular`. Sem essa trava, um valor errado faria a vigília
+tentar criar acreditando numa capacidade que não existe.
+
+## Duas armadilhas de codificação que custaram tempo
+
+Ficam registradas porque a segunda desmente a primeira, e o par é fácil de repetir:
+
+| Arquivo | BOM | Por quê |
+|---|---|---|
+| `vigiar-capacidade-oci.ps1` | **obrigatório** | sem BOM, o PowerShell 5.1 lê o arquivo como Windows-1252. O travessão `—` (`E2 80 94`) vira três caracteres, e o último é `"` — que o PowerShell aceita como aspa. Doze travessões nos comentários abriam doze strings fantasma, e o erro aparecia cem linhas adiante |
+| `shape-consultado.json` | **proibido** | `Set-Content -Encoding utf8` do PowerShell 5.1 grava com BOM, e a CLI da Oracle recusa com `Parameter 'shape_availabilities' must be in JSON format` — o conteúdo está certo, o prefixo é que atrapalha |
+
+O mesmo byte, exigências opostas, dois arquivos a um metro de distância.
+
+## Depois que a VM existir
+
+A vigília para sozinha. O que **não** é automático, e precisa de decisão:
+
+1. revogar a chave de API (`oci iam user api-key delete`);
+2. remover o usuário e o grupo técnicos, se não houver nova necessidade;
+3. apagar `~/.oci/torre-watch/`.
+
+Credencial de automação que sobrevive à tarefa é credencial esquecida.
