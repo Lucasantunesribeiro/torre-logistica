@@ -129,7 +129,11 @@ resource "oci_budget_budget" "torre" {
   reset_period = "MONTHLY"
 
   display_name = "${var.prefixo}-orcamento"
-  description  = "A demonstração deve custar US$ 0,00. Qualquer gasto é defeito, não crescimento."
+  # Sem acento, e nao por descuido: a API de Budgets grava a descricao com os acentos escapados em
+  # HTML ("demonstra&ccedil;&atilde;o"). O resultado sao dois estragos — o console da Oracle exibe o
+  # texto sujo, e todo `terraform plan` futuro acusa uma diferenca que nunca fecha, porque o Terraform
+  # reescreve o acento e a API reescapa. Diferenca fantasma em plano e ruido que ensina a ignorar plano.
+  description = "A demonstracao deve custar US$ 0,00. Qualquer gasto e defeito, nao crescimento."
 }
 
 resource "oci_budget_alert_rule" "qualquer_gasto" {
