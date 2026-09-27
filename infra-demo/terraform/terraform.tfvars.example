@@ -38,7 +38,20 @@ dominio_de_disponibilidade = ""
 # Os padrões já são os valores medidos e conferidos contra o nível gratuito. Mudar qualquer um
 # destes números muda a conta de gratuidade — as validações em `variables.tf` recusam o que passa
 # do limite, e a saída `conferencia_de_gratuidade` mostra a conta a cada `apply`.
-ocpus                  = 2
+# 1 OCPU, e nao 2, por CAPACIDADE — nao por cota nem por custo.
+#
+# A conta permite 2 OCPU de Ampere A1, e 23 tentativas de criar com 2 foram recusadas com
+# "Out of host capacity": o pool gratuito de A1 em sa-saopaulo-1 e disputado, e a regiao tem um
+# unico dominio de disponibilidade, entao nao ha outro AD para tentar. Pedir menos nucleo amplia
+# o conjunto de hosts capazes de atender.
+#
+# A pilha foi revalidada sob teto real de 1 nucleo compartilhado por todos os conteineres:
+# subida em 37 s, as seis historias em 102 s com saida 0, pico de 550 MiB e 54,6%% de um nucleo,
+# zero reinicio e zero erro; p50 3,7 ms e p95 5,3 ms nas leituras atraves do Caddy.
+#
+# Se algum dia a capacidade de 2 OCPU abrir e houver motivo medido para usa-la, basta subir este
+# numero — a cota do compartimento acompanha, porque e derivada dele.
+ocpus                  = 1
 memoria_em_gb          = 4
 tamanho_do_disco_em_gb = 50
 
