@@ -39,7 +39,12 @@ param(
     [string] $CompartimentoOcid,
 
     [string] $Perfil = 'TORRE_WATCH',
-    [string] $ArquivoDeConfiguracao = "$env:USERPROFILE\.oci\torre-watch\config",
+    # O perfil PRECISA estar em ~/.oci/config: o provedor do Terraform nao honra
+    # OCI_CLI_CONFIG_FILE, entao um arquivo proprio seria invisivel para ele.
+    [string] $ArquivoDeConfiguracao = "$env:USERPROFILE\.oci\config",
+
+    # Onde o JSON do shape e escrito. Fora do repositorio, junto da chave.
+    [string] $DiretorioDeTrabalho = "$env:USERPROFILE\.oci\torre-watch",
     [string] $CaminhoDaCli = "$env:USERPROFILE\.oci-cli-venv\Scripts\oci.exe",
 
     [string] $Regiao = 'sa-saopaulo-1',
@@ -104,7 +109,8 @@ if ($EstadoSimulado -and -not $Simular) { throw "-EstadoSimulado so e aceito jun
 
 # O JSON do shape é escrito ao lado do arquivo de configuração, fora do repositório: ele carrega o
 # sizing, não segredo, mas vive junto do resto da automação para não sujar a árvore versionada.
-$arquivoDoShape = Join-Path (Split-Path -Parent $ArquivoDeConfiguracao) 'shape-consultado.json'
+if (-not (Test-Path $DiretorioDeTrabalho)) { New-Item -ItemType Directory -Path $DiretorioDeTrabalho | Out-Null }
+$arquivoDoShape = Join-Path $DiretorioDeTrabalho 'shape-consultado.json'
 $corpoDoShape = [pscustomobject]@{
     instanceShape       = $Shape
     instanceShapeConfig = [pscustomobject]@{ ocpus = $Ocpus; memoryInGBs = $MemoriaGb }
@@ -165,12 +171,23 @@ function Invocar-GateDeCriacao {
 
     Push-Location $DiretorioTerraform
     try {
-        $env:OCI_CLI_CONFIG_FILE = $ArquivoDeConfiguracao
-        $env:TF_VAR_perfil_da_cli = $Perfil
-        $env:TF_VAR_metodo_de_autenticacao = 'ApiKey'
+        # `-var` e nao `TF_VAR_`: em Terraform, `terraform.tfvars` tem precedencia SOBRE as
+        # variaveis de ambiente. O tfvars fixa perfil DEFAULT e SecurityToken, entao o env era
+        # ignorado — e o plano rodava com a sessao humana sem ninguem perceber. Passou a falhar
+        # com 401 no minuto em que aquela sessao expirou, revelando o engano.
+        $varPerfil = "perfil_da_cli=$Perfil"
+        $varAutenticacao = 'metodo_de_autenticacao=ApiKey'
 
-        Escrever "  gerando plano direcionado a $NomeDoRecurso" 'Cyan'
-        & terraform plan -input=false -no-color "-target=$NomeDoRecurso" "-out=$planoDoTerraform" | Out-Null
+        # `-refresh=false` e deliberado, e e consequencia do privilegio minimo.
+        #
+        # Este usuario nao le o compartimento, o orcamento nem a cota — e nao deve mesmo. Num plano
+        # com refresh, o Terraform interpreta "nao consigo ler" como "nao existe" e propoe RECRIAR:
+        # medido, o plano vinha com 2 create e 5 update, incluindo um compartimento DUPLICADO.
+        #
+        # Sem refresh, ele planeja contra o estado ja gravado, que o administrador validou. O unico
+        # recurso ausente do estado e a instancia, e e so ela que aparece.
+        Escrever "  gerando plano direcionado a $NomeDoRecurso (sem refresh)" 'Cyan'
+        & terraform plan -input=false -no-color -refresh=false "-var" $varPerfil "-var" $varAutenticacao "-target=$NomeDoRecurso" "-out=$planoDoTerraform" | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Escrever "  PLANO FALHOU — vigilancia interrompida" 'Red'
             return 'PARAR'

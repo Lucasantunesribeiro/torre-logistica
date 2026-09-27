@@ -673,12 +673,20 @@ A quinta foi acrescentada porque o teste provou que faltava — o Terraform reso
 por consulta na raiz da tenancy, e sem ela o `plan` morria com `404 NotAuthorizedOrNotFound`. Foi a
 única adição; nada foi ampliado por conveniência.
 
-### Por que o arquivo de configuração é separado
+### Onde o perfil mora, e por quê
 
-O perfil `TORRE_WATCH` **não** fica em `~/.oci/config`, e não é preciosismo: o leitor de configuração
-da OCI é o `ConfigParser` do Python, cuja seção `[DEFAULT]` é **herdada por todas as outras**. Posto
-lá, o perfil técnico herdava o `security_token_file` da sessão humana e a autenticação falhava com
-`NotAuthenticated`. Em arquivo próprio, sem seção `DEFAULT`, não há o que herdar.
+O perfil `TORRE_WATCH` fica em **`~/.oci/config`**, ao lado do `DEFAULT`, e a chave privada em
+`~/.oci/torre-watch/`.
+
+Ele já esteve num arquivo separado, por um diagnóstico meu que estava **errado**: eu atribuí uma
+falha de `NotAuthenticated` à herança da seção `[DEFAULT]` do `ConfigParser`. Medido depois, com o
+perfil de volta no arquivo padrão: **0 falhas em 10 chamadas**. A causa original era propagação da
+chave recém-criada, não herança.
+
+E o arquivo separado tinha um custo que só apareceu quando a sessão humana expirou: **o provedor do
+Terraform não honra `OCI_CLI_CONFIG_FILE`**. Ele lê `~/.oci/config` e mais nada. Com o perfil fora
+dali, o `terraform plan` simplesmente usava o `DEFAULT` — e passava, porque a sessão humana ainda
+valia. O teste tinha passado **pelo motivo errado**.
 
 ## O que a vigília pode e o que não pode
 
@@ -742,6 +750,41 @@ ninguém ver.
 
 `-EstadoSimulado` só é aceito junto com `-Simular`. Sem essa trava, um valor errado faria a vigília
 tentar criar acreditando numa capacidade que não existe.
+
+## Duas decisões do Terraform que o privilégio mínimo obrigou
+
+### `-var` e não `TF_VAR_`
+
+Em Terraform, **`terraform.tfvars` tem precedência sobre variáveis de ambiente `TF_VAR_*`**. O
+`tfvars` deste projeto fixa `perfil_da_cli = "DEFAULT"` e `metodo_de_autenticacao = "SecurityToken"`,
+então definir `TF_VAR_perfil_da_cli` não mudava nada — o plano rodava com a sessão humana. A vigília
+passa os dois por `-var`, que vence tudo.
+
+### `-refresh=false`
+
+Não é atalho: é consequência direta do privilégio mínimo.
+
+O usuário técnico **não lê** o compartimento, o orçamento nem a cota — e não deve mesmo. Num plano
+com refresh, o Terraform interpreta "não consigo ler" como "não existe" e propõe **recriar**. Medido:
+
+```text
+Plan: 2 to add, 5 to change, 0 to destroy
+  identity_compartment.torre    create   ← compartimento DUPLICADO
+  core_vcn.torre                update
+  core_subnet.torre             update
+  core_internet_gateway.torre   update
+  core_route_table.torre        update
+  core_security_list.torre      update
+```
+
+O gate barrou e a vigília parou — funcionou como devia. Mas a correção certa não é ampliar a
+permissão para o plano ficar bonito: é **não pedir ao vigia que reavalie o mundo**. Sem refresh, ele
+planeja contra o estado que o administrador já validou, e o único recurso ausente é a instância:
+
+```text
+Plan: 1 to add, 0 to change, 0 to destroy
+  core_instance.torre  create | VM.Standard.A1.Flex 1 OCPU 4 GB boot 50 GB
+```
 
 ## Duas armadilhas de codificação que custaram tempo
 
