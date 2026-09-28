@@ -23,7 +23,7 @@ export function Estado({
 }) {
   if (carregando) {
     return (
-      <p className="estado" role="status">
+      <p className="estado estado--carregando" role="status">
         Carregando…
       </p>
     );
@@ -38,7 +38,7 @@ export function Estado({
   }
 
   if (vazio === true) {
-    return <p className="estado">{mensagemVazio ?? 'Nada para mostrar.'}</p>;
+    return <p className="estado estado--vazio">{mensagemVazio ?? 'Nada para mostrar.'}</p>;
   }
 
   return <>{children}</>;

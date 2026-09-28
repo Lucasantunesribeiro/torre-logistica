@@ -1,17 +1,80 @@
 /*
-  Base visual mínima e comum às três aplicações.
-  A identidade do console operacional é assunto da Fase 18; aqui só existe o
-  suficiente para uma tela legível não parecer um rascunho quebrado.
+  Fundação visual do console operacional.
+
+  Um sistema de tokens: cor, espaço, tipografia, raio e sombra saem daqui, e cada tela só compõe.
+  A direção é software de operação logística — denso, calmo, legível a muitas linhas por minuto —,
+  não painel decorativo. Cor carrega significado (bom, atenção, risco), nunca enfeite; sombra é
+  sutil e serve para separar plano, não para chamar atenção.
 */
 :root {
-  --tinta: #10161f;
-  --tinta-fraca: #5b6675;
-  --fundo: #f5f6f8;
+  /* Escala de cinza levemente azulada: a base neutra de todo o console. */
+  --cinza-50: #f7f8fa;
+  --cinza-100: #eef1f5;
+  --cinza-200: #e2e6ec;
+  --cinza-300: #cfd5de;
+  --cinza-400: #9aa4b2;
+  --cinza-500: #6b7686;
+  --cinza-600: #4c5666;
+  --cinza-700: #353e4c;
+  --cinza-800: #1f2733;
+  --cinza-900: #131922;
+
+  /* Cor de marca — ardósia-índigo. Aparece na navegação ativa, em foco e em ação primária. */
+  --marca-700: #1e3a5f;
+  --marca-600: #23507e;
+  --marca-500: #2f6db3;
+  --marca-100: #e6effa;
+  --marca-050: #f2f7fc;
+
+  /* Semânticas: cada uma com tom de texto, fundo suave e borda. */
+  --bom-tinta: #10633a;
+  --bom-suave: #e5f4ec;
+  --bom-borda: #b6ddc7;
+  --atencao-tinta: #8a5300;
+  --atencao-suave: #fbf0dc;
+  --atencao-borda: #eccf9a;
+  --ruim-tinta: #a01f1c;
+  --ruim-suave: #fbe9e8;
+  --ruim-borda: #edbab8;
+  --info-tinta: #1f4e7a;
+  --info-suave: #e8f1fb;
+  --info-borda: #b9d4ee;
+
+  /* Aliases mantidos por compatibilidade com o CSS e o markup existentes. */
+  --tinta: var(--cinza-800);
+  --tinta-fraca: var(--cinza-500);
+  --fundo: var(--cinza-100);
   --superficie: #ffffff;
-  --borda: #d9dde3;
-  --bom: #1c7c45;
-  --atencao: #9a6200;
-  --ruim: #a5201c;
+  --superficie-2: var(--cinza-50);
+  --borda: var(--cinza-200);
+  --borda-forte: var(--cinza-300);
+  --bom: var(--bom-tinta);
+  --atencao: var(--atencao-tinta);
+  --ruim: var(--ruim-tinta);
+  --destaque: var(--marca-500);
+
+  /* Espaçamento em passos de 4px — todo gap/padding sai desta régua. */
+  --e1: 4px;
+  --e2: 8px;
+  --e3: 12px;
+  --e4: 16px;
+  --e5: 20px;
+  --e6: 24px;
+  --e8: 32px;
+  --e10: 40px;
+
+  --r-sm: 5px;
+  --r: 8px;
+  --r-lg: 12px;
+  --r-full: 999px;
+
+  /* Sombras em camada: quase imperceptíveis, só para descolar a superfície do fundo. */
+  --sombra-1: 0 1px 2px rgba(19, 25, 34, 0.04), 0 1px 3px rgba(19, 25, 34, 0.06);
+  --sombra-2: 0 2px 4px rgba(19, 25, 34, 0.05), 0 4px 12px rgba(19, 25, 34, 0.08);
+
+  --fonte: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --fonte-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
   color-scheme: light;
 }
 
@@ -19,138 +82,200 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   background: var(--fundo);
   color: var(--tinta);
-  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--fonte);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
+h1,
+h2,
+h3 {
+  letter-spacing: -0.011em;
+  color: var(--cinza-900);
+}
+
+a {
+  color: var(--marca-600);
+}
+
+/* Faixa central usada só nas telas fora do shell do console (login, rota desconhecida). */
 main {
   max-width: 60rem;
   margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
+  padding: var(--e8) var(--e5) var(--e10);
 }
 
 h1 {
   font-size: 1.5rem;
-  margin: 0 0 0.25rem;
+  margin: 0 0 var(--e1);
 }
 
 .sumario {
   color: var(--tinta-fraca);
-  margin: 0 0 1.5rem;
+  margin: 0 0 var(--e6);
 }
 
 .cartao {
   background: var(--superficie);
   border: 1px solid var(--borda);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
+  border-radius: var(--r);
+  padding: var(--e4) var(--e5);
+  box-shadow: var(--sombra-1);
 }
 
+/* --- Indicador de conexão em tempo real --- */
 .conexao {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--e2);
   margin: 0;
-  font-size: 0.9375rem;
-}
-
-.conexao__marca {
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
-  background: var(--tinta-fraca);
-  flex: none;
-}
-
-.conexao--pronta .conexao__marca {
-  background: var(--bom);
-}
-
-.conexao--indisponivel .conexao__marca {
-  background: var(--atencao);
-}
-
-.conexao--inalcancavel .conexao__marca {
-  background: var(--ruim);
-}
-
-.fases {
-  margin: 1.5rem 0 0;
-  padding-left: 1.25rem;
+  font-size: 0.8125rem;
   color: var(--tinta-fraca);
 }
 
+.conexao__marca {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cinza-400);
+  flex: none;
+  box-shadow: 0 0 0 3px var(--cinza-100);
+}
+
+.conexao--pronta .conexao__marca {
+  background: #1fa257;
+  box-shadow: 0 0 0 3px var(--bom-suave);
+}
+
+.conexao--indisponivel .conexao__marca {
+  background: #d69a2d;
+  box-shadow: 0 0 0 3px var(--atencao-suave);
+}
+
+.conexao--inalcancavel .conexao__marca {
+  background: #cf3b36;
+  box-shadow: 0 0 0 3px var(--ruim-suave);
+}
+
+.fases {
+  margin: var(--e6) 0 0;
+  padding-left: var(--e5);
+  color: var(--tinta-fraca);
+}
+
+/* --- Login --- */
 .formulario {
   max-width: 24rem;
-  margin-top: 1.5rem;
+  margin: var(--e6) auto 0;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-lg);
+  padding: var(--e6);
+  box-shadow: var(--sombra-2);
 }
 
 .formulario form {
   display: grid;
-  gap: 0.375rem;
+  gap: var(--e1);
 }
 
 .formulario label {
   font-weight: 600;
-  margin-top: 0.5rem;
+  margin-top: var(--e2);
+  font-size: 0.875rem;
 }
 
 .formulario input {
   font: inherit;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--borda);
-  border-radius: 6px;
+  padding: 0.5rem 0.6875rem;
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--r-sm);
+  background: var(--superficie);
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .formulario input:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--tinta);
-  outline-offset: 2px;
+.filtros select:focus-visible,
+.filtros input:focus-visible {
+  outline: none;
+  border-color: var(--marca-500);
+  box-shadow: 0 0 0 3px var(--marca-100);
 }
 
 .formulario__erro {
-  color: var(--ruim);
-  margin: 0.5rem 0 0;
+  color: var(--ruim-tinta);
+  background: var(--ruim-suave);
+  border: 1px solid var(--ruim-borda);
+  border-radius: var(--r-sm);
+  padding: var(--e2) var(--e3);
+  margin: var(--e3) 0 0;
+  font-size: 0.875rem;
 }
 
+/* --- Botões --- */
 button {
   font: inherit;
-  margin-top: 0.75rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--tinta);
-  border-radius: 6px;
-  background: var(--tinta);
-  color: var(--superficie);
+  font-weight: 500;
+  padding: 0.5rem 0.9375rem;
+  border: 1px solid var(--marca-600);
+  border-radius: var(--r-sm);
+  background: var(--marca-600);
+  color: #fff;
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--marca-700);
+  border-color: var(--marca-700);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: progress;
+}
+
+/* Ação secundária: contorno em vez de preenchimento. */
+button.secundario,
+.acoes button {
+  background: var(--superficie);
+  color: var(--cinza-700);
+  border-color: var(--borda-forte);
+}
+
+.acoes button:hover:not(:disabled) {
+  background: var(--cinza-100);
+  border-color: var(--cinza-400);
+  color: var(--cinza-800);
 }
 
 .sessao {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: var(--e4);
+  margin-top: var(--e6);
 }
 
-/* Entrada da demonstração: separada do formulário por uma linha, e não por cor — quem chega
-   procurando o botão o encontra, e quem tem credencial não é empurrado para ele. */
 .demonstracao {
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: var(--e5);
+  padding-top: var(--e4);
   border-top: 1px solid var(--borda);
 }
 
 .demonstracao__convite {
-  margin: 0 0 10px;
-  font-size: 0.9rem;
+  margin: 0 0 var(--e3);
+  font-size: 0.875rem;
   color: var(--tinta-fraca);
 }
 
@@ -159,15 +284,13 @@ button:disabled {
 }
 
 .demonstracao__ressalva {
-  margin: 10px 0 0;
+  margin: var(--e3) 0 0;
   font-size: 0.78rem;
   line-height: 1.4;
   color: var(--tinta-fraca);
 }
 
-/* Foco sempre visível: quem navega por teclado precisa saber onde está, e o contorno
-   padrão do navegador some quando o botão tem fundo próprio. */
 :focus-visible {
-  outline: 2px solid var(--destaque, #2563eb);
+  outline: 2px solid var(--marca-500);
   outline-offset: 2px;
 }
