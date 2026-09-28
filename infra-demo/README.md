@@ -1064,12 +1064,42 @@ Ficam registradas porque a segunda desmente a primeira, e o par é fácil de rep
 
 O mesmo byte, exigências opostas, dois arquivos a um metro de distância.
 
-## Depois que a VM existir
+## Depois que a VM existir — feito em 28/09/2026
 
-A vigília para sozinha. O que **não** é automático, e precisa de decisão:
+Credencial de automação que sobrevive à tarefa é credencial esquecida. A identidade da vigília foi
+removida no mesmo dia em que a VM entrou no ar:
 
-1. revogar a chave de API (`oci iam user api-key delete`);
-2. remover o usuário e o grupo técnicos, se não houver nova necessidade;
-3. apagar `~/.oci/torre-watch/`.
+| Artefato | Situação |
+|---|---|
+| Chave de API `ef:cb:76:…` | revogada |
+| Vínculo usuário → grupo | removido |
+| Usuário `torre-capacity-watcher` | removido |
+| Grupo `torre-capacity-watchers` | removido |
+| Política `torre-capacity-watch` | removida |
+| `~/.oci/torre-watch/` | chaves sobrescritas com bytes aleatórios e o diretório apagado |
+| Seção `[TORRE_WATCH]` do `~/.oci/config` | removida; `[DEFAULT]` preservado |
 
-Credencial de automação que sobrevive à tarefa é credencial esquecida.
+Restou na tenancy apenas a conta humana, os dois grupos nativos e a política de administração.
+
+### Três cuidados que a remoção exigiu
+
+**Resolver por OCID, não por nome.** Antes de apagar, o grupo foi consultado para confirmar que
+tinha **um único** membro, o usuário para confirmar que pertencia a **um único** grupo, e todas as
+políticas da tenancy foram varridas para provar que nenhuma outra citava
+`torre-capacity-watchers`. Apagar por nome sem essa checagem é como cortar um fio pela cor.
+
+**A revogação propaga, e demora.** Logo após o `api-key delete`, seis tentativas de leitura com a
+credencial deram **2 sucessos e 4 negações**; noventa segundos depois, mais 8 tentativas deram 2 e
+6, com as **seis últimas seguidas negando**. É o mesmo atraso regional que enganou a matriz de
+privilégio mínimo quando a chave foi *criada*, agora na direção oposta. Concluir pela primeira
+resposta teria produzido a conclusão errada nas duas pontas. O que encerra a dúvida não é a
+revogação isolada: é o usuário deixar de existir.
+
+**O `[DEFAULT]` do `ConfigParser` é herdado.** Listar a seção `[TORRE_WATCH]` mostrava
+`security_token_file`, que na verdade vinha do `[DEFAULT]`. Reescrever o arquivo com um parser
+teria materializado essa herança dentro de outra seção. A remoção foi textual, linha a linha, e o
+`[DEFAULT]` saiu com as mesmas cinco chaves que tinha.
+
+O script `scripts/vigiar-capacidade-oci.ps1` **permanece versionado**: ele não contém credencial
+nenhuma e documenta como o problema de capacidade foi resolvido. O log fica de fora pelo `*.log`
+do `.gitignore`.

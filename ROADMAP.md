@@ -5886,11 +5886,15 @@ Nó único, 1 GB de RAM, 1/8 de OCPU de linha de base, burst não garantido, sem
 recuperação pela Oracle se ficar ocioso. É uma demonstração de portfólio funcionando de verdade,
 não a arquitetura recomendada para um cliente real — essa continua sendo a do Azure, em `infra/`.
 
-### Pendência de segurança, fora dos critérios da fase
+### A credencial temporária foi removida
 
-A credencial técnica `torre-capacity-watcher`, criada só para vigiar capacidade A1, **ainda existe**.
-Nenhuma vigília está rodando e a VM já foi criada, então ela não tem mais função. Removê-la exige
-sessão humana da OCI com privilégio administrativo — o usuário técnico não pode remover a si mesmo.
+A identidade técnica `torre-capacity-watcher`, criada só para vigiar capacidade A1, foi eliminada
+em **28/09/2026**, no mesmo dia em que a VM entrou no ar: chave de API revogada, vínculo com o
+grupo desfeito, usuário, grupo e política removidos, chave privada local sobrescrita e apagada, e
+a seção `[TORRE_WATCH]` retirada do `~/.oci/config` sem tocar no `[DEFAULT]`.
+
+Na tenancy restaram apenas a conta humana, os dois grupos nativos e a política de administração.
+Nenhuma credencial de automação sobreviveu à tarefa que a justificava.
 
 ## Commits
 
