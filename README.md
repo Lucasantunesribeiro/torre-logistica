@@ -4,7 +4,49 @@ Plataforma B2B de operação logística em tempo real: acompanhamento de entrega
 saída para rota e a conclusão, com localização, ETA, SLA, geofencing, alertas,
 ocorrências, prova de entrega e rastreamento público controlado.
 
-> **Estado: Fase 25 — Infraestrutura e Deploy 🟨: infraestrutura escrita e validada, nada provisionado.**
+> **v1.0.0 — no ar.** Demonstração pública, sem cadastro, por US$ 0,00/mês:
+> **[operacao.torre.lucasafvr.com.br](https://operacao.torre.lucasafvr.com.br)** → *Explorar demonstração*.
+
+## O problema
+
+Uma transportadora com frota própria ou operação de última milha perde a entrega de vista no
+momento em que o veículo sai para a rua. Onde está o motorista, vai atrasar, o cliente foi avisado,
+a tentativa falhou por quê, cadê a foto da entrega — tudo isso vive em telefonemas, planilhas e
+grupos de mensagem. A Torre Logística fecha essa lacuna entre a **saída para rota** e a
+**conclusão**, com o dado chegando do próprio aparelho do motorista.
+
+## O produto
+
+Três experiências sobre o mesmo núcleo operacional:
+
+| Para quem | Aplicação | O que faz |
+|---|---|---|
+| Administrador, Supervisor, Operador | **Console** | mapa da operação, entregas, SLA/ETA, alertas, ocorrências, indicadores, auditoria |
+| Motorista | **PWA** | rota do dia, chegada, conclusão, ocorrência e comprovante — funcionando **offline** |
+| Destinatário | **Rastreamento público** | link com token forte, região aproximada do veículo, sem dados sensíveis |
+
+Não é SaaS comercial ativo, é projeto de portfólio — mas arquitetado para virar um sem reescrita.
+
+## O público
+
+Empresas de entrega local ou regional com frota própria: transportadoras, operações de última
+milha, distribuidoras. Quem hoje acompanha entrega por telefone e planilha.
+
+## O fluxo
+
+```text
+Entrega criada → planejada → atribuída ao motorista → saída para rota
+  → localização em tempo real → ETA → acompanhamento de SLA
+  → alertas e ocorrências → chegada (geofence) → prova de entrega → concluída → histórico
+```
+
+Fluxos alternativos: tentativa frustrada → reagendamento, ou cancelamento a partir de estado
+autorizado. A máquina de estados recusa regressão — entrega concluída não volta para *em rota* por
+telemetria atrasada.
+
+---
+
+> **Capacidades entregues, fase a fase.**
 > Login em canais separados, isolamento entre organizações, cadastros, entrega com timeline
 > somente-inserção, rota do dia, execução por máquina de estados, telemetria GPS, geofence do destino
 > no PostGIS, tempo real do console, previsão de chegada com SLA explicável, motor de alertas, a PWA do
@@ -43,13 +85,21 @@ ocorrências, prova de entrega e rastreamento público controlado.
 > quando ninguém olha** — avalia SLA, despacha webhook e apaga rastro vencido de madrugada —, então
 > escala a zero não serve — e, pelo mesmo motivo, os laços de fundo saíram da API para um **processo de
 > workers próprio**, sem porta nenhuma publicada. A ordem está em [`ROADMAP.md`](./ROADMAP.md).
+>
+> E agora o sistema **está no ar**. Depois de a capacidade Ampere A1 não aparecer em 143 consultas ao
+> longo de 12 horas, a demonstração foi para uma VM `E2.1.Micro` Always Free na Oracle Cloud, também
+> por US$ 0,00 — a pilha inteira, com PostgreSQL/PostGIS, Workers, SignalR e HTTPS, cabendo em 1 GB
+> de RAM sem remover funcionalidade. Foi validada **na infraestrutura pública real**, não em
+> localhost, e passou por um pentest gray-box de 16 categorias sem vulnerabilidade de alta
+> severidade em aberto ([`docs/pentest-v1.md`](./docs/pentest-v1.md)). A arquitetura de produção no
+> Azure segue intacta ao lado, como o alvo recomendado para cliente real.
 
 ## Stack
 
 | Camada | Tecnologia |
 |---|---|
 | Backend | C# / .NET 10, ASP.NET Core |
-| Banco | PostgreSQL 17 + PostGIS 3.5, EF Core 10 |
+| Banco | PostgreSQL 17 + PostGIS (3.5 no dev, 3.6 na demo pública), EF Core 10 |
 | Frontend | React 19, TypeScript estrito, Vite 8, React Router, TanStack Query, Zod |
 | Tempo real | SignalR (canal do console) |
 | Testes | xunit.v3, Testcontainers, Vitest, Testing Library |
@@ -169,6 +219,48 @@ em [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md#por-que
 Cada ADR registra também **como a decisão é verificada** — decisão sem verificação volta
 a ser desfeita por acidente.
 
+## Demonstração ao vivo
+
+**[operacao.torre.lucasafvr.com.br](https://operacao.torre.lucasafvr.com.br)** — clique em
+*Explorar demonstração*, sem cadastro. O servidor faz o login pelo visitante com uma conta de
+privilégio mínimo, e você cai numa operação já acontecendo: seis histórias encenadas pelo
+simulador contra a API real (entrega no prazo, risco de atraso, motorista offline, tentativa
+frustrada, chegada por geofence e prova de entrega).
+
+| Superfície | Endereço |
+|---|---|
+| Console operacional | https://operacao.torre.lucasafvr.com.br |
+| PWA do motorista | https://motorista.torre.lucasafvr.com.br |
+| Rastreamento público | https://rastrear.torre.lucasafvr.com.br |
+| API e SignalR | https://api.torre.lucasafvr.com.br |
+
+Roda numa VM de 1 GB Always Free. Se estiver ociosa, a primeira resposta pode levar um instante a
+mais enquanto a pilha aquece — a página trata isso com estado de carregamento, sem tela quebrada.
+
+## Screenshots e vídeo
+
+O plano das sete capturas — o que cada uma precisa mostrar e em que estado da operação — está em
+[`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md). A captura e o vídeo curto de
+demonstração (20–35 s, do mapa à prova de entrega, sem código nem terminal) são gerados a partir da
+demo ao vivo e anexados ao GitHub Release na publicação — passo manual, fora do controle de versão.
+
+## Limitações conhecidas
+
+Ditas com todas as letras, porque escondê-las seria desonesto num projeto que se apresenta como
+sério:
+
+- **A demo pública é nó único, sem SLA.** VM de 1 GB, 1/8 de OCPU com burst não garantido, sujeita
+  a recuperação pela Oracle se ficar ociosa. É demonstração de portfólio, **não** a arquitetura
+  recomendada para um cliente real — essa é a do Azure, em [`infra/`](./infra/README.md), com
+  instâncias separadas e banco gerenciado.
+- **Dado de demonstração é fictício e determinístico.** Mesma semente, mesma história; nomes,
+  telefones e endereços são inventados.
+- **ETA é determinístico e explicável, não preditivo por IA** — por decisão de projeto ([ADR 0018](./docs/adr/0018-previsao-de-chegada-e-sla.md)).
+- **Escopo deliberadamente fora:** billing, roteirização ótima (VRP), app nativo, chat, emissão
+  fiscal. A lista completa está no `CLAUDE.md`.
+- **Uma instância da API.** Tempo real e alertas hoje pressupõem processo único; múltiplas
+  instâncias exigiriam backplane, registrado como trabalho futuro nos ADRs de realtime e alertas.
+
 ## Documentação
 
 - [`CLAUDE.md`](./CLAUDE.md) — governança técnica: arquitetura, invariantes, padrões, autonomia
@@ -179,6 +271,7 @@ a ser desfeita por acidente.
 - [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md) — plano das sete capturas
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
+- [`docs/pentest-v1.md`](./docs/pentest-v1.md) — pentest gray-box da v1 contra a produção pública
 - [`docs/cost-model.md`](./docs/cost-model.md) — gate de arquitetura e o que dirige o custo
 - [`infra/README.md`](./infra/README.md) — infraestrutura de **produção** (Azure): aplicada de verdade e destruída por decisão de custo
 - [`infra-demo/README.md`](./infra-demo/README.md) — infraestrutura da **demonstração** (Oracle Always Free): US$ 0,00/mês, validada localmente, nada provisionado

@@ -147,7 +147,7 @@ Não antecipar:
 | 24 | UX Final e Modo Demonstração | ✅ |
 | 25 | Infraestrutura e Deploy | ✅ |
 | 26 | Validação em Produção e Pentest | ✅ |
-| 27 | Release v1.0.0 | ⬜ |
+| 27 | Release v1.0.0 | 🟨 |
 
 ---
 
@@ -6023,6 +6023,28 @@ relatório incorreto e foram isoladas antes de concluir.
 ---
 
 # FASE 27 — RELEASE v1.0.0
+
+## Estado — README final pronto, release aguarda autorização
+
+O **README final** foi escrito e cobre os 21 itens exigidos: problema, produto, público, fluxo,
+screenshots (plano), vídeo (plano), arquitetura, stack, PostGIS, offline, idempotência, SignalR,
+Outbox, segurança, observabilidade, performance, demo ao vivo, limitações, como executar e decisões
+de arquitetura. Todos os links internos resolvem.
+
+O que **falta**, e é deliberadamente gate de autorização humana (CLAUDE.md §77 e §94):
+
+| Item | Por que não foi feito |
+|---|---|
+| `git push` | exige autorização explícita naquela mensagem |
+| tag `v1.0.0` | idem — tag remota é gate |
+| GitHub Release | idem |
+| Vídeo 20–35 s e screenshots | capturados da demo ao vivo; ação humana, não versionável |
+| Description / homepage / topics / branch protection / dependabot | configuração no painel do GitHub, exige a conta |
+
+Quando autorizar, a sequência é: commit final → push → `git tag v1.0.0` → GitHub Release com o vídeo
+anexado. A fase vira ✅ só quando a release pública existir.
+
+
 
 ## Objetivo
 
