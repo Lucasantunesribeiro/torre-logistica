@@ -147,7 +147,7 @@ Não antecipar:
 | 24 | UX Final e Modo Demonstração | ✅ |
 | 25 | Infraestrutura e Deploy | ✅ |
 | 26 | Validação em Produção e Pentest | ✅ |
-| 27 | Release v1.0.0 | 🟨 |
+| 27 | Release v1.0.0 | ✅ |
 
 ---
 
@@ -6024,7 +6024,18 @@ relatório incorreto e foram isoladas antes de concluir.
 
 # FASE 27 — RELEASE v1.0.0
 
-## Estado — README final pronto, release aguarda autorização
+## Estado — v1.0.0 publicada (28/09/2026) ✅
+
+Repositório público: **https://github.com/Lucasantunesribeiro/torre-logistica**
+Release: **https://github.com/Lucasantunesribeiro/torre-logistica/releases/tag/v1.0.0**
+
+- `main` publicada em `973da83`; tag anotada `v1.0.0` no mesmo commit, confirmada pela API.
+- GitHub Release pública, marcada como `latest`, não-draft, não-prerelease.
+- Descrição, homepage (demo), 15 topics, Dependabot alerts + security fixes e proteção da `main`
+  (força-push e deleção bloqueados, push normal livre) configurados.
+- README renderiza com 5 tabelas e 4 blocos de código, sem erro nem link quebrado.
+- **Screenshots e vídeo** (20–35 s, do mapa à prova de entrega) ficam para anexar à Release como
+  assets — passo manual, gerado da demo ao vivo.
 
 O **README final** foi escrito e cobre os 21 itens exigidos: problema, produto, público, fluxo,
 screenshots (plano), vídeo (plano), arquitetura, stack, PostGIS, offline, idempotência, SignalR,
