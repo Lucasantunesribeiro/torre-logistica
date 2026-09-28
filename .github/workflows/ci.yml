@@ -117,3 +117,83 @@ jobs:
             ghcr.io/gitleaks/gitleaks:latest \
             detect --source=/repo --redact --verbose --no-banner \
             --config=/repo/.gitleaks.toml
+
+  contrato:
+    name: Contrato — esquemas do console contra a API real
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Segredos efêmeros do job: nunca versionados, valem só para esta execução.
+      - name: Preparar ambiente da demonstração
+        working-directory: infra-demo
+        run: |
+          umask 077
+          b64() { openssl rand -base64 "$1" | tr -d '\n'; }
+          alnum() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "$1"; }
+          cat > .env.demo <<EOF
+          TORRE_DOMINIO_CONSOLE=console.localhost
+          TORRE_DOMINIO_MOTORISTA=motorista.localhost
+          TORRE_DOMINIO_RASTREAMENTO=rastrear.localhost
+          TORRE_DOMINIO_API=localhost
+          TORRE_EMAIL_ACME=ci@exemplo.invalido
+          TORRE_ESQUEMA_PUBLICO=http
+          TORRE_DIRETORIO_DADOS=/srv/torre-logistica
+          TORRE_POSTGRES_BANCO=torre_logistica
+          TORRE_POSTGRES_USUARIO=torre
+          TORRE_POSTGRES_SENHA=$(alnum 28)
+          TORRE_CHAVE_DE_TOKEN=$(b64 48)
+          TORRE_CHAVE_DE_ARMAZENAMENTO=$(b64 32)
+          TORRE_CHAVE_DE_WEBHOOKS=$(b64 32)
+          TORRE_REDE_DA_BORDA=172.16.0.0/12
+          TORRE_DEMO_ORGANIZACAO=transportadora-aurora
+          TORRE_DEMO_EMAIL=paula.siqueira@aurora.test
+          TORRE_DEMO_SENHA=$(alnum 20)9Aa
+          TORRE_DEMO_SEMENTE=2026
+          TORRE_DEMO_MULTIPLICADOR=60
+          TORRE_RETENCAO_DE_POSICOES=7.00:00:00
+          TORRE_URL_DO_ESTILO_DO_MAPA=
+          EOF
+
+      - name: Subir a stack
+        working-directory: infra-demo
+        run: |
+          sudo mkdir -p /srv/torre-logistica/postgres /srv/torre-logistica/comprovantes
+          sudo chown -R 999:999 /srv/torre-logistica/postgres
+          sudo chown -R 1654:1654 /srv/torre-logistica/comprovantes
+          docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build banco api workers web
+
+      - name: Esperar a API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS -H 'Host: localhost' http://localhost/health/ready >/dev/null 2>&1; then
+              echo "API pronta"; exit 0
+            fi
+            sleep 3
+          done
+          echo "API não ficou pronta"; docker compose -f infra-demo/docker-compose.demo.yml --env-file infra-demo/.env.demo logs api | tail -40; exit 1
+
+      - name: Teste de contrato contra a API real
+        run: |
+          SENHA=$(grep '^TORRE_DEMO_SENHA=' infra-demo/.env.demo | cut -d= -f2-)
+          TORRE_API_CONTRATO=http://localhost \
+          TORRE_CONTRATO_ORIGEM=http://console.localhost \
+          TORRE_CONTRATO_ORG=transportadora-aurora \
+          TORRE_CONTRATO_EMAIL=paula.siqueira@aurora.test \
+          TORRE_CONTRATO_SENHA="$SENHA" \
+          npm run test --workspace @torre/operacao -- contrato
+
+      - name: Encerrar a stack
+        if: always()
+        working-directory: infra-demo
+        run: docker compose -f docker-compose.demo.yml --env-file .env.demo down -v

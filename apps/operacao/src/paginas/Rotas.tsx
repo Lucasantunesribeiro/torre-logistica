@@ -49,26 +49,22 @@ export function Rotas() {
             </tr>
           </thead>
           <tbody>
-            {consulta.data?.itens.map((rota) => {
-              const pendentes = rota.paradas.filter(
-                (parada) => parada.status !== 'Entregue' && parada.status !== 'Cancelada',
-              ).length;
-
-              return (
-                <tr key={rota.id}>
-                  <td>{rota.codigo}</td>
-                  <td>{rota.data}</td>
-                  <td>
-                    <Selo tom={tomPorStatus[rota.status]}>{rota.status}</Selo>
-                  </td>
-                  <td>{rota.motorista?.nome ?? '—'}</td>
-                  <td>
-                    {pendentes} de {rota.paradas.length} pendente(s)
-                  </td>
-                  <td>{instante(rota.saidaPlanejada)}</td>
-                </tr>
-              );
-            })}
+            {consulta.data?.itens.map((rota) => (
+              <tr key={rota.id}>
+                <td>{rota.codigo}</td>
+                <td>{rota.data}</td>
+                <td>
+                  <Selo tom={tomPorStatus[rota.status]}>{rota.status}</Selo>
+                </td>
+                <td>
+                  <Selo tom={rota.motoristaId === null ? 'neutro' : 'bom'}>
+                    {rota.motoristaId === null ? 'Sem motorista' : 'Atribuída'}
+                  </Selo>
+                </td>
+                <td>{rota.quantidadeDeParadas} parada(s)</td>
+                <td>{instante(rota.saidaPlanejada)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
 

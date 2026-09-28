@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 
-import { Estado, Selo, instante } from '../componentes/Estado';
+import { Estado, Selo, instante, tomDaSeveridade } from '../componentes/Estado';
 import { listarAlertas, listarEntregas, listarOcorrencias } from '../infra/api';
 
 /** Só o total interessa nestes contadores: pedir uma linha basta. */
@@ -71,7 +71,7 @@ export function PainelOperacional() {
         <ul className="lista">
           {alertas.data?.itens.slice(0, 8).map((alerta) => (
             <li key={alerta.id}>
-              <Selo tom={alerta.severidade === 'Critica' ? 'ruim' : 'atencao'}>{alerta.severidade}</Selo>{' '}
+              <Selo tom={tomDaSeveridade(alerta.severidade)}>{alerta.severidade}</Selo>{' '}
               {alerta.descricao}
               {alerta.entregaId === null ? null : (
                 <>

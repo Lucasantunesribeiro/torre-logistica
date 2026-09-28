@@ -518,6 +518,13 @@ tbody td:first-child {
   border-style: solid;
 }
 
+.estado--proibido {
+  color: var(--atencao-tinta);
+  background: var(--atencao-suave);
+  border: 1px solid var(--atencao-borda);
+  border-style: solid;
+}
+
 /* Barra de progresso indeterminada para o estado de carregamento. */
 .estado--carregando::before {
   content: '';

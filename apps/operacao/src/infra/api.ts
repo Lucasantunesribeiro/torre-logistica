@@ -110,20 +110,57 @@ const esquemaDeParada = z.object({
   status: esquemaDeStatus,
 });
 
-const esquemaDeRota = z.object({
+const esquemaDeStatusDaRota = z.enum(['EmMontagem', 'Planejada', 'EmAndamento', 'Concluida', 'Cancelada']);
+
+/**
+ * Rota na LISTAGEM: o backend projeta só o que a linha da tabela precisa — sem carregar o motorista
+ * nem as paradas, que são consulta a mais. Por isso `motoristaId` e a contagem, não o objeto e o array.
+ */
+const esquemaDeRotaResumo = z.object({
   id: z.string(),
   codigo: z.string(),
   data: z.string(),
-  status: z.enum(['EmMontagem', 'Planejada', 'EmAndamento', 'Concluida', 'Cancelada']),
+  status: esquemaDeStatusDaRota,
+  hubId: z.string().nullable(),
+  motoristaId: z.string().nullable(),
+  veiculoId: z.string().nullable(),
+  saidaPlanejada: z.string().nullable(),
+  quantidadeDeParadas: z.number().int(),
+  versao: z.number().int(),
+});
+
+/**
+ * Rota no DETALHE: a forma completa, com o motorista e o veículo resolvidos e a lista de paradas.
+ * Contrato genuinamente diferente do resumo — daí dois esquemas, não campos opcionais no mesmo.
+ */
+const esquemaDeRotaDetalhe = z.object({
+  id: z.string(),
+  codigo: z.string(),
+  data: z.string(),
+  status: esquemaDeStatusDaRota,
+  hub: z.object({ id: z.string(), nome: z.string() }).nullable(),
   motorista: z.object({ id: z.string(), nome: z.string() }).nullable(),
+  veiculo: z.object({ id: z.string(), placa: z.string(), identificacao: z.string() }).nullable(),
   saidaPlanejada: z.string().nullable(),
   paradas: z.array(esquemaDeParada),
+  criadaEm: z.string(),
+  planejadaEm: z.string().nullable(),
+  iniciadaEm: z.string().nullable(),
+  concluidaEm: z.string().nullable(),
+  canceladaEm: z.string().nullable(),
+  versao: z.number().int(),
 });
+
+/**
+ * Severidade operacional — a mesma escala do domínio (`SeveridadeDoAlerta`/`SeveridadeDaOcorrencia`).
+ * Um único enum aqui evita que alerta e ocorrência divirjam entre si ou do backend.
+ */
+const esquemaDeSeveridade = z.enum(['Baixa', 'Media', 'Alta', 'Critica']);
 
 const esquemaDeAlerta = z.object({
   id: z.string(),
   tipo: z.string(),
-  severidade: z.enum(['Informativa', 'Atencao', 'Critica']),
+  severidade: esquemaDeSeveridade,
   estado: z.enum(['Aberto', 'Resolvido']),
   descricao: z.string(),
   entregaId: z.string().nullable(),
@@ -139,7 +176,7 @@ const esquemaDeOcorrencia = z.object({
   codigoDaEntrega: z.string(),
   nomeDoMotorista: z.string().nullable(),
   tipo: z.string(),
-  severidade: z.enum(['Informativa', 'Atencao', 'Critica']),
+  severidade: esquemaDeSeveridade,
   observacao: z.string().nullable(),
   ocorridaEm: z.string(),
 });
@@ -182,7 +219,9 @@ export type Previsao = z.infer<typeof esquemaDePrevisao>;
 export type Comprovante = z.infer<typeof esquemaDeComprovante>;
 export type Motorista = z.infer<typeof esquemaDeMotorista>;
 export type Posicao = z.infer<typeof esquemaDePosicao>;
-export type Rota = z.infer<typeof esquemaDeRota>;
+export type RotaResumo = z.infer<typeof esquemaDeRotaResumo>;
+export type RotaDetalhe = z.infer<typeof esquemaDeRotaDetalhe>;
+export type Severidade = z.infer<typeof esquemaDeSeveridade>;
 export type Alerta = z.infer<typeof esquemaDeAlerta>;
 export type Ocorrencia = z.infer<typeof esquemaDeOcorrencia>;
 export type Integracao = z.infer<typeof esquemaDeIntegracao>;
@@ -194,6 +233,22 @@ export interface Pagina<T> {
   readonly tamanhoDaPagina: number;
   readonly total: number;
 }
+
+/**
+ * Esquemas de leitura expostos para o teste de contrato validar contra a API real.
+ *
+ * O drift que quebrou o console em produção (enum de severidade, forma de Rota) passou pelos testes
+ * porque os mocks repetiam o contrato errado do próprio frontend. Este mapa deixa um teste separado
+ * (`contrato.test.ts`) conferir cada esquema contra o backend de verdade — a única fonte que não
+ * mente sobre o contrato.
+ */
+export const esquemasDeContrato = {
+  '/api/entregas': paginaDe(esquemaDeEntrega),
+  '/api/rotas': paginaDe(esquemaDeRotaResumo),
+  '/api/motoristas': paginaDe(esquemaDeMotorista),
+  '/api/alertas?estado=Aberto': paginaDe(esquemaDeAlerta),
+  '/api/ocorrencias': paginaDe(esquemaDeOcorrencia),
+} as const;
 
 /** Falha que a tela sabe mostrar: traz o código de erro da API quando há um. */
 export class ErroDaApi extends Error {
@@ -299,10 +354,10 @@ export const emitirLinkDeRastreamento = (id: string): Promise<{ token: string; e
     comando(),
   );
 
-export const listarRotas = (pagina = 1): Promise<Pagina<Rota>> =>
-  chamar(`/api/rotas${consulta({ pagina, tamanhoDaPagina: 25 })}`, paginaDe(esquemaDeRota));
+export const listarRotas = (pagina = 1): Promise<Pagina<RotaResumo>> =>
+  chamar(`/api/rotas${consulta({ pagina, tamanhoDaPagina: 25 })}`, paginaDe(esquemaDeRotaResumo));
 
-export const obterRota = (id: string): Promise<Rota> => chamar(`/api/rotas/${id}`, esquemaDeRota);
+export const obterRota = (id: string): Promise<RotaDetalhe> => chamar(`/api/rotas/${id}`, esquemaDeRotaDetalhe);
 
 export const listarMotoristas = (pagina = 1): Promise<Pagina<Motorista>> =>
   chamar(`/api/motoristas${consulta({ pagina, tamanhoDaPagina: 25 })}`, paginaDe(esquemaDeMotorista));

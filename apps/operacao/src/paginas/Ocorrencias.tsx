@@ -2,14 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
 
-import { Estado, Selo, instante } from '../componentes/Estado';
+import { Estado, Selo, instante, tomDaSeveridade } from '../componentes/Estado';
 import { listarOcorrencias } from '../infra/api';
-
-const tomPorSeveridade = {
-  Informativa: 'neutro',
-  Atencao: 'atencao',
-  Critica: 'ruim',
-} as const;
 
 /** Ocorrências registradas na última milha, das mais recentes para as mais antigas. */
 export function Ocorrencias() {
@@ -46,7 +40,7 @@ export function Ocorrencias() {
             {consulta.data?.itens.map((ocorrencia) => (
               <tr key={ocorrencia.id}>
                 <td>
-                  <Selo tom={tomPorSeveridade[ocorrencia.severidade]}>{ocorrencia.severidade}</Selo>
+                  <Selo tom={tomDaSeveridade(ocorrencia.severidade)}>{ocorrencia.severidade}</Selo>
                 </td>
                 <td>{ocorrencia.tipo}</td>
                 <td>

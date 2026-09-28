@@ -25,6 +25,9 @@ const grupos = [
   },
   {
     titulo: 'Integração',
+    // Integrações e Webhooks são administração de credenciais: o backend as protege com a política
+    // que só o Administrador satisfaz. O menu respeita isso — não oferece porta que dá 403.
+    perfis: ['Administrador'] as const,
     itens: [
       { para: '/integracoes', rotulo: 'Integrações', fim: false },
       { para: '/webhooks', rotulo: 'Webhooks', fim: false },
@@ -60,20 +63,26 @@ export function Layout() {
         <p className="console__marca">Torre Logística</p>
 
         <div className="console__grupos">
-          {grupos.map((grupo) => (
-            <div className="console__grupo" key={grupo.titulo}>
-              <p className="console__grupo-titulo">{grupo.titulo}</p>
-              <ul>
-                {grupo.itens.map((secao) => (
-                  <li key={secao.para}>
-                    <NavLink to={secao.para} end={secao.fim}>
-                      {secao.rotulo}
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {grupos
+            .filter(
+              (grupo) =>
+                !('perfis' in grupo) ||
+                (usuario !== null && (grupo.perfis as readonly string[]).includes(usuario.perfil)),
+            )
+            .map((grupo) => (
+              <div className="console__grupo" key={grupo.titulo}>
+                <p className="console__grupo-titulo">{grupo.titulo}</p>
+                <ul>
+                  {grupo.itens.map((secao) => (
+                    <li key={secao.para}>
+                      <NavLink to={secao.para} end={secao.fim}>
+                        {secao.rotulo}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
         </div>
 
         <IndicadorDeConexao />

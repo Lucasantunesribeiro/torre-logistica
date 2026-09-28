@@ -2,14 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
 
-import { Estado, Selo, instante } from '../componentes/Estado';
+import { Estado, Selo, instante, tomDaSeveridade } from '../componentes/Estado';
 import { listarAlertas, resolverAlerta } from '../infra/api';
-
-const tomPorSeveridade = {
-  Informativa: 'neutro',
-  Atencao: 'atencao',
-  Critica: 'ruim',
-} as const;
 
 /**
  * Alertas operacionais, abertos primeiro.
@@ -77,7 +71,7 @@ export function Alertas() {
             {consulta.data?.itens.map((alerta) => (
               <tr key={alerta.id}>
                 <td>
-                  <Selo tom={tomPorSeveridade[alerta.severidade]}>{alerta.severidade}</Selo>
+                  <Selo tom={tomDaSeveridade(alerta.severidade)}>{alerta.severidade}</Selo>
                 </td>
                 <td>{alerta.tipo}</td>
                 <td>{alerta.descricao}</td>

@@ -107,7 +107,7 @@ const OCORRENCIA = {
   codigoDaEntrega: 'ENT-2026-000042',
   nomeDoMotorista: 'Rafael Lima',
   tipo: 'ProblemaComVeiculo',
-  severidade: 'Atencao',
+  severidade: 'Media',
   observacao: 'Pneu furado',
   ocorridaEm: '2026-09-21T11:20:00Z',
 };
