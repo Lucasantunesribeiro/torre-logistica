@@ -146,7 +146,7 @@ Não antecipar:
 | 23 | Simulador e Seed Narrativo | ✅ |
 | 24 | UX Final e Modo Demonstração | ✅ |
 | 25 | Infraestrutura e Deploy | ✅ |
-| 26 | Validação em Produção e Pentest | ⬜ |
+| 26 | Validação em Produção e Pentest | ✅ |
 | 27 | Release v1.0.0 | ⬜ |
 
 ---
@@ -5911,7 +5911,7 @@ Nenhuma credencial de automação sobreviveu à tarefa que a justificava.
 
 ---
 
-# FASE 26 — VALIDAÇÃO EM PRODUÇÃO E PENTEST
+# FASE 26 — VALIDAÇÃO EM PRODUÇÃO E PENTEST ✅
 
 ## Objetivo
 
@@ -5995,6 +5995,31 @@ Zero vulnerabilidade conhecida de alta severidade não aceita.
 
 Qualquer risco aceito deve ser documentado.
 
+
+## Resultado — Fase 26 ✅
+
+Executada em **28/09/2026** contra a infraestrutura pública real (`https://*.torre.lucasafvr.com.br`,
+VM E2.1.Micro em `137.131.167.193`), não em localhost. Relatório completo em `docs/pentest-v1.md`.
+
+**16 categorias de pentest gray-box**, todas com a defesa esperada: auth bypass (401), IDOR (404),
+cross-tenant lista e IDOR direto (boreal vê 0 de 6; GET por ID de aurora → 404, dono → 200), RBAC
+(supervisor 403 / admin 201), brute force (429) e lockout por conta (5 falhas → 15 min, erro
+uniforme), token de rastreio ~256 bits, CORS não reflete origem forjada, integração sem/ com chave
+falsa → 401, mass assignment de `organizacaoId` → 400, idempotência por header, sem vazamento de
+erro ou versão, HSTS/CSP/X-Frame-Options/nosniff na borda.
+
+**Scans de dependência:** 0 alta/crítica em `TorreLogistica.Api` (+ transitivas) e nos três
+frontends (`npm audit`).
+
+**Produção:** cold start ~90 ms, WebSocket sobre TLS reconecta, signed URL com expiração, auditoria
+append-only registrando as ações (25 eventos, incluindo os gerados pelos próprios testes).
+
+**Riscos aceitos:** nó único sem SLA (demo Always Free) e seed com senha compartilhada — ambos
+próprios de demonstração de portfólio, documentados. Nenhum de alta severidade não aceito.
+
+Duas armadilhas de teste ficaram registradas no relatório: senha com `!` corrompida pela expansão
+de histórico do bash, e lockout de conta mascarado de rate limit. As duas quase produziram
+relatório incorreto e foram isoladas antes de concluir.
 ---
 
 # FASE 27 — RELEASE v1.0.0
