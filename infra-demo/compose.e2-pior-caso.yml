@@ -1,0 +1,37 @@
+# Pior caso do Always Free E2.1.Micro: 1 GB de RAM e a LINHA DE BASE de 1/8 de OCPU, sem burst.
+#
+# A Oracle documenta "1/8th of an OCPU with the ability to use additional CPU resources". O
+# `ocpus: 1.0` da API do shape e o tamanho NOMINAL, nao o que o nivel gratuito sustenta.
+# 1/8 OCPU ~ 0,25 vCPU: e o que os tetos abaixo somam.
+
+services:
+  banco:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.10"
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: 224M
+          cpus: "0.10"
+  workers:
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.03"
+  web:
+    deploy:
+      resources:
+        limits:
+          memory: 48M
+          cpus: "0.02"
+  simulador:
+    deploy:
+      resources:
+        limits:
+          memory: 48M
+          cpus: "0.05"

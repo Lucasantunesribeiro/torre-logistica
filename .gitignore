@@ -66,3 +66,6 @@ Desktop.ini
 
 # agent skills config (local, seeded from ~/.agents/mattpocock-config)
 docs/agents/
+
+# Saída das validações locais da pilha da demonstração (medições, logs, amostras).
+infra-demo/.saida-validacao/

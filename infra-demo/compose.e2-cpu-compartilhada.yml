@@ -1,0 +1,22 @@
+# Sobreposição que emula a VM.Standard.E2.1.Micro (1 OCPU AMD / 1 GB).
+#
+# CPU: `cpuset: "0"` prende todos os contêineres ao MESMO núcleo lógico — teto compartilhado, com
+# disputa real entre serviços, como numa máquina pequena. É conservador em uma direção e otimista
+# em outra, e as duas ficam declaradas:
+#   - conservador: E2.1.Micro tem 1 OCPU AMD = 2 vCPUs (SMT). Aqui damos 1 vCPU, metade.
+#   - otimista: o núcleo desta máquina é mais novo e mais rápido que um EPYC 7551 Naples de 2,0 GHz.
+# Docker Desktop não reproduz a política de escalonamento da OCI. A medição indica ordem de
+# grandeza, não equivalência.
+#
+# Memória: esta passada NÃO aperta os tetos. Serve para medir a demanda natural da pilha.
+services:
+  banco:
+    cpuset: "0"
+  api:
+    cpuset: "0"
+  workers:
+    cpuset: "0"
+  web:
+    cpuset: "0"
+  simulador:
+    cpuset: "0"

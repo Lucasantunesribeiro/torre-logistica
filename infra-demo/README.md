@@ -633,6 +633,146 @@ terraform validate            Success! The configuration is valid.
 
 ---
 
+# Estudo do shape E2.1.Micro — alternativa Always Free ao Ampere A1
+
+Depois de **143 consultas em 12 horas seguidas** sem uma única janela de capacidade A1 em
+`sa-saopaulo-1`, o outro shape gratuito da OCI foi medido. Este capítulo registra o estudo. **Nada
+foi provisionado**: o objetivo era saber se vale a pena.
+
+## Os dois shapes, lado a lado
+
+| | `VM.Standard.A1.Flex` | `VM.Standard.E2.1.Micro` |
+|---|---|---|
+| Arquitetura | ARM64 (Ampere) | x86-64 (AMD EPYC 7551 Naples, 2,0 GHz) |
+| Configuração da demo | 1 OCPU · 4 GB | fixo: 1 GB |
+| CPU do nível gratuito | 1 OCPU inteira | **1/8 de OCPU com burst** |
+| Rede | — | 0,48 Gbps, 1 VNIC |
+| `billing-type` da API | `ALWAYS_FREE` | `ALWAYS_FREE` |
+| Cota | `standard-a1-core-count` | `standard-e2-micro-core-count` |
+| Capacidade em 28/09/2026 | `OUT_OF_HOST_CAPACITY` | **`AVAILABLE`** |
+
+A última linha veio da mesma chamada, no mesmo instante, três vezes seguidas — o relatório sabe
+discriminar, e isso valida retroativamente as 143 leituras negativas da vigília.
+
+> **Uma correção que muda a leitura.** A API do shape devolve `ocpus: 1.0`, e por isso a primeira
+> emulação deu à pilha um núcleo moderno inteiro. A documentação da Oracle diz outra coisa:
+> *"1/8th of an OCPU with the ability to use additional CPU resources"*. O `1.0` é o tamanho
+> **nominal** do shape, não o que o nível gratuito sustenta. O teste foi refeito com teto de
+> 0,25 vCPU — e é esse o número que vale.
+
+## Compatibilidade `linux/amd64`
+
+A demo nasceu multiarch e continuou. Nenhum arquivo precisou mudar:
+
+| Artefato | `linux/amd64` | Base |
+|---|---|---|
+| `torre-logistica-postgis` | ✅ 212 MB | digest fixado do `postgres:17-bookworm` é **lista de manifesto** |
+| `torre-logistica-api` | ✅ 58 MB | `mcr.microsoft.com/dotnet/aspnet:10.0-noble` |
+| `torre-logistica-workers` | ✅ 45 MB | idem |
+| `torre-logistica-web` | ✅ 24 MB | `caddy:2.10-alpine` |
+| `torre-logistica-simulador` | ✅ 40 MB | idem API |
+
+O ARM64 segue intacto: as cinco imagens `:arm64` da prova anterior continuam válidas e nenhum
+`Dockerfile` foi tocado. A compilação cruzada (`--platform=$BUILDPLATFORM` + `dotnet -a $TARGETARCH`)
+atende as duas arquiteturas pelo mesmo caminho.
+
+## Memória: cabe em 1 GB
+
+Medido em três perfis, sempre com as seis histórias completas. Pico **simultâneo**, não soma de
+picos em instantes diferentes:
+
+| Perfil | banco | API | workers | web | simulador | **total simultâneo** |
+|---|---|---|---|---|---|---|
+| Tetos generosos (2.884 MiB) | 208,2 | 173,6 | 114,9 | 11,8 | 27,5 | **536,0 MiB** |
+| Tetos de 1 GB (704 MiB) | 208,3 | 151,0 | 89,4 | 12,6 | 27,6 | **488,9 MiB** |
+| Pior caso (1 GB + 1/8 OCPU) | 220,0 | 155,4 | 79,2 | 10,5 | 28,9 | **494,0 MiB** |
+
+Duas leituras importam:
+
+1. **O .NET encolhe sozinho.** Com teto de 900 MiB a API pediu 173,6 MiB; com 224 MiB pediu 151,0.
+   O GC lê o limite do cgroup e se dimensiona. Nenhuma variável de ambiente foi necessária.
+2. **O PostgreSQL é o inquilino apertado.** 220 MiB contra um teto de 256 MiB são 86%. É onde um
+   ajuste de `shared_buffers` entraria primeiro, se entrar.
+
+Orçamento do host de 1 GB (≈960 MiB utilizáveis):
+
+```text
+Ubuntu 24.04 Minimal + kernel + sshd   ~150 MiB
+dockerd + containerd                   ~150 MiB
+contêineres da Torre (pico medido)      494 MiB
+                                       ---------
+                                        ~794 MiB   sobra ~165 MiB
+```
+
+Nenhuma funcionalidade foi removida para chegar a esse número. Workers continuam em processo
+separado, SignalR continua, PostGIS continua, e o domínio não foi tocado.
+
+## CPU: funciona, com cauda pesada
+
+Sob 1/8 de OCPU (0,25 vCPU somada, **sem** contar o burst que o shape real oferece):
+
+| Medida | 1 núcleo compartilhado | 1/8 de OCPU |
+|---|---|---|
+| API saudável em | 24 s | **93 s** |
+| Seis histórias | 100 s | **135 s** |
+| `/health/ready` p50 / p95 / p99 | 6,0 / 10,3 / 11,1 ms | **4,5 / 74,3 / 164,5 ms** |
+| `GET /api/entregas` p50 / p95 / p99 | — | **6,2 / 67,1 / 449,6 ms** |
+| Reinícios, OOM, erros | 0 | **0** |
+
+A mediana continua boa; a cauda é onde a estrangulação aparece. Para uma demonstração de portfólio,
+p99 de 450 ms no pior caso é aceitável — e o shape real tem burst, que esta medição **não** concede.
+
+> **Limitação declarada.** O Docker Desktop não reproduz a política de burst da OCI. O que foi
+> medido é o piso (linha de base sem burst) e o teto (um núcleo moderno inteiro). O comportamento
+> real fica entre os dois, mais perto do piso quanto mais sustentada for a carga. Além disso, um
+> núcleo desta máquina é mais rápido que um EPYC 7551 de 2,0 GHz — o piso medido ainda é otimista
+> nessa direção.
+
+## Prova funcional sob o pior caso
+
+Tudo abaixo rodou com 1 GB e 1/8 de OCPU:
+
+| Prova | Resultado |
+|---|---|
+| Seis histórias | ✅ `OperacaoNormal`, `RiscoDeAtraso`, `MotoristaOffline`, `TentativaFrustrada`, `EntradaNoGeofence`, `ProvaDeEntrega` |
+| PostGIS na fronteira | ✅ 299 m dentro, 301 m fora |
+| Estado no banco | 6 entregas, 32 eventos, 21 posições, 5 alertas, 1 ocorrência, 1 comprovante |
+| SignalR pelo Caddy | ✅ WebSocket, queda e **reconexão** após reinício da API |
+| Comprovante | ✅ autorizar → enviar → HTTP 201, 160 bytes |
+| Rastreamento público | ✅ token válido 200, token inválido **404** |
+| Persistência | ✅ banco e arquivos idênticos após `down`/`up` — 2 arquivos, 590 bytes |
+| Estabilidade | ✅ 0 reinícios, 0 OOM, 0 erros em API e workers |
+
+## Swap: cinto de segurança, não muleta
+
+Com pico de 494 MiB e ~165 MiB de sobra, **a operação normal cabe em RAM**. Swap não é necessário
+para funcionar; é seguro para não morrer num transiente.
+
+Se for adotado: 512 MiB em arquivo (`/swapfile`), no volume de inicialização, com
+`vm.swappiness=10`. O custo precisa ser dito: o volume de inicialização da OCI é armazenamento de
+rede, então cada página que for para o swap vira I/O de rede — lenta, e contada contra o IOPS do
+volume. Swap que entra em uso constante é sintoma, não solução; nesse caso o certo é revisar
+`shared_buffers` do PostgreSQL, não ampliar o arquivo.
+
+## O que NÃO foi provado
+
+- **O limite de serviço da tenancy para `standard-e2-micro-core-count`.** O usuário técnico
+  `torre-capacity-watcher` recebe `NotAuthorizedOrNotFound` em `limits` — por desenho, a política
+  de privilégio mínimo nunca concedeu isso — e a sessão humana estava expirada. A Oracle documenta
+  2 instâncias por tenancy e o LinkGuardião usa 1, mas **documentação não é medição desta conta**.
+- **Capacidade não é cota.** `AVAILABLE` no Compute Capacity Report diz que existe hospedeiro com
+  estoque; não diz que esta tenancy tem direito a mais uma instância. São perguntas diferentes.
+
+## Como reproduzir
+
+```bash
+# Preencha infra-demo/.env.demo (TORRE_EMAIL_ACME é obrigatório, mesmo em http)
+bash infra-demo/scripts/validar-pilha-sob-e2.sh                                    # CPU compartilhada
+bash infra-demo/scripts/validar-pilha-sob-e2.sh infra-demo/compose.e2-pior-caso.yml pior-caso
+```
+
+---
+
 # Vigília de capacidade — `scripts/vigiar-capacidade-oci.ps1`
 
 ## Por que existe
@@ -645,7 +785,7 @@ Tentar criar para descobrir se dá é caro e cego: cada ciclo gasta uma chamada 
 responde sim ou não. A Oracle oferece a pergunta direta — o **Compute Capacity Report** — que diz se
 existe capacidade para um shape específico num domínio de disponibilidade **sem criar nada**.
 
-A vigília pergunta a cada 15 minutos e só chama o Terraform quando a resposta é `AVAILABLE`.
+A vigília pergunta a cada 5 minutos e só chama o Terraform quando a resposta é `AVAILABLE`.
 
 ## Identidade própria, com privilégio mínimo
 
@@ -744,7 +884,7 @@ ninguém ver.
 # Exercita o ramo AVAILABLE sem capacidade real e sem criar VM
 .\vigiar-capacidade-oci.ps1 -CompartimentoOcid <ocid> -CiclosMaximos 1 -Simular -EstadoSimulado AVAILABLE
 
-# Vigília de 12 horas, a cada 15 minutos
+# Vigília de 12 horas, a cada 5 minutos (padrão)
 .\vigiar-capacidade-oci.ps1 -CompartimentoOcid <ocid>
 ```
 
