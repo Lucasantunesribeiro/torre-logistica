@@ -145,7 +145,7 @@ Não antecipar:
 | 22 | Performance e Resiliência | ✅ |
 | 23 | Simulador e Seed Narrativo | ✅ |
 | 24 | UX Final e Modo Demonstração | ✅ |
-| 25 | Infraestrutura e Deploy | 🟨 |
+| 25 | Infraestrutura e Deploy | ✅ |
 | 26 | Validação em Produção e Pentest | ⬜ |
 | 27 | Release v1.0.0 | ⬜ |
 
@@ -4725,7 +4725,7 @@ para a frase ficar completa é o ambiente público — Fase 25.
 
 ---
 
-# FASE 25 — INFRAESTRUTURA E DEPLOY 🟨
+# FASE 25 — INFRAESTRUTURA E DEPLOY ✅
 
 > **Em andamento.** O gate de arquitetura está cumprido e a infraestrutura está escrita e validada, mas a
 > fase **não fecha** enquanto não houver ambiente provisionado e aplicação funcionando no publicado.
@@ -5834,11 +5834,63 @@ enganar o critério.
 |---|---|
 | Arquitetura de produção | ✅ desenhada, validada e exercitada contra o Azure real |
 | Arquitetura de demonstração | ✅ desenhada, construída e validada localmente |
-| Ambiente de demonstração **no ar** | ❌ exige autorização para provisionar na Oracle |
-| Domínio e registros DNS | ❌ decisão do Lucas; nenhum domínio foi inventado |
-| Declarações de cota conferidas contra a conta real | ❌ só o `apply` as valida |
+| Ambiente de demonstração **no ar** | ✅ publicado em 28/09/2026 |
+| Domínio e registros DNS | ✅ quatro registros A, TTL 60, conferidos em 4 resolvedores |
+| Declarações de cota conferidas contra a conta real | ✅ cota efetiva 1 para o shape gratuito, 0 para os pagos |
 
-A fase fecha quando existir um ambiente publicado — e ele agora cabe em custo mensal zero.
+## O ambiente publicado — Fase 25 ✅
+
+Publicado em **28/09/2026**, em `VM.Standard.E2.1.Micro` Always Free na Oracle Cloud
+(`sa-saopaulo-1`), com custo recorrente de **US$ 0,00**.
+
+| Endereço | |
+|---|---|
+| `operacao.torre.lucasafvr.com.br` | console operacional |
+| `motorista.torre.lucasafvr.com.br` | PWA do motorista |
+| `rastrear.torre.lucasafvr.com.br` | rastreamento público |
+| `api.torre.lucasafvr.com.br` | API e SignalR |
+
+Todos em `137.131.167.193`, atrás de um Caddy com certificado Let's Encrypt.
+
+### O que foi comprovado na infraestrutura pública, não em laboratório
+
+| Critério | Prova |
+|---|---|
+| DNS | 16 de 16 consultas (4 nomes × `ns1`, `ns2`, `1.1.1.1`, `8.8.8.8`) devolvendo só o IP da VM, TTL 60 |
+| HTTPS | certificado Let's Encrypt `CN=api.torre.lucasafvr.com.br`, válido até 27/12/2026; `http` responde 308 |
+| API | `/health/live` e `/health/ready` em 200; raiz protegida devolve 401 |
+| Workers | processo separado, 0 reinícios, 0 erros |
+| PostgreSQL/PostGIS | PostGIS **3.6** com `USE_GEOS=1 USE_PROJ=1`; fronteira 299 m dentro / 301 m fora |
+| SignalR | WebSocket sobre TLS através do Caddy, conexão estabelecida e encerrada |
+| Seis histórias | todas concluídas pelo simulador, como cliente HTTP real |
+| Prova de entrega | autorização 200 → envio pela URL assinada → **201**, 160 bytes |
+| Rastreamento público | token válido 200, token inválido **404** |
+| Persistência | `down`/`up` completo: banco e arquivos idênticos (2 arquivos, 270 bytes) |
+| Segurança | só 22/80/443 escutando; 111, 5432, 8080 e 2019 filtrados; rede do banco `internal=true`; CSP, HSTS, `X-Frame-Options: DENY`, `nosniff`; nenhum cabeçalho de versão vazando |
+| Memória | pico de **701 MiB** de 954, com 295 MiB em swap; em repouso 593 MiB; **0 OOM** |
+| Custo | `billing-type: ALWAYS_FREE`; armazenamento em 97 GB de 200 gratuitos |
+
+### Latência medida pela internet pública
+
+| Rota | p50 | p95 | p99 |
+|---|---|---|---|
+| `/health/ready` | 20 ms | 95 ms | 117 ms |
+| `GET /api/entregas` | 47 ms | 222 ms | 329 ms |
+
+Melhor que a estimativa local de pior caso (p99 de ~450 ms), porque a emulação não concedia o burst
+que o shape entrega de verdade — durante as histórias os workers chegaram a **272% de um núcleo**.
+
+### O que o ambiente público NÃO é
+
+Nó único, 1 GB de RAM, 1/8 de OCPU de linha de base, burst não garantido, sem SLA e sujeito a
+recuperação pela Oracle se ficar ocioso. É uma demonstração de portfólio funcionando de verdade,
+não a arquitetura recomendada para um cliente real — essa continua sendo a do Azure, em `infra/`.
+
+### Pendência de segurança, fora dos critérios da fase
+
+A credencial técnica `torre-capacity-watcher`, criada só para vigiar capacidade A1, **ainda existe**.
+Nenhuma vigília está rodando e a VM já foi criada, então ela não tem mais função. Removê-la exige
+sessão humana da OCI com privilégio administrativo — o usuário técnico não pode remover a si mesmo.
 
 ## Commits
 

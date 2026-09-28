@@ -633,6 +633,98 @@ terraform validate            Success! The configuration is valid.
 
 ---
 
+# O ambiente publicado
+
+Desde **28/09/2026** a demonstração está no ar, em custo recorrente de **US$ 0,00**.
+
+```text
+operacao.torre.lucasafvr.com.br   ┐
+motorista.torre.lucasafvr.com.br  ├─ A ─► 137.131.167.193  (VM.Standard.E2.1.Micro, sa-saopaulo-1)
+rastrear.torre.lucasafvr.com.br   │
+api.torre.lucasafvr.com.br        ┘
+```
+
+## Como o deploy foi feito
+
+Três decisões que não são óbvias e que valem mais que o passo a passo:
+
+**As imagens são construídas fora e transferidas.** `docker compose build` das imagens .NET numa
+máquina de 1 GB estoura. O caminho é `docker save` de todas as cinco num único fluxo — o que
+deduplica as camadas compartilhadas entre API, Workers e simulador — comprimido e entregue por SSH
+a um `docker load` do outro lado. Levou **114 s** para ~379 MB de imagens.
+
+**Os segredos nascem na VM.** `openssl rand` roda lá dentro, escreve direto no `.env.demo` com
+`umask 077`. Nenhum segredo de produção transita pela rede nem toca a máquina de desenvolvimento,
+e por isso nenhum deles pode vazar por um `git add` distraído.
+
+**Os limites de CPU da emulação NÃO vão para a VM.** O arquivo `compose.e2-pior-caso.yml` existia
+para simular 1/8 de OCPU numa máquina de desenvolvimento grande. Na VM a restrição já é real:
+repeti-la estrangularia de propósito o burst que o shape entrega. Só os tetos de memória viajam,
+em `compose.1gb.yml`.
+
+## Memória real, com a pilha rodando
+
+| Momento | Usado | Disponível | Swap |
+|---|---|---|---|
+| Sistema recém-instalado, sem a pilha | 440 MiB | 513 MiB | 1 MiB |
+| Pilha em repouso | 593 MiB | 360 MiB | 137 MiB |
+| **Pico durante as seis histórias** | **701 MiB** | 252 MiB | **295 MiB** |
+
+De 954 MiB totais. **Zero OOM, zero reinício.**
+
+O maior inquilino isolado não é nosso: o agente da Oracle custa **149 MiB** entre os dois serviços
+dele. Desligá-lo liberaria mais que qualquer ajuste nosso — e é exatamente por isso que ele fica.
+É ele que reporta uso de CPU, rede e memória à Oracle, e esse é o dado pelo qual ela decide se uma
+máquina Always Free está ociosa o bastante para ser recuperada.
+
+Foram desativados `fwupd`, `ModemManager`, `udisks2` e `rpcbind` — nenhum tem função numa VM. O
+ganho foi **5 MiB**, não os ~59 que o `MemoryCurrent` do systemd sugeria: aquele número inclui cache
+reclamável, não só memória anônima. `snapd` **não** foi desligado, porque o agente da Oracle é um
+snap e depende dele.
+
+## Swap: 2 GB, e não os 512 MiB planejados
+
+O `cloud-init.yaml` já cria 2 GB com `vm.swappiness=10`, e isso antecedeu a discussão sobre
+dimensionar swap. O pico medido foi de **295 MiB** — os 512 MiB planejados teriam bastado. Manter
+os 2 GB não custa nada (o disco tem 43 GB livres) e amplia a proteção contra transiente; reduzir
+exigiria recriar o arquivo sem ganho prático.
+
+## Superfície exposta
+
+```text
+escutando em 0.0.0.0:   22, 80, 443       (e nada mais)
+filtradas de fora:      111, 5432, 8080, 2019
+rede do banco:          internal=true — banco, API e workers sem rota para a internet
+publicando portas:      só o contêiner do Caddy
+```
+
+Cabeçalhos na borda: `Content-Security-Policy` com `frame-ancestors 'none'`,
+`Strict-Transport-Security` de um ano com `includeSubDomains`, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy: same-origin`. Nenhum cabeçalho de
+versão de servidor ou framework é devolvido.
+
+## Latência pela internet pública
+
+| Rota | p50 | p95 | p99 |
+|---|---|---|---|
+| `/health/ready` | 20 ms | 95 ms | 117 ms |
+| `GET /api/entregas` | 47 ms | 222 ms | 329 ms |
+
+Melhor que o pior caso estimado localmente (p99 de ~450 ms). A emulação não concedia burst, e a
+máquina real concede: durante as histórias os workers chegaram a **272% de um núcleo**.
+
+## Uma armadilha que custou um ciclo
+
+Os quatro registros A foram criados e, mesmo assim, os nomes continuaram respondendo pela borda da
+Vercel. O diagnóstico errado seria "propagação". O certo veio de perguntar ao **autoritativo**: se
+`ns1.vercel-dns.com` ainda devolve o valor antigo, não há nada propagando.
+
+O que decidiu foi um controle: um nome inventado na hora respondia com **o mesmo TTL e os mesmos
+IPs** dos quatro nomes. Isso é assinatura de curinga, não de registro específico — e apontou para
+uma atribuição de projeto na Vercel que tinha precedência sobre o registro A.
+
+---
+
 # Qual máquina hospeda a demonstração, e por quê
 
 | | |
