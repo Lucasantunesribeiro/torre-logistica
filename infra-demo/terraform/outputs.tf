@@ -45,9 +45,22 @@ output "conferencia_de_gratuidade" {
     As três contas que decidem se a fatura continua zerada. Conferir a cada mudança de
     dimensionamento, e não só na primeira vez.
   TEXTO
-  value = {
-    ocpu_hora_por_mes = "${var.ocpus} OCPU × 730 h = ${var.ocpus * 730} de 1.500 gratuitas"
-    gb_hora_por_mes   = "${var.memoria_em_gb} GB × 730 h = ${var.memoria_em_gb * 730} de 9.000 gratuitas"
-    disco_em_gb       = "${var.tamanho_do_disco_em_gb} de 200 gratuitos"
-  }
+  # As contas de OCPU-hora e GB-hora existem só para o A1: é o shape cuja gratuidade é medida por
+  # consumo (1.500 OCPU-hora e 9.000 GB-hora por mês). O E2.1.Micro não é medido assim — ele é uma
+  # instância inteira gratuita, até duas por tenancy, e o que limita é a CONTAGEM, não as horas.
+  #
+  # Imprimir "1 OCPU × 730 h" para uma máquina E2 seria uma conta certa sobre a coisa errada.
+  value = merge(
+    {
+      shape       = var.shape_da_demo
+      disco_em_gb = "${var.tamanho_do_disco_em_gb} de 200 gratuitos"
+    },
+    local.shape_e_flexivel ? {
+      ocpu_hora_por_mes = "${var.ocpus} OCPU × 730 h = ${var.ocpus * 730} de 1.500 gratuitas"
+      gb_hora_por_mes   = "${var.memoria_em_gb} GB × 730 h = ${var.memoria_em_gb * 730} de 9.000 gratuitas"
+      } : {
+      instancias_gratuitas = "1 de 2 VM.Standard.E2.1.Micro por tenancy (a outra é de outro projeto)"
+      medicao              = "por contagem de instância, não por OCPU-hora — o shape é ALWAYS_FREE"
+    }
+  )
 }

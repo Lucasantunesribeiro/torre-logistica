@@ -1011,6 +1011,13 @@ VM.Standard.A1.Flex — 2 OCPU arm64 · 4 GB · 50 GB · Always Free
         └── PostgreSQL + PostGIS   sem porta publicada · rede sem saída
 ```
 
+> **Atualização de 28/09/2026 — a máquina mudou.** O pool Ampere A1 em `sa-saopaulo-1` não
+> apresentou capacidade em **143 consultas ao longo de 12 horas seguidas**. A demonstração passou
+> a rodar em `VM.Standard.E2.1.Micro` (x86-64, 1 GB, 1/8 de OCPU com burst), também Always Free.
+> O A1 continua sendo a opção preferida e o Terraform continua suportando os dois caminhos —
+> trocar é mudar `shape_da_demo`. Os números de A1 abaixo descrevem a configuração preferida, não
+> a vigente. Medições, limitações e o porquê estão em `infra-demo/README.md`.
+
 | Decisão | Por quê |
 |---|---|
 | Uma VM, e não um plano gratuito de aplicação | os planos gratuitos dormem, e este sistema despacha outbox a cada 5 s e mantém conexão persistente |

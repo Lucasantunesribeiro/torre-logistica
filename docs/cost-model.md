@@ -400,6 +400,14 @@ A decisão está no [ADR 0035](./adr/0035-demonstracao-de-custo-zero.md); os art
 
 ### A conta de gratuidade, recurso a recurso
 
+> **Atualização de 28/09/2026 — a máquina mudou.** O pool Ampere A1 em `sa-saopaulo-1` não
+> apresentou capacidade em **143 consultas ao longo de 12 horas seguidas**. A demonstração passou
+> a rodar em `VM.Standard.E2.1.Micro` (x86-64, 1 GB, 1/8 de OCPU com burst), também Always Free.
+> O A1 continua sendo a opção preferida e o Terraform continua suportando os dois caminhos —
+> trocar é mudar `shape_da_demo`. Os números de A1 abaixo descrevem a configuração preferida, não
+> a vigente. Medições, limitações e o porquê estão em `infra-demo/README.md`.
+
+
 | Recurso | Quantidade usada | Franquia Always Free | Margem |
 |---|---|---|---|
 | Compute Ampere A1 — OCPU | 2 × 730 h = **1.460 OCPU-hora** | 1.500 OCPU-hora/mês | 40 h |

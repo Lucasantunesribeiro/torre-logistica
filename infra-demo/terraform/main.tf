@@ -81,10 +81,10 @@ resource "oci_limits_quota" "somente_always_free" {
   statements = [
     # 1. Fecha tudo em computação, depois reabre exatamente o shape gratuito.
     "zero compute-core quota /*/ in compartment ${oci_identity_compartment.torre.name}",
-    "set compute-core quota standard-a1-core-count to ${var.ocpus} in compartment ${oci_identity_compartment.torre.name}",
+    "set compute-core quota standard-a1-core-count to ${var.cota_de_nucleos_a1} in compartment ${oci_identity_compartment.torre.name}",
     # A cota regional é separada da cota por domínio de disponibilidade. Definir só uma das duas
     # deixa a outra no limite de serviço padrão — ou seja, deixa a porta que se quis fechar aberta.
-    "set compute-core quota standard-a1-core-regional-count to ${var.ocpus} in compartment ${oci_identity_compartment.torre.name}",
+    "set compute-core quota standard-a1-core-regional-count to ${var.cota_de_nucleos_a1} in compartment ${oci_identity_compartment.torre.name}",
 
     # NÃO existe cota de memória. A primeira versão deste arquivo tentava
     # `standard-a1-memory-count` e `standard-a1-memory-regional-count`, e a OCI recusou os dois na
@@ -99,6 +99,17 @@ resource "oci_limits_quota" "somente_always_free" {
     #
     # O que sobra protegendo a memória: o limite da própria tenancy, de 12 GB, que nenhuma cota
     # precisa reforçar porque ele já é teto rígido. E a cota de núcleos, que continua valendo.
+
+    # 1-bis. O outro shape Always Free, liberado porque o pool A1 está esgotado há mais de 12 h.
+    #
+    # Sem variante regional. O escopo documentado deste limite é Availability Domain, e não há
+    # `standard-e2-micro-core-regional-count` na documentação da OCI. Criar a linha por analogia
+    # com o A1 repetiria o erro de `standard-a1-memory-count`, recusado com
+    # `400-InvalidParameter: not a valid quota name`.
+    #
+    # A exceção do A1 continua acima de propósito: a arquitetura preferida não foi abandonada, só
+    # não tem hospedeiro. No dia em que tiver, a cota já está lá.
+    "set compute-core quota standard-e2-micro-core-count to ${var.cota_de_nucleos_e2_micro} in compartment ${oci_identity_compartment.torre.name}",
 
     # 2. Disco: só o volume de inicialização da única máquina.
     "set block-storage quota total-storage-gb to ${var.tamanho_do_disco_em_gb} in compartment ${oci_identity_compartment.torre.name}",
@@ -158,6 +169,18 @@ locals {
   dominio_escolhido = coalesce(
     var.dominio_de_disponibilidade != "" ? var.dominio_de_disponibilidade : null,
     data.oci_identity_availability_domains.disponiveis.availability_domains[0].name,
+  )
+
+  # Só shape Flex aceita `shape_config`. O E2.1.Micro é FIXO: mandar ocpus/memória para ele é erro
+  # do provedor, não detalhe ignorado.
+  shape_e_flexivel = endswith(var.shape_da_demo, ".Flex")
+
+  # Escolha explícita por nome, e não derivada de "é flexível": são duas perguntas diferentes que
+  # hoje coincidem, e amarrá-las esconderia o dia em que deixarem de coincidir.
+  imagem_da_demo = (
+    var.shape_da_demo == "VM.Standard.A1.Flex"
+    ? data.oci_core_images.ubuntu_arm.images[0].id
+    : data.oci_core_images.ubuntu_minimal_x86.images[0].id
   )
 }
 
@@ -295,22 +318,39 @@ data "oci_core_images" "ubuntu_arm" {
   sort_order               = "DESC"
 }
 
+# A imagem do A1 é aarch64 e a OCI a rejeita para o E2 — provado: filtrar as imagens por
+# `shape = VM.Standard.E2.1.Micro` devolve 1 resultado para a x86-64 e 0 para a aarch64.
+#
+# `Minimal` de propósito: num host de 1 GB, cada MiB que a imagem base não gasta é um MiB que
+# sobra para o PostgreSQL, que é o inquilino mais apertado da pilha.
+data "oci_core_images" "ubuntu_minimal_x86" {
+  compartment_id           = var.ocid_da_tenancy
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "24.04 Minimal"
+  shape                    = "VM.Standard.E2.1.Micro"
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+}
+
 resource "oci_core_instance" "torre" {
   compartment_id      = oci_identity_compartment.torre.id
   availability_domain = local.dominio_escolhido
   display_name        = "${var.prefixo}-maquina"
 
-  # O único shape Ampere do nível Always Free.
-  shape = "VM.Standard.A1.Flex"
+  shape = var.shape_da_demo
 
-  shape_config {
-    ocpus         = var.ocpus
-    memory_in_gbs = var.memoria_em_gb
+  # Emitido só para shape Flex. Para o E2.1.Micro, que é fixo, o bloco simplesmente não existe.
+  dynamic "shape_config" {
+    for_each = local.shape_e_flexivel ? [1] : []
+    content {
+      ocpus         = var.ocpus
+      memory_in_gbs = var.memoria_em_gb
+    }
   }
 
   source_details {
     source_type             = "image"
-    source_id               = data.oci_core_images.ubuntu_arm.images[0].id
+    source_id               = local.imagem_da_demo
     boot_volume_size_in_gbs = var.tamanho_do_disco_em_gb
   }
 

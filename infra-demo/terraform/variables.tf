@@ -199,3 +199,51 @@ variable "prefixo" {
     error_message = "Use minúsculas, números e hífen, começando por letra, com 3 a 21 caracteres."
   }
 }
+
+variable "shape_da_demo" {
+  description = <<-TEXTO
+    Shape da máquina da demonstração.
+
+    `VM.Standard.A1.Flex` é o preferido: 1 OCPU inteira e 4 GB. Ficou indisponível — 143 consultas
+    ao Compute Capacity Report em 12 horas seguidas, todas `OUT_OF_HOST_CAPACITY`.
+
+    `VM.Standard.E2.1.Micro` é o contorno: x86-64, 1 GB, 1/8 de OCPU com burst não garantido. A
+    pilha foi medida e cabe, mas é menor em toda dimensão. Não é arquitetura recomendada para
+    cliente real — é o que mantém a demonstração pública no ar por US$ 0,00.
+  TEXTO
+  type        = string
+  default     = "VM.Standard.E2.1.Micro"
+
+  validation {
+    condition     = contains(["VM.Standard.A1.Flex", "VM.Standard.E2.1.Micro"], var.shape_da_demo)
+    error_message = "Só estes dois shapes são Always Free e foram validados: VM.Standard.A1.Flex e VM.Standard.E2.1.Micro."
+  }
+}
+
+variable "cota_de_nucleos_a1" {
+  description = <<-TEXTO
+    Núcleos de `standard-a1-core-count` que a cota do compartimento libera.
+
+    É um conceito SEPARADO de `ocpus`. `ocpus` dimensiona a máquina quando o shape ativo é A1;
+    esta variável diz quanto a cota autoriza. Elas coincidem hoje, mas confundi-las faria a cota
+    do A1 desaparecer no dia em que a demo passasse a usar outro shape — e a permissão de criar
+    A1 sumiria junto, silenciosamente.
+  TEXTO
+  type        = number
+  default     = 1
+}
+
+variable "cota_de_nucleos_e2_micro" {
+  description = <<-TEXTO
+    Núcleos de `standard-e2-micro-core-count` que a cota do compartimento libera.
+
+    O limite da tenancy é 2 e o LinkGuardião já usa 1, medido em 28/09/2026: `used = 1`,
+    `available = 1`. Um é tudo o que existe, e é tudo o que esta demonstração pede.
+
+    Escopo do limite é Availability Domain. NÃO existe variante `-regional-count` documentada
+    para este shape, e inventá-la por analogia com o A1 seria repetir o erro já cometido com
+    `standard-a1-memory-count`, que a OCI recusou por não ser nome de cota.
+  TEXTO
+  type        = number
+  default     = 1
+}

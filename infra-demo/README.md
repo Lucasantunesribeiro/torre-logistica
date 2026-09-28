@@ -633,6 +633,41 @@ terraform validate            Success! The configuration is valid.
 
 ---
 
+# Qual máquina hospeda a demonstração, e por quê
+
+| | |
+|---|---|
+| **Arquitetura de produção** | **Azure** — é o alvo real do projeto, descrito em `infra/`. Nada aqui a substitui |
+| **Demo preferida** | `VM.Standard.A1.Flex` — 1 OCPU inteira, 4 GB. Volta a ser usada assim que houver capacidade |
+| **Demo atual** | `VM.Standard.E2.1.Micro` — contorno por indisponibilidade prolongada do pool A1 |
+
+O A1 não foi abandonado: a cota, as variáveis e o caminho de imagem ARM64 continuam no Terraform.
+Trocar de volta é mudar uma variável — `shape_da_demo = "VM.Standard.A1.Flex"`.
+
+A troca aconteceu porque a capacidade A1 em `sa-saopaulo-1` não apareceu em **143 consultas ao
+longo de 12 horas seguidas**, cobrindo noite e madrugada. A região tem um único domínio de
+disponibilidade, e o nível Always Free só existe na região de origem da conta — não havia para
+onde mudar dentro da OCI, exceto de shape.
+
+## O que a máquina atual NÃO é
+
+O `E2.1.Micro` mantém a demonstração pública no ar por US$ 0,00. Ele **não** é uma recomendação de
+arquitetura para cliente real, e apresentá-lo como tal seria desonesto. As limitações, medidas e
+não estimadas:
+
+| Limitação | Número |
+|---|---|
+| Memória total do host | **1 GB** — sistema, Docker e a pilha inteira dividem isso |
+| CPU de linha de base | **1/8 de OCPU**, em AMD EPYC 7551 de 2,0 GHz (2017) |
+| Burst | existe, **não é garantido** e não foi possível reproduzi-lo localmente |
+| p99 local no pior caso | **~450 ms** em `GET /api/entregas`, com p50 de 6 ms |
+| Topologia | **nó único** — banco, API, workers e borda na mesma máquina |
+| Disponibilidade | **sem SLA**; Always Free pode ser recuperado pela Oracle se ficar ocioso |
+| Rede | 0,48 Gbps, 1 VNIC |
+
+Para um cliente real, a resposta continua sendo `infra/` no Azure, com banco gerenciado, instâncias
+separadas e SLA contratado.
+
 # Estudo do shape E2.1.Micro — alternativa Always Free ao Ampere A1
 
 Depois de **143 consultas em 12 horas seguidas** sem uma única janela de capacidade A1 em
