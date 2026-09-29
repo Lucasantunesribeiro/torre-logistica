@@ -1,17 +1,49 @@
 /*
-  Base visual mínima e comum às três aplicações.
-  A identidade do console operacional é assunto da Fase 18; aqui só existe o
-  suficiente para uma tela legível não parecer um rascunho quebrado.
+  Rastreamento público — a página que o destinatário abre pelo link.
+
+  O objetivo aqui é confiança e clareza, não densidade: quem chega quer saber "onde está minha
+  encomenda e quando chega", numa olhada, do celular. Mesma linguagem visual das outras aplicações
+  (cor de marca, tokens), num layout de cartão único e centrado.
 */
 :root {
-  --tinta: #10161f;
-  --tinta-fraca: #5b6675;
-  --fundo: #f5f6f8;
+  --cinza-50: #f7f8fa;
+  --cinza-100: #eef1f5;
+  --cinza-200: #e2e6ec;
+  --cinza-300: #cfd5de;
+  --cinza-400: #9aa4b2;
+  --cinza-500: #6b7686;
+  --cinza-600: #4c5666;
+  --cinza-700: #353e4c;
+  --cinza-800: #1f2733;
+  --cinza-900: #131922;
+
+  --marca-700: #1e3a5f;
+  --marca-600: #23507e;
+  --marca-500: #2f6db3;
+  --marca-100: #e6effa;
+  --marca-050: #f2f7fc;
+
+  --bom-tinta: #10633a;
+  --bom-suave: #e5f4ec;
+  --bom-borda: #b6ddc7;
+  --atencao-tinta: #8a5300;
+  --atencao-suave: #fbf0dc;
+  --atencao-borda: #eccf9a;
+  --ruim-tinta: #a01f1c;
+  --ruim-suave: #fbe9e8;
+  --ruim-borda: #edbab8;
+
+  --tinta: var(--cinza-800);
+  --tinta-fraca: var(--cinza-500);
+  --fundo: var(--cinza-100);
   --superficie: #ffffff;
-  --borda: #d9dde3;
-  --bom: #1c7c45;
-  --atencao: #9a6200;
-  --ruim: #a5201c;
+  --borda: var(--cinza-200);
+
+  --r: 10px;
+  --r-sm: 6px;
+  --r-full: 999px;
+  --sombra: 0 2px 4px rgba(19, 25, 34, 0.05), 0 8px 24px rgba(19, 25, 34, 0.08);
+
   color-scheme: light;
 }
 
@@ -21,64 +53,194 @@
 
 body {
   margin: 0;
-  background: var(--fundo);
+  background: linear-gradient(180deg, var(--cinza-100) 0%, var(--cinza-50) 100%);
+  min-height: 100vh;
   color: var(--tinta);
-  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
+/* Cartão único, centrado, largura de leitura confortável no celular e no desktop. */
 main {
-  max-width: 60rem;
+  max-width: 34rem;
   margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
+  padding: 24px 16px 48px;
 }
 
-h1 {
-  font-size: 1.5rem;
-  margin: 0 0 0.25rem;
-}
-
-.sumario {
-  color: var(--tinta-fraca);
-  margin: 0 0 1.5rem;
-}
-
-.cartao {
+section {
   background: var(--superficie);
   border: 1px solid var(--borda);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
+  border-radius: var(--r);
+  box-shadow: var(--sombra);
+  padding: 24px 22px;
 }
 
-.conexao {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.9375rem;
+/* Marca discreta no topo da página. */
+main::before {
+  content: 'Torre Logística';
+  display: block;
+  text-align: center;
+  font-weight: 700;
+  color: var(--marca-600);
+  letter-spacing: -0.01em;
+  margin-bottom: 16px;
 }
 
-.conexao__marca {
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
-  background: var(--tinta-fraca);
-  flex: none;
-}
-
-.conexao--pronta .conexao__marca {
-  background: var(--bom);
-}
-
-.conexao--indisponivel .conexao__marca {
-  background: var(--atencao);
-}
-
-.conexao--inalcancavel .conexao__marca {
-  background: var(--ruim);
-}
-
-.fases {
-  margin: 1.5rem 0 0;
-  padding-left: 1.25rem;
+h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
   color: var(--tinta-fraca);
+  margin: 0 0 4px;
+  letter-spacing: 0;
+}
+
+h3 {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cinza-500);
+  margin: 28px 0 12px;
+}
+
+.codigo {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--tinta-fraca);
+  font-variant-numeric: tabular-nums;
+}
+
+/* O status é a resposta principal: grande, com peso. */
+.status {
+  margin: 6px 0 20px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--cinza-900);
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 0;
+  padding: 18px 0;
+  border-top: 1px solid var(--borda);
+  border-bottom: 1px solid var(--borda);
+}
+
+dt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cinza-500);
+  margin-bottom: 2px;
+}
+
+dd {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--cinza-900);
+}
+
+/* Posição aproximada: destacada como aviso suave, para não ser lida como localização exata. */
+.posicao {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  background: var(--marca-050);
+  border: 1px solid var(--marca-100);
+  border-radius: var(--r-sm);
+  font-size: 0.9rem;
+  color: var(--marca-700);
+}
+
+/* Timeline vertical de marcos: linha à esquerda, ponto em cada evento, o último em destaque. */
+.marcos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.marcos li {
+  position: relative;
+  padding: 0 0 18px 26px;
+  border-left: 2px solid var(--borda);
+  margin-left: 5px;
+}
+
+.marcos li:last-child {
+  padding-bottom: 0;
+  border-left-color: transparent;
+}
+
+.marcos li::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cinza-300);
+  border: 2px solid var(--superficie);
+  box-shadow: 0 0 0 1px var(--cinza-300);
+}
+
+/* O marco mais recente é o primeiro da lista (a API devolve do mais novo ao mais antigo): destaque. */
+.marcos li:first-child::before {
+  background: var(--marca-500);
+  box-shadow: 0 0 0 1px var(--marca-500), 0 0 0 4px var(--marca-100);
+}
+
+.marcos .quando {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--tinta-fraca);
+  font-variant-numeric: tabular-nums;
+}
+
+.marcos .oque {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--cinza-900);
+}
+
+.arquivos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.arquivos a {
+  display: inline-block;
+  padding: 9px 16px;
+  border: 1px solid var(--marca-600);
+  border-radius: var(--r-sm);
+  color: var(--marca-600);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.arquivos a:hover {
+  background: var(--marca-050);
+}
+
+a {
+  color: var(--marca-600);
+}
+
+p[role='status'] {
+  color: var(--tinta-fraca);
+}
+
+:focus-visible {
+  outline: 2px solid var(--marca-500);
+  outline-offset: 2px;
 }

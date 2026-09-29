@@ -1,17 +1,53 @@
 /*
   PWA do motorista: mobile-first, uma coluna, ações grandes.
-  O motorista usa com uma mão, em pé, na rua, às vezes de luva e com sol na tela. Alvo de toque de pelo
-  menos 3,5rem nas ações da entrega, texto de 16px para o navegador não dar zoom no campo, contraste alto.
+
+  O motorista usa com uma mão, em pé, na rua, às vezes de luva e com sol na tela. Alvo de toque de
+  pelo menos 3,5rem nas ações da entrega, texto de 16px para o navegador não dar zoom no campo,
+  contraste alto. Esta rodada de design mantém tudo isso e acrescenta a linguagem visual comum às
+  três aplicações: cor de marca, superfície com sombra sutil, etiquetas preenchidas legíveis ao sol.
 */
 :root {
-  --tinta: #10161f;
-  --tinta-fraca: #4f5b6b;
-  --fundo: #f2f4f7;
+  --cinza-50: #f7f8fa;
+  --cinza-100: #eef1f5;
+  --cinza-200: #e2e6ec;
+  --cinza-300: #cfd5de;
+  --cinza-400: #9aa4b2;
+  --cinza-500: #67717f;
+  --cinza-600: #49525f;
+  --cinza-700: #333b47;
+  --cinza-800: #1f2733;
+  --cinza-900: #121820;
+
+  --marca-700: #1e3a5f;
+  --marca-600: #23507e;
+  --marca-500: #2f6db3;
+  --marca-100: #e6effa;
+  --marca-050: #f2f7fc;
+
+  --bom-tinta: #0f6b3d;
+  --bom-forte: #128043;
+  --bom-suave: #e4f4ec;
+  --bom-borda: #b0dcc3;
+  --atencao-tinta: #8a5300;
+  --atencao-suave: #fbf0dc;
+  --atencao-borda: #eccf9a;
+  --ruim-tinta: #a01f1c;
+  --ruim-suave: #fbe9e8;
+  --ruim-borda: #edbab8;
+
+  --tinta: var(--cinza-800);
+  --tinta-fraca: var(--cinza-500);
+  --fundo: var(--cinza-100);
   --superficie: #ffffff;
-  --borda: #cfd5dd;
-  --bom: #1c7c45;
-  --atencao: #8a5700;
-  --ruim: #a5201c;
+  --borda: var(--cinza-200);
+  --borda-forte: var(--cinza-300);
+  --bom: var(--bom-tinta);
+  --atencao: var(--atencao-tinta);
+  --ruim: var(--ruim-tinta);
+
+  --sombra-1: 0 1px 2px rgba(18, 24, 32, 0.05), 0 1px 3px rgba(18, 24, 32, 0.07);
+  --sombra-2: 0 4px 12px rgba(18, 24, 32, 0.1);
+
   color-scheme: light;
 }
 
@@ -25,10 +61,11 @@ body {
   color: var(--tinta);
   font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
 }
 
 .app {
-  max-width: 36rem;
+  max-width: 34rem;
   margin: 0 auto;
   padding: 0 1rem calc(2rem + env(safe-area-inset-bottom));
 }
@@ -39,23 +76,43 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.25rem 1rem;
-  padding: 0.75rem 0;
+  padding: 0.875rem 0;
+  margin-bottom: 0.25rem;
   border-bottom: 1px solid var(--borda);
+  position: sticky;
+  top: 0;
+  background: var(--fundo);
+  z-index: 5;
 }
 
 .topo__marca {
   font-weight: 700;
+  color: var(--marca-600);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.topo__marca::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: var(--marca-500);
 }
 
 h2 {
   font-size: 1.375rem;
   line-height: 1.25;
+  letter-spacing: -0.01em;
   margin: 1rem 0 0.5rem;
+  color: var(--cinza-900);
 }
 
 h3 {
   font-size: 1.0625rem;
   margin: 0 0 0.5rem;
+  color: var(--cinza-900);
 }
 
 p {
@@ -74,13 +131,17 @@ p {
 .cartao {
   background: var(--superficie);
   border: 1px solid var(--borda);
-  border-radius: 12px;
-  padding: 1rem;
+  border-radius: 14px;
+  padding: 1rem 1.125rem;
   margin: 0.75rem 0;
+  box-shadow: var(--sombra-1);
 }
 
+/* A próxima parada é o que o motorista precisa agora: barra de marca à esquerda e sombra maior. */
 .cartao--destaque {
-  border: 2px solid var(--tinta);
+  border: 1px solid var(--marca-100);
+  border-left: 4px solid var(--marca-500);
+  box-shadow: var(--sombra-2);
 }
 
 .cabecalho-do-cartao {
@@ -98,27 +159,32 @@ p {
   gap: 0.5rem;
   margin: 0;
   font-size: 0.875rem;
+  color: var(--tinta-fraca);
 }
 
 .conexao__marca {
   width: 0.625rem;
   height: 0.625rem;
   border-radius: 50%;
-  background: var(--tinta-fraca);
+  background: var(--cinza-400);
   flex: none;
+  box-shadow: 0 0 0 3px var(--cinza-100);
 }
 
 .conexao--pronta .conexao__marca {
-  background: var(--bom);
+  background: var(--bom-forte);
+  box-shadow: 0 0 0 3px var(--bom-suave);
 }
 
 .conexao--indisponivel .conexao__marca {
-  background: var(--atencao);
+  background: #d69a2d;
+  box-shadow: 0 0 0 3px var(--atencao-suave);
 }
 
 .conexao--inalcancavel .conexao__marca,
 .conexao--offline .conexao__marca {
-  background: var(--ruim);
+  background: #cf3b36;
+  box-shadow: 0 0 0 3px var(--ruim-suave);
 }
 
 .motorista {
@@ -134,13 +200,18 @@ p {
   font: inherit;
   min-height: 2.75rem;
   padding: 0.5rem 1rem;
-  border: 1px solid var(--borda);
+  border: 1px solid var(--borda-forte);
   border-radius: 10px;
   background: var(--superficie);
-  color: var(--tinta);
+  color: var(--cinza-700);
   cursor: pointer;
 }
 
+.botao-discreto:hover:not(:disabled) {
+  background: var(--cinza-100);
+}
+
+/* Ações da entrega: alvo de toque grande, cheias de cor para lerem-se ao sol. */
 .acao {
   display: flex;
   align-items: center;
@@ -154,32 +225,35 @@ p {
   font-weight: 600;
   text-align: center;
   text-decoration: none;
-  border: 2px solid var(--tinta);
-  border-radius: 12px;
-  background: var(--tinta);
-  color: var(--superficie);
+  border: 2px solid var(--marca-600);
+  border-radius: 14px;
+  background: var(--marca-600);
+  color: #fff;
   cursor: pointer;
+  box-shadow: var(--sombra-1);
 }
 
+/* Concluir/registrar chegada é a ação positiva: verde, o gesto que fecha a entrega. */
 .acao--primaria {
-  background: var(--bom);
-  border-color: var(--bom);
+  background: var(--bom-forte);
+  border-color: var(--bom-forte);
 }
 
 .acao--secundaria {
   background: var(--superficie);
-  color: var(--tinta);
+  color: var(--marca-700);
+  border-color: var(--borda-forte);
 }
 
 .acao--perigo {
   background: var(--superficie);
-  color: var(--ruim);
-  border-color: var(--ruim);
+  color: var(--ruim-tinta);
+  border-color: var(--ruim-borda);
 }
 
 .acao:disabled,
 .botao-discreto:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: progress;
 }
 
@@ -187,9 +261,17 @@ p {
 .botao-discreto:focus-visible,
 .link:focus-visible,
 .paradas a:focus-visible,
-input:focus-visible {
-  outline: 3px solid var(--tinta);
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--marca-500);
   outline-offset: 2px;
+}
+
+textarea:focus-visible,
+.formulario input:focus-visible {
+  outline: none;
+  border-color: var(--marca-500);
+  box-shadow: 0 0 0 3px var(--marca-100);
 }
 
 .link {
@@ -197,36 +279,54 @@ input:focus-visible {
   align-items: center;
   min-height: 2.75rem;
   margin-top: 0.5rem;
-  color: var(--tinta);
+  color: var(--marca-600);
+  font-weight: 500;
 }
 
+/* Etiquetas de status: preenchidas, com ponto de cor, legíveis num relance. */
 .etiqueta {
-  display: inline-block;
-  padding: 0.125rem 0.625rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.6875rem;
   border-radius: 999px;
-  border: 1px solid var(--borda);
-  background: var(--fundo);
+  border: 1px solid var(--borda-forte);
+  background: var(--cinza-100);
+  color: var(--cinza-700);
   font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
 }
 
+.etiqueta::before {
+  content: '';
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
 .etiqueta--EmRota,
 .etiqueta--EmAndamento,
 .etiqueta--ProximaDoDestino {
-  border-color: var(--tinta);
+  color: var(--atencao-tinta);
+  background: var(--atencao-suave);
+  border-color: var(--atencao-borda);
 }
 
 .etiqueta--Entregue,
 .etiqueta--Concluida {
-  color: var(--bom);
-  border-color: var(--bom);
+  color: var(--bom-tinta);
+  background: var(--bom-suave);
+  border-color: var(--bom-borda);
 }
 
 .etiqueta--TentativaFrustrada,
 .etiqueta--Cancelada {
-  color: var(--ruim);
-  border-color: var(--ruim);
+  color: var(--ruim-tinta);
+  background: var(--ruim-suave);
+  border-color: var(--ruim-borda);
 }
 
 .dados {
@@ -241,6 +341,7 @@ input:focus-visible {
 .dados dd {
   margin: 0 0 0.75rem;
   overflow-wrap: anywhere;
+  color: var(--cinza-900);
 }
 
 .paradas {
@@ -259,10 +360,15 @@ input:focus-visible {
   padding: 0.875rem;
   background: var(--superficie);
   border: 1px solid var(--borda);
-  border-radius: 12px;
+  border-radius: 14px;
   color: inherit;
   text-decoration: none;
   overflow-wrap: anywhere;
+  box-shadow: var(--sombra-1);
+}
+
+.paradas a:active {
+  background: var(--marca-050);
 }
 
 .paradas a > :not(.paradas__numero) {
@@ -276,7 +382,8 @@ input:focus-visible {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--fundo);
+  background: var(--marca-600);
+  color: #fff;
   font-weight: 700;
 }
 
@@ -311,6 +418,11 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.motivos label:has(input:checked) {
+  border-color: var(--marca-500);
+  background: var(--marca-050);
+}
+
 .campo {
   display: block;
   font-weight: 600;
@@ -322,7 +434,7 @@ textarea {
   width: 100%;
   min-height: 4.5rem;
   padding: 0.625rem 0.75rem;
-  border: 1px solid var(--borda);
+  border: 1px solid var(--borda-forte);
   border-radius: 10px;
   resize: vertical;
 }
@@ -331,6 +443,16 @@ textarea {
   width: 1.5rem;
   height: 1.5rem;
   flex: none;
+  accent-color: var(--marca-600);
+}
+
+.formulario {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+  box-shadow: var(--sombra-1);
 }
 
 .formulario form {
@@ -347,20 +469,25 @@ textarea {
   font: inherit;
   min-height: 3rem;
   padding: 0.625rem 0.75rem;
-  border: 1px solid var(--borda);
+  border: 1px solid var(--borda-forte);
   border-radius: 10px;
   width: 100%;
 }
 
 .erro {
-  color: var(--ruim);
+  color: var(--ruim-tinta);
+  background: var(--ruim-suave);
+  border: 1px solid var(--ruim-borda);
+  border-radius: 10px;
+  padding: 0.625rem 0.875rem;
   margin: 0.75rem 0 0;
 }
 
 .aviso {
-  border-color: var(--ruim);
+  border-color: var(--ruim-borda);
 }
 
+/* Estado do GPS e da sincronização: banners informativos, com cor só quando há problema. */
 .gps {
   margin: 0.75rem 0 0;
   padding: 0.75rem 1rem;
@@ -368,16 +495,20 @@ textarea {
   background: var(--superficie);
   border: 1px solid var(--borda);
   font-size: 0.9375rem;
+  box-shadow: var(--sombra-1);
 }
 
 .gps--negado,
 .gps--indisponivel {
-  border-color: var(--ruim);
-  color: var(--ruim);
+  border-color: var(--ruim-borda);
+  background: var(--ruim-suave);
+  color: var(--ruim-tinta);
 }
 
 .gps--falhando {
-  border-color: var(--atencao);
+  border-color: var(--atencao-borda);
+  background: var(--atencao-suave);
+  color: var(--atencao-tinta);
 }
 
 .sincronizacao .aviso strong {
