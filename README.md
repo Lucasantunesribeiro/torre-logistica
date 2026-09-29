@@ -242,10 +242,9 @@ mais enquanto a pilha aquece — a página trata isso com estado de carregamento
 Um passeio curto pela demonstração pública e, abaixo, capturas reais da mesma operação — seguindo o
 dado do console de quem opera até a página que o destinatário abre. Sem edição, só dado fictício.
 
-<video src="https://github.com/Lucasantunesribeiro/torre-logistica/raw/main/docs/assets/video/torre-logistica.mp4" controls muted playsinline width="100%" poster="https://github.com/Lucasantunesribeiro/torre-logistica/raw/main/docs/assets/screenshots/console-painel.png">
-  Seu leitor não reproduz vídeo embutido —
-  <a href="https://github.com/Lucasantunesribeiro/torre-logistica/raw/main/docs/assets/video/torre-logistica.mp4">assista ao vídeo da demonstração</a>.
-</video>
+[![Vídeo da demonstração da Torre Logística — clique para assistir (~30 s)](docs/assets/video/torre-logistica-capa.jpg)](https://github.com/Lucasantunesribeiro/torre-logistica/blob/main/docs/assets/video/torre-logistica.mp4)
+
+▶ **[Assistir ao vídeo da demonstração (~30 s)](https://github.com/Lucasantunesribeiro/torre-logistica/blob/main/docs/assets/video/torre-logistica.mp4)**
 
 ### Console operacional
 
