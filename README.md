@@ -237,12 +237,47 @@ frustrada, chegada por geofence e prova de entrega).
 Roda numa VM de 1 GB Always Free. Se estiver ociosa, a primeira resposta pode levar um instante a
 mais enquanto a pilha aquece — a página trata isso com estado de carregamento, sem tela quebrada.
 
-## Screenshots e vídeo
+## Veja funcionando
 
-O plano das sete capturas — o que cada uma precisa mostrar e em que estado da operação — está em
-[`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md). A captura e o vídeo curto de
-demonstração (20–35 s, do mapa à prova de entrega, sem código nem terminal) são gerados a partir da
-demo ao vivo e anexados ao GitHub Release na publicação — passo manual, fora do controle de versão.
+Capturas reais da demonstração pública — a mesma operação encenada acima, seguindo o dado do
+console de quem opera até a página que o destinatário abre. Sem edição, só dado fictício.
+
+### Console operacional
+
+O painel abre já dentro de uma operação acontecendo: contadores por estado, alertas com a
+evidência que os disparou e as últimas ocorrências — e o rótulo *Operação conectada* indicando o
+tempo real ligado.
+
+![Painel operacional do console mostrando contadores de entregas por estado, lista de alertas de alta severidade com a evidência de cada um e as últimas ocorrências.](docs/assets/screenshots/console-painel.png)
+
+A lista de entregas é a máquina de estados em cores — em rota, próxima do destino, entregue,
+tentativa frustrada — com destinatário, destino e a janela de SLA prometida.
+
+![Tela de entregas do console com seis entregas e seus status coloridos (EmRota, Entregue, TentativaFrustrada, ProximaDoDestino), além de destinatário, destino e janela de entrega.](docs/assets/screenshots/console-entregas.png)
+
+Alertas não são `if` espalhados pelo código: cada um é uma regra tipada, carrega a evidência que
+justifica o disparo e traz a ação para resolver.
+
+![Tela de alertas do console com quatro alertas de severidade Alta — entregas atrasadas e motorista offline —, cada um com descrição da evidência, entrega vinculada e botão Resolver.](docs/assets/screenshots/console-alertas.png)
+
+### Motorista e destinatário
+
+A mesma operação vista das pontas: o motorista executa a rota do dia pelo PWA mobile-first, que
+funciona offline; o destinatário acompanha por um link de token forte, que mostra status e
+andamento sem expor dado sensível.
+
+<table>
+<tr>
+<td width="50%" valign="top" align="center">
+<img src="docs/assets/screenshots/motorista-rota.png" width="300" alt="PWA do motorista: rota do dia ROT-2026-0001 em andamento, com a próxima entrega em destaque e o botão Abrir entrega.">
+<br><sub><b>PWA do motorista</b> — a rota do dia e a próxima parada</sub>
+</td>
+<td width="50%" valign="top" align="center">
+<img src="docs/assets/screenshots/rastreamento-publico.png" width="300" alt="Rastreamento público: cartão com o status A caminho em destaque, entrega prevista, chegada estimada, destino e a linha do tempo do andamento.">
+<br><sub><b>Rastreamento público</b> — o que o destinatário enxerga</sub>
+</td>
+</tr>
+</table>
 
 ## Limitações conhecidas
 
@@ -268,7 +303,7 @@ sério:
 - [`docs/architecture.md`](./docs/architecture.md) — arquitetura em vigor
 - [`docs/operacao/ambiente-local.md`](./docs/operacao/ambiente-local.md) — ambiente local
 - [`docs/operacao/simulador.md`](./docs/operacao/simulador.md) — o simulador e as seis histórias
-- [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md) — plano das sete capturas
+- [`docs/operacao/screenshots.md`](./docs/operacao/screenshots.md) — roteiro das capturas (as versionadas estão em [`docs/assets/screenshots/`](./docs/assets/screenshots/))
 - [`docs/security-model.md`](./docs/security-model.md) — modelo de segurança e privacidade
 - [`docs/performance.md`](./docs/performance.md) — números medidos e gargalos conhecidos
 - [`docs/pentest-v1.md`](./docs/pentest-v1.md) — pentest gray-box da v1 contra a produção pública
