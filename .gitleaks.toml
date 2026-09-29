@@ -11,6 +11,10 @@ useDefault = true
 
 [allowlist]
 description = "Exceções justificadas"
+# As exceções por regex casam contra a LINHA inteira do achado, não só o valor capturado: assim
+# `sha256:<hash>` só é perdoado quando o hash vem precedido de `sha256:` (digest de imagem), e não
+# um hex de 64 caracteres solto em qualquer lugar.
+regexTarget = "match"
 
 paths = [
   # Arquivo de modelo: documenta nomes de variável, com valores marcados como
@@ -36,4 +40,9 @@ regexes = [
   # Interpolação de variável de ambiente no docker-compose: o valor vem do `.env`
   # local, que não é versionado.
   '''\$\{TORRE_[A-Z_]+\}''',
+
+    # Digest de imagem Docker (`sha256:` + 64 hex): hash de conteudo publico que identifica a
+    # imagem no registry, nao credencial. O ROADMAP documenta os digests das imagens, e a regra
+    # `generic-api-key` os confundia com chave.
+    '''sha256:[a-f0-9]{64}''',
 ]
