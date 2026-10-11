@@ -137,6 +137,18 @@ const prontidao: Rota = () => json({ status: 'Healthy', duracaoEmMs: 3 });
 const semSessao: Rota = () => json({ codigo: 'sessao_invalida' }, 401);
 const comSessao: Rota = () => json(SESSAO);
 
+/** Instante de referência das respostas de pulso: tudo é medido contra ele. */
+const AGORA_DO_PULSO = '2026-09-21T12:00:00Z';
+
+/** Resposta de pulso com a última posição a `idadeEmMs` do agora, ou sem operação quando `null`. */
+const pulsoCom = (idadeEmMs: number | null): Rota => () =>
+  json({
+    agora: AGORA_DO_PULSO,
+    ultimaPosicaoRecebidaEm: idadeEmMs === null ? null : new Date(Date.parse(AGORA_DO_PULSO) - idadeEmMs).toISOString(),
+    motoristasComPosicao: idadeEmMs === null ? 0 : 1,
+    entregasEmAndamento: idadeEmMs === null ? 0 : 1,
+  });
+
 /** Rotas que o painel abre ao carregar. Sem elas, cada teste veria erro em vez da tela. */
 const painel: Record<string, Rota> = {
   '/health/ready': prontidao,
@@ -144,6 +156,7 @@ const painel: Record<string, Rota> = {
   '/api/entregas': () => pagina([ENTREGA]),
   '/api/alertas': () => pagina([ALERTA]),
   '/api/ocorrencias': () => pagina([OCORRENCIA]),
+  '/api/operacao/pulso': pulsoCom(30_000),
 };
 
 // A sessão vive em memória de módulo: cada teste carrega a aplicação do zero.
@@ -275,6 +288,37 @@ describe('Painel operacional', () => {
     await montar('/');
 
     expect(await screen.findByText('Nada aberto. A operação está limpa.')).toBeVisible();
+  });
+});
+
+describe('Pulso da operação', () => {
+  it('dado recente: conexão verde E operação ao vivo, lado a lado', async () => {
+    servidor({ ...painel, '/api/operacao/pulso': pulsoCom(30_000) });
+
+    await montar('/');
+
+    expect(await screen.findByText('Operação conectada')).toBeVisible();
+    expect(await screen.findByText(/Operação ao vivo/)).toBeVisible();
+  });
+
+  it('encenação encerrada: conexão continua verde, mas o dado se diz histórico', async () => {
+    // Dois dias de idade com a API no ar — o caso exato que a auditoria apontou.
+    servidor({ ...painel, '/api/operacao/pulso': pulsoCom(2 * 24 * 60 * 60 * 1000) });
+
+    await montar('/');
+
+    // As duas verdades convivem, e é essa a correção: conectado não quer dizer ao vivo.
+    expect(await screen.findByText('Operação conectada')).toBeVisible();
+    expect(await screen.findByText(/Encenação encerrada · último dado há 2 dias/)).toBeVisible();
+    expect(screen.queryByText(/Operação ao vivo/)).toBeNull();
+  });
+
+  it('sem posição nenhuma: diz que não há operação em curso', async () => {
+    servidor({ ...painel, '/api/operacao/pulso': pulsoCom(null) });
+
+    await montar('/');
+
+    expect(await screen.findByText('Nenhuma operação em curso')).toBeVisible();
   });
 });
 

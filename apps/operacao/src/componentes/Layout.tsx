@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useState } from 'react';
 
 import { useSessao } from '../sessao/ProvedorDeSessao';
+import { IndicadorDaOperacao } from './IndicadorDaOperacao';
 import { IndicadorDeConexao } from './IndicadorDeConexao';
 
 const grupos = [
@@ -85,7 +86,10 @@ export function Layout() {
             ))}
         </div>
 
-        <IndicadorDeConexao />
+        <div className="console__estado">
+          <IndicadorDeConexao />
+          <IndicadorDaOperacao />
+        </div>
       </nav>
 
       <div className="console__conteudo">

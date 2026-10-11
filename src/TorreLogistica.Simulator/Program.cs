@@ -85,9 +85,12 @@ try
         opcoesDoSimulador,
         host.Services.GetRequiredService<ILogger<EncenacaoDaDemonstracao>>());
 
+    Log.Information("Encenação {Etiqueta} iniciada.", encenacao.Etiqueta);
+
     var desfechos = await encenacao.EncenarAsync(cancelamento.Token).ConfigureAwait(false);
 
-    Log.Information("Demonstração encerrada. {Quantidade} histórias encenadas:", desfechos.Count);
+    Log.Information(
+        "Encenação {Etiqueta} encerrada. {Quantidade} histórias encenadas:", encenacao.Etiqueta, desfechos.Count);
 
     foreach (var desfecho in desfechos)
     {

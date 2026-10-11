@@ -9,3 +9,4 @@ tests/torrelogistica.integrationtests/autorizacaotestes.cs:senha
 tests/torrelogistica.integrationtests/gestaodeusuariostestes.cs:senha
 tests/torrelogistica.integrationtests/isolamentoentretenantstestes.cs:senha
 tests/torrelogistica.integrationtests/protecaocontraabusotestes.cs:senha
+docs/operacao/simulador.md:senha

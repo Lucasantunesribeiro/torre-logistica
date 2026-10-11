@@ -96,6 +96,42 @@ O simulador não é navegador e não tem vítima a proteger, mas também não pa
 declara quem é, e quem opera decide se aquela origem entra na lista de permitidas. Sem declarar, o login é
 recusado — que é o padrão correto.
 
+## Identificar e repetir uma execução
+
+A demonstração é **sob demanda e reexecutável**: cada execução roda o roteiro contra a API e termina — não é
+simulação infinita que se renova sozinha. Isso é decisão (ADR 0032), não limitação: a plateia vê um começo,
+um meio e um fim, e o ambiente não gasta recurso encenando para ninguém.
+
+Cada execução se identifica por uma **etiqueta** no formato `demo-SEMENTE-CARIMBO` (por exemplo,
+`demo-2026-834172`). Ela aparece no log no início e no fim:
+
+```text
+Encenação demo-2026-834172 iniciada.
+...
+Encenação demo-2026-834172 encerrada. 6 histórias encenadas:
+```
+
+A semente decide a narrativa; o carimbo (segundos do relógio) distingue uma execução da outra nos cadastros
+que o sistema exige únicos — e-mail do motorista, placa, CNPJ —, para a segunda execução não esbarrar na
+unicidade da primeira. **Repetir é rodar de novo:** mesma história, etiqueta nova, cadastros novos.
+
+Limites de uma execução: teto de **30 minutos** de relógio de parede (`CancellationTokenSource`), **seis
+histórias**, tempo do roteiro comprimido por `MultiplicadorDeTempo`. O histórico de posição obedece à
+política de retenção configurada; timeline, ocorrências, comprovantes e auditoria são somente-inserção.
+
+## O que o console mostra: conexão × idade do dado × encenação
+
+Como a encenação termina e os dados envelhecem com a API no ar, o console **separa três coisas** no rodapé da
+navegação, para "conectado" nunca ser confundido com "ao vivo":
+
+- **Conexão** (`IndicadorDeConexao`): se a API responde — prontidão, não operação.
+- **Idade do dado e situação da encenação** (`IndicadorDaOperacao`, lendo `GET /api/operacao/pulso`): há
+  quanto tempo chegou a última posição. Até 2 min, *Operação ao vivo*; até 30 min, *Último dado há X*; acima
+  disso, *Encenação encerrada — último dado há X*; sem posição nenhuma, *Nenhuma operação em curso*.
+
+A idade é medida contra o relógio do **servidor** (o pulso devolve o `agora` na mesma resposta), não o do
+navegador do visitante — assim fuso ou atraso do cliente não inventam envelhecimento.
+
 ## Reset
 
 Não existe reset destrutivo, e isso é decisão, não esquecimento.

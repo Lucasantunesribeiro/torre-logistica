@@ -43,6 +43,12 @@ public sealed class EncenacaoDaDemonstracao(
     private readonly RoteiroDaDemonstracao _roteiro = new(opcoes.Semente);
     private long _sequenciaDePosicao;
 
+    /// <summary>
+    /// Etiqueta desta encenação (<c>demo-SEMENTE-CARIMBO</c>): identifica a execução nos logs e carimba os
+    /// cadastros que o sistema exige únicos, para uma encenação não esbarrar na anterior.
+    /// </summary>
+    public string Etiqueta => _roteiro.Etiqueta;
+
     /// <summary>Encena o roteiro inteiro e devolve o desfecho de cada história.</summary>
     public async Task<IReadOnlyList<DesfechoDaHistoria>> EncenarAsync(CancellationToken cancelamento)
     {

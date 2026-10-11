@@ -103,6 +103,13 @@ const esquemaDePosicao = z.object({
   recebidaEm: z.string(),
 });
 
+const esquemaDoPulso = z.object({
+  agora: z.string(),
+  ultimaPosicaoRecebidaEm: z.string().nullable(),
+  motoristasComPosicao: z.number().int(),
+  entregasEmAndamento: z.number().int(),
+});
+
 const esquemaDeParada = z.object({
   sequencia: z.number().int(),
   entregaId: z.string(),
@@ -219,6 +226,7 @@ export type Previsao = z.infer<typeof esquemaDePrevisao>;
 export type Comprovante = z.infer<typeof esquemaDeComprovante>;
 export type Motorista = z.infer<typeof esquemaDeMotorista>;
 export type Posicao = z.infer<typeof esquemaDePosicao>;
+export type PulsoDaOperacao = z.infer<typeof esquemaDoPulso>;
 export type RotaResumo = z.infer<typeof esquemaDeRotaResumo>;
 export type RotaDetalhe = z.infer<typeof esquemaDeRotaDetalhe>;
 export type Severidade = z.infer<typeof esquemaDeSeveridade>;
@@ -248,6 +256,7 @@ export const esquemasDeContrato = {
   '/api/motoristas': paginaDe(esquemaDeMotorista),
   '/api/alertas?estado=Aberto': paginaDe(esquemaDeAlerta),
   '/api/ocorrencias': paginaDe(esquemaDeOcorrencia),
+  '/api/operacao/pulso': esquemaDoPulso,
 } as const;
 
 /** Falha que a tela sabe mostrar: traz o código de erro da API quando há um. */
@@ -366,6 +375,10 @@ export const obterMotorista = (id: string): Promise<Motorista> => chamar(`/api/m
 
 export const obterPosicaoAtual = (motoristaId: string): Promise<Posicao> =>
   chamar(`/api/motoristas/${motoristaId}/posicao-atual`, esquemaDePosicao);
+
+/** Pulso da operação: idade do dado mais recente, para distinguir "ao vivo" de "encenação encerrada". */
+export const obterPulso = (sinal?: AbortSignal): Promise<PulsoDaOperacao> =>
+  chamar('/api/operacao/pulso', esquemaDoPulso, sinal ? { signal: sinal } : {});
 
 export const listarAlertas = (estado?: 'Aberto' | 'Resolvido', pagina = 1): Promise<Pagina<Alerta>> =>
   chamar(`/api/alertas${consulta({ pagina, tamanhoDaPagina: 25, estado })}`, paginaDe(esquemaDeAlerta));

@@ -69,6 +69,17 @@ Apagar o palco anterior exigiria remover linhas de tabelas **somente-inserção*
 ocorrências, comprovantes, auditoria —, e desligar esses gatilhos para uma demonstração seria trocar uma
 garantia de verdade por uma conveniência.
 
+### O console separa conexão, idade do dado e situação da encenação (adendo de 11/10/2026)
+
+Uma encenação sob demanda termina, e os dados envelhecem com a API no ar e respondendo. O console mostrava
+só a luz da conexão — e "conectado" foi lido como "ao vivo", com o mapa exibindo uma encenação encerrada sob
+o verde da prontidão.
+
+A correção não mexe no caráter sob demanda: o console passa a ler `GET /api/operacao/pulso` (só leitura, sem
+`UPDATE` para fabricar estado, sem apagar evento) e a mostrar, ao lado da conexão, a **idade do dado mais
+recente** e a **situação da encenação** — ao vivo, encerrada ou sem operação. A idade é medida contra o
+relógio do servidor, que vem na própria resposta. Documentado no guia do simulador.
+
 ## Consequências
 
 O ambiente de demonstração acumula encenações. Limpar isso é assunto do modo demonstração (Fase 24), que é
@@ -104,3 +115,5 @@ para dentro: o simulador é objeto de teste, não dependência da aplicação.
 | A e E são histórias diferentes | o mesmo teste: a normal **não** tem `ProximidadeDetectada` |
 | A semente manda de verdade | `SementeDiferenteMudaAOperacao`: destinos diferentes, ordem das histórias igual |
 | O simulador não alcança o banco | teste de arquitetura da ADR 0006, que reprova referência a Domain, Application ou Infrastructure |
+| O pulso reflete a idade do dado e respeita o tenant | `OperacaoTestes` (PostGIS real): sem posição diz que não há dado; com posição devolve o recebimento; uma org não vê a outra |
+| O console separa conectado de ao vivo | `App.test.tsx` → *Pulso da operação*: conexão verde convive com "Encenação encerrada" quando o dado tem dois dias |

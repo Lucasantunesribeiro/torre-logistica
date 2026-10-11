@@ -19,6 +19,7 @@ using TorreLogistica.Api.Indicadores;
 using TorreLogistica.Api.Integracoes;
 using TorreLogistica.Api.Observabilidade;
 using TorreLogistica.Api.Ocorrencias;
+using TorreLogistica.Api.Operacao;
 using TorreLogistica.Api.Previsao;
 using TorreLogistica.Api.Rastreamento;
 using TorreLogistica.Api.Rotas;
@@ -252,6 +253,7 @@ try
     aplicacao.MapearEndpointsDeWebhooks();
     aplicacao.MapearEndpointsDePrevisao();
     aplicacao.MapearEndpointsDeIndicadores();
+    aplicacao.MapearEndpointsDeOperacao();
     aplicacao.MapearEndpointsDeDemonstracao();
     aplicacao.MapearEndpointsDeOcorrencias();
     aplicacao.MapearEndpointsDeComprovantes();

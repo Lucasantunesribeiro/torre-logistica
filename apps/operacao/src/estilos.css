@@ -167,6 +167,12 @@ h1 {
   box-shadow: 0 0 0 3px var(--ruim-suave);
 }
 
+/* Encenação encerrada ou sem operação: cinza apagado, para o dado histórico não disputar com a conexão. */
+.conexao--historica .conexao__marca {
+  background: var(--cinza-400);
+  box-shadow: 0 0 0 3px var(--cinza-100);
+}
+
 .fases {
   margin: var(--e6) 0 0;
   padding-left: var(--e5);

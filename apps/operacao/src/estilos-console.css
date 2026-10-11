@@ -97,9 +97,16 @@
   box-shadow: var(--sombra-1);
 }
 
-.console__navegacao .conexao {
-  padding: var(--e3) var(--e3) 0;
+.console__estado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding-top: var(--e3);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.console__navegacao .conexao {
+  padding: 0 var(--e3);
   color: var(--cinza-400);
 }
 
