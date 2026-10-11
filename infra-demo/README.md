@@ -50,6 +50,7 @@
 | `Caddyfile` | TLS, redirecionamento, proxy do SignalR, arquivos estáticos e cabeçalhos |
 | `postgis/Dockerfile` | PostgreSQL 17 + PostGIS **para arm64** — a imagem oficial não publica essa arquitetura |
 | `web/Dockerfile` | as três aplicações web compiladas e servidas pelo Caddy |
+| `mapa/` | basemap self-host (Protomaps/PMTiles) servido sob `/tiles` — ver [`mapa/README.md`](./mapa/README.md) |
 | `.env.demo.example` | modelo do arquivo de ambiente; o real vive na máquina, fora do Git |
 
 Os workers continuam sendo um **processo à parte**, com imagem própria e sem porta nenhuma. Hospedar os

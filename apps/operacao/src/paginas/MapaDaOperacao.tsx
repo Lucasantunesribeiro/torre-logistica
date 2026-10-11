@@ -1,6 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Map as MapaGl, type GeoJSONSource } from 'maplibre-gl';
+import { Map as MapaGl, addProtocol, type GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { Protocol } from 'pmtiles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -22,6 +23,21 @@ const estiloSemProvedor = {
   layers: [{ id: 'fundo', type: 'background' as const, paint: { 'background-color': '#eef1f5' } }],
 };
 
+/**
+ * Registra o protocolo `pmtiles://` no MapLibre uma única vez.
+ *
+ * O basemap é um arquivo `.pmtiles` self-host (Protomaps), lido por requisições Range direto do arquivo —
+ * sem servidor de tiles. O protocolo é global do MapLibre: registrá-lo mais de uma vez lança erro, por isso
+ * a trava. Sem arquivo configurado, ele nunca é exercitado e o mapa usa o fundo neutro.
+ */
+let protocoloPmtilesRegistrado = false;
+function garantirProtocoloPmtiles(): void {
+  if (!protocoloPmtilesRegistrado) {
+    addProtocol('pmtiles', new Protocol().tile);
+    protocoloPmtilesRegistrado = true;
+  }
+}
+
 interface PontoDoMotorista {
   readonly motoristaId: string;
   readonly latitude: number;
@@ -40,6 +56,7 @@ export function MapaDaOperacao() {
   const container = useRef<HTMLDivElement | null>(null);
   const mapa = useRef<MapaGl | null>(null);
   const [pronto, setPronto] = useState(false);
+  const [fundoNeutro, setFundoNeutro] = useState(false);
   const [aoVivo, setAoVivo] = useState<Record<string, PontoDoMotorista>>({});
   const [selecionada, setSelecionada] = useState<string | null>(null);
 
@@ -102,21 +119,41 @@ export function MapaDaOperacao() {
       return;
     }
 
+    garantirProtocoloPmtiles();
+
+    const temEstiloConfigurado = ambiente.urlDoEstiloDoMapa !== null;
+    let caiuParaFundoNeutro = false;
+
     const instancia = new MapaGl({
       container: container.current,
       style: ambiente.urlDoEstiloDoMapa ?? estiloSemProvedor,
       center: [-47.06, -22.91],
       zoom: 10,
-      attributionControl: false,
+      // Atribuição visível: o basemap é derivado do OpenStreetMap e servido via Protomaps, e os dois
+      // exigem crédito. Compacta para não cobrir a operação.
+      attributionControl: { compact: true },
     });
 
     instancia.on('load', () => setPronto(true));
+
+    // Se o estilo configurado falhar — arquivos do mapa ausentes ou fora do ar —, cai uma única vez
+    // para o fundo neutro: os pontos e a lista continuam aparecendo, em vez de uma tela vazia. A guarda
+    // por `isStyleLoaded` evita que um erro de um tile isolado, com o basemap já carregado, derrube o fundo.
+    instancia.on('error', () => {
+      if (temEstiloConfigurado && !caiuParaFundoNeutro && !instancia.isStyleLoaded()) {
+        caiuParaFundoNeutro = true;
+        setFundoNeutro(true);
+        instancia.setStyle(estiloSemProvedor);
+      }
+    });
+
     mapa.current = instancia;
 
     return () => {
       instancia.remove();
       mapa.current = null;
       setPronto(false);
+      setFundoNeutro(false);
     };
   }, []);
 
@@ -165,6 +202,12 @@ export function MapaDaOperacao() {
         {ambiente.urlDoEstiloDoMapa === null && (
           <p className="sumario">
             Sem provedor de mapa configurado: os pontos aparecem sobre fundo neutro.
+          </p>
+        )}
+
+        {ambiente.urlDoEstiloDoMapa !== null && fundoNeutro && (
+          <p className="sumario">
+            Mapa de fundo indisponível agora: os pontos aparecem sobre fundo neutro.
           </p>
         )}
 

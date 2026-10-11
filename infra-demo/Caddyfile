@@ -94,15 +94,32 @@
 # ---------------------------------------------------------------------------
 {$TORRE_ESQUEMA_PUBLICO:https}://{$TORRE_DOMINIO_CONSOLE} {
 	import cabecalhos-comuns "strict-origin-when-cross-origin"
-	root * /srv/operacao
-	import aplicacao-de-pagina-unica
 
 	# `connect-src` precisa listar a API em https e em wss: a segunda é a conexão persistente do
 	# SignalR, e uma política que cobre só https derruba o tempo real sem derrubar o resto — o mapa
 	# carrega e simplesmente não se move.
 	# `worker-src blob:` e `img-src blob:` são exigência do MapLibre, que desenha o mapa num worker
-	# criado a partir de blob.
+	# criado a partir de blob. O basemap PMTiles é do próprio domínio (abaixo), então `'self'` basta.
 	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://{$TORRE_DOMINIO_API} wss://{$TORRE_DOMINIO_API}; img-src 'self' data: blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+	# Basemap self-host (Protomaps/PMTiles): o `.pmtiles`, os glyphs e o sprite servidos como arquivo
+	# estático. O `file_server` do Caddy responde a requisições Range (byte-range) por padrão — e é essa
+	# a condição para o protocolo PMTiles ler o arquivo por faixas, sem servidor de tiles. Montados de um
+	# diretório do hospedeiro (ver compose); ausentes, o console cai para o fundo neutro sem quebrar.
+	# Vem antes do catch-all da aplicação: `/tiles/*` são arquivos, não rotas do cliente.
+	handle_path /tiles/* {
+		root * /srv/mapa
+		encode zstd gzip
+		# Imutável: o nome do arquivo muda quando o dado muda (reprovisionamento), e um dia de cache
+		# cobre bem uma demonstração sem prender uma versão velha por muito tempo.
+		header Cache-Control "public, max-age=86400"
+		file_server
+	}
+
+	handle {
+		root * /srv/operacao
+		import aplicacao-de-pagina-unica
+	}
 }
 
 # ---------------------------------------------------------------------------

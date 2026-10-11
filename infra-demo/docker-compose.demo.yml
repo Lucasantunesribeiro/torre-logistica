@@ -254,6 +254,11 @@ services:
     volumes:
       - caddy-estado:/data
       - caddy-configuracao:/config
+      # Basemap self-host (Protomaps/PMTiles) servido sob /tiles pela borda. Diretório do hospedeiro,
+      # somente leitura: os arquivos (.pmtiles, glyphs, sprite, style.json) são provisionados fora do
+      # repositório e fora da imagem — ver infra-demo/mapa/README.md. Ausente ou vazio, o console cai
+      # para o fundo neutro sem quebrar.
+      - ${TORRE_DIRETORIO_DADOS:-/srv/torre-logistica}/mapa:/srv/mapa:ro
 
     healthcheck:
       # Porta 8081: existe só dentro da rede do Docker, porque não está em `ports:`. Perguntar pelo

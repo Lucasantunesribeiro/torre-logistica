@@ -21,8 +21,11 @@ vi.mock('maplibre-gl', () => ({
     addSource = () => undefined;
     addLayer = () => undefined;
     flyTo = () => undefined;
+    isStyleLoaded = () => true;
+    setStyle = () => undefined;
     remove = () => undefined;
   },
+  addProtocol: () => undefined,
 }));
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
