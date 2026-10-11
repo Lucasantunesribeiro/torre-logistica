@@ -73,10 +73,10 @@ telemetria atrasada.
 > aconteceu sem abrir o banco. E agora o sistema tem **números**: a ingestão sustenta as 33 posições por
 > segundo da meta, o volume de um dia inteiro não a degrada — o que custa é a concorrência —, e o
 > particionamento foi **recusado** porque a medição não o justificou. Os números, o ambiente e os gargalos
-> conhecidos estão em [`docs/performance.md`](./docs/performance.md). E agora a operação **acontece
-> sozinha**: o simulador encena seis histórias contra a API real — entrega no prazo, risco de atraso,
-> motorista que some do mapa, porta fechada, chegada detectada pelo geofence e prova de entrega — sem
-> tocar no banco, e a mesma semente conta a mesma história. O guia está em
+> conhecidos estão em [`docs/performance.md`](./docs/performance.md). E a operação **ganha vida por um
+> roteiro sob demanda**: quando acionado, o simulador encena seis histórias contra a API real — entrega no
+> prazo, risco de atraso, motorista que some do mapa, porta fechada, chegada detectada pelo geofence e prova
+> de entrega — sem tocar no banco, e a mesma semente conta a mesma história; terminado o roteiro, ele sai. O guia está em
 > [`docs/operacao/simulador.md`](./docs/operacao/simulador.md). E agora existe **porta de entrada**: quem
 > chega sem credencial clica em *Explorar demonstração* e cai numa operação acontecendo — o servidor faz o
 > login pelo visitante, com conta de privilégio mínimo, e a porta simplesmente não existe num ambiente
@@ -313,7 +313,7 @@ sério:
 - [`docs/pentest-v1.md`](./docs/pentest-v1.md) — pentest gray-box da v1 contra a produção pública
 - [`docs/cost-model.md`](./docs/cost-model.md) — gate de arquitetura e o que dirige o custo
 - [`infra/README.md`](./infra/README.md) — infraestrutura de **produção** (Azure): aplicada de verdade e destruída por decisão de custo
-- [`infra-demo/README.md`](./infra-demo/README.md) — infraestrutura da **demonstração** (Oracle Always Free): US$ 0,00/mês, validada localmente, nada provisionado
+- [`infra-demo/README.md`](./infra-demo/README.md) — infraestrutura da **demonstração** (Oracle Always Free): US$ 0,00/mês, **provisionada e no ar** em `operacao.torre.lucasafvr.com.br`
 - [`docs/seguranca/gestao-de-segredos.md`](./docs/seguranca/gestao-de-segredos.md) — segredos
 - [`docs/seguranca/matriz-de-autorizacao.md`](./docs/seguranca/matriz-de-autorizacao.md) — quem acessa o quê
 
