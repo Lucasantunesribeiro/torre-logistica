@@ -49,23 +49,51 @@ public static class DestinoDeWebhook
             }
         }
 
-        return enderecos.Length > 0 && Array.TrueForAll(enderecos, EhPublico);
+        return enderecos.Length > 0 && Array.TrueForAll(enderecos, EhEnderecoPublico);
     }
 
-    private static bool EhPublico(IPAddress endereco)
+    /// <summary>Decide se UM endereço resolvido é público, aplicando a mesma política a IPv4 e IPv6.</summary>
+    /// <remarks>
+    /// Normaliza IPv4 mapeado em IPv6 (<c>::ffff:a.b.c.d</c>) <b>antes</b> de decidir: sem isto,
+    /// <c>::ffff:10.0.0.5</c> e <c>::ffff:169.254.169.254</c> passavam como "públicos" (o código anterior
+    /// liberava todo endereço não-IPv4) e alcançavam a rede interna. É <see langword="internal"/> para o
+    /// conector revalidar exatamente este critério no instante de conectar.
+    /// </remarks>
+    internal static bool EhEnderecoPublico(IPAddress endereco)
     {
-        if (IPAddress.IsLoopback(endereco)
-            || endereco.IsIPv6LinkLocal
-            || endereco.IsIPv6SiteLocal
-            || endereco.IsIPv6UniqueLocal
-            || endereco.IsIPv6Multicast)
+        ArgumentNullException.ThrowIfNull(endereco);
+
+        // IPv4 disfarçado de IPv6 volta a ser IPv4 antes da política — senão escaparia da faixa privada.
+        if (endereco.IsIPv4MappedToIPv6)
         {
-            return false;
+            endereco = endereco.MapToIPv4();
         }
 
-        if (endereco.AddressFamily != AddressFamily.InterNetwork)
+        if (endereco.AddressFamily == AddressFamily.InterNetworkV6)
         {
-            return true;
+            if (IPAddress.IsLoopback(endereco)               // ::1
+                || endereco.Equals(IPAddress.IPv6Any)        // :: (não especificado)
+                || endereco.IsIPv6LinkLocal                  // fe80::/10
+                || endereco.IsIPv6SiteLocal                  // fec0::/10 (obsoleto)
+                || endereco.IsIPv6UniqueLocal                // fc00::/7
+                || endereco.IsIPv6Multicast)                 // ff00::/8
+            {
+                return false;
+            }
+
+            // ::x.x.x.x (IPv4-compatível, obsoleto) embute um IPv4 nos 32 bits baixos, com os 96 bits
+            // altos zerados. Unicast global de verdade tem bits altos não nulos — então "altos zerados"
+            // denuncia a forma embutida e é recusado por garantia.
+            var octetos = endereco.GetAddressBytes();
+            for (var i = 0; i < 12; i++)
+            {
+                if (octetos[i] != 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         var partes = endereco.GetAddressBytes();

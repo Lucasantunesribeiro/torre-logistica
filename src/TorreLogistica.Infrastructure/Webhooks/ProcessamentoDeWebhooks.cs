@@ -116,12 +116,30 @@ public static class ConfiguracaoDeWebhooks
 
         servicos
             .AddHttpClient<IClienteDeWebhook, ClienteDeWebhookHttp>(ClienteDeWebhookHttp.NomeDoCliente)
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            .ConfigurePrimaryHttpMessageHandler(provedor =>
             {
-                // Redirecionamento seguido às cegas contorna a checagem de destino: o assinante
-                // responderia 302 para um endereço interno e nós iríamos atrás.
-                AllowAutoRedirect = false,
-                ConnectTimeout = TimeSpan.FromSeconds(5),
+                // O conector herda a mesma decisão do pré-voo: PermitirDestinoLocal libera destino local
+                // só no cenário autorizado de dev/teste; fora disso vale a política pública.
+                var permitirLocal = provedor
+                    .GetRequiredService<IOptions<OpcoesDeWebhooks>>().Value.PermitirDestinoLocal;
+
+                return new SocketsHttpHandler
+                {
+                    // Redirecionamento seguido às cegas contorna a checagem de destino: o assinante
+                    // responderia 302 para um endereço interno e nós iríamos atrás.
+                    AllowAutoRedirect = false,
+                    ConnectTimeout = TimeSpan.FromSeconds(5),
+
+                    // Proxy desligado de propósito: um proxy do processo ou do ambiente (HTTP_PROXY etc.)
+                    // reabriria por fora a porta que a política de destino fecha. A conexão efetiva TEM que
+                    // passar pelo conector abaixo.
+                    UseProxy = false,
+                    Proxy = null,
+
+                    // Conecta só a um endereço aprovado, revalidado no instante da conexão — fecha o DNS
+                    // rebinding e cobre retries e endereços alternativos, porque toda conexão nova passa aqui.
+                    ConnectCallback = new ConectorDeWebhook(permitirLocal).ConectarAsync,
+                };
             });
 
         return servicos;
