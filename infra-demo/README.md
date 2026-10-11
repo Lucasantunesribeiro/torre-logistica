@@ -10,6 +10,12 @@
 > operação logística de verdade.
 >
 > A decisão está no [ADR 0035](../docs/adr/0035-demonstracao-de-custo-zero.md).
+>
+> **Estado atual (08/10/2026):** o estudo abaixo decidiu pelo shape `E2.1.Micro`, e ele **foi provisionado e
+> está no ar** — `operacao.torre.lucasafvr.com.br` (e `motorista.`, `rastrear.`, `api.`), por US$ 0,00/mês.
+> O terraform deste diretório foi aplicado (estado em [`terraform/terraform.tfstate`](./terraform/terraform.tfstate),
+> saída `public_ip = 137.131.167.193`). Os trechos adiante que dizem "nada provisionado" descrevem o momento
+> do **estudo**, antes dessa aplicação, e ficam como registro da decisão — não como o estado de hoje.
 
 ---
 
