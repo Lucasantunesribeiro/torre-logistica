@@ -163,10 +163,12 @@ npm run verificar                                             # frontend
 
 | Suíte | Provas |
 |---|:---:|
-| Unidade | 695 |
-| Arquitetura | 22 |
-| Integração (PostgreSQL + PostGIS real) | 544 |
+| Unidade | 762 |
+| Arquitetura | 28 |
+| Integração (PostgreSQL + PostGIS real) | 571 |
 | Frontend (3 aplicações) | 131 |
+
+> Contagens da [execução de CI 38134824795](https://github.com/Lucasantunesribeiro/torre-logistica/actions/runs/38134824795) em 11/10/2026: backend 762 + 28 + 571 (2 ignorados), 0 falhas; frontend 131; e os 5 contratos do console executados contra a API real no job *Contrato*.
 
 Integração usa PostgreSQL com PostGIS de verdade, por Testcontainers. Provedor em
 memória não prova transação, constraint, índice nem geografia — que é justamente o que
