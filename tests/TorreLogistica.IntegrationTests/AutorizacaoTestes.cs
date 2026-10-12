@@ -246,6 +246,7 @@ public sealed class AutorizacaoTestes(ContainerPostgis banco) : TesteDeIntegraca
             ["GET /api/rotas/"] = "operacao:leitura",
             ["GET /api/rotas/{id:guid}"] = "operacao:leitura",
             ["GET /api/rotas/{id:guid}/eventos"] = "operacao:leitura",
+            ["GET /api/operacao/pulso"] = "operacao:leitura",
             ["POST /api/rotas/"] = "operacao:gestao",
             ["POST /api/rotas/{id:guid}/paradas"] = "operacao:gestao",
             ["DELETE /api/rotas/{id:guid}/paradas/{entregaId:guid}"] = "operacao:gestao",
