@@ -26,9 +26,11 @@ vi.mock('maplibre-gl', () => ({
     remove = () => undefined;
   },
   addProtocol: () => undefined,
+  setWorkerUrl: () => undefined,
 }));
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
+vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({ default: 'worker-url-de-teste' }));
 
 vi.mock('@microsoft/signalr', () => {
   class Construtor {

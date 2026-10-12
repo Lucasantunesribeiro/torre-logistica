@@ -110,9 +110,15 @@
 	handle_path /tiles/* {
 		root * /srv/mapa
 		encode zstd gzip
-		# Imutável: o nome do arquivo muda quando o dado muda (reprovisionamento), e um dia de cache
-		# cobre bem uma demonstração sem prender uma versão velha por muito tempo.
-		header Cache-Control "public, max-age=86400"
+
+		# O style.json é config, não dado imutável: um erro nele não pode ficar preso um dia no cache do
+		# navegador. `no-cache` força revalidar a cada carga (o MapLibre busca o estilo por fetch, que
+		# reusa o cache HTTP mesmo no reload). Os arquivos de dado — .pmtiles, glyphs, sprite — não mudam
+		# sem reprovisionamento, então valem um dia de cache.
+		@config path /style.json
+		@dados not path /style.json
+		header @config Cache-Control "no-cache"
+		header @dados Cache-Control "public, max-age=86400"
 		file_server
 	}
 

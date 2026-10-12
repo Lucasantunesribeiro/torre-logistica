@@ -89,7 +89,7 @@ O `style.json` é a saída do tema oficial do Protomaps, com fonte, glyphs e spr
 ```bash
 npm install --no-save @protomaps/basemaps@5.7.2
 node -e '
-  const { layers } = require("@protomaps/basemaps");
+  const { layers, namedFlavor } = require("@protomaps/basemaps");
   const estilo = {
     version: 8,
     glyphs: "/tiles/glyphs/{fontstack}/{range}.pbf",
@@ -99,7 +99,8 @@ node -e '
       url: "pmtiles:///tiles/campinas.pmtiles",
       attribution: "© OpenStreetMap · Protomaps",
     } },
-    layers: layers("protomaps", "light", { lang: "pt" }),
+    // namedFlavor("light"), NAO a string "light": a string faz as cores saírem null e o MapLibre recusa o estilo.
+    layers: layers("protomaps", namedFlavor("light"), { lang: "pt" }),
   };
   require("fs").writeFileSync("infra-demo/mapa/style.json", JSON.stringify(estilo, null, 2) + "\n");
 '

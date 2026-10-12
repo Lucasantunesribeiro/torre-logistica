@@ -1,6 +1,10 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Map as MapaGl, addProtocol, type GeoJSONSource } from 'maplibre-gl';
+import { Map as MapaGl, addProtocol, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// O MapLibre v6 é ESM e, sob um bundler, não resolve sozinho a URL do próprio Web Worker. O worker do
+// MapLibre importa de um chunk compartilhado, então é preciso o Vite EMPACOTÁ-LO (`?worker&url`, não `?url`):
+// o `?url` cru entregaria um arquivo com um import que não resolve, e o worker morreria ao subir, sem erro.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { Protocol } from 'pmtiles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
@@ -24,17 +28,22 @@ const estiloSemProvedor = {
 };
 
 /**
- * Registra o protocolo `pmtiles://` no MapLibre uma única vez.
+ * Prepara a infraestrutura global do MapLibre uma única vez: a URL do Web Worker e o protocolo `pmtiles://`.
  *
- * O basemap é um arquivo `.pmtiles` self-host (Protomaps), lido por requisições Range direto do arquivo —
- * sem servidor de tiles. O protocolo é global do MapLibre: registrá-lo mais de uma vez lança erro, por isso
- * a trava. Sem arquivo configurado, ele nunca é exercitado e o mapa usa o fundo neutro.
+ * Duas coisas globais, feitas juntas antes de qualquer mapa:
+ * - <b>Worker.</b> O MapLibre v6 é ESM e, sob o Vite, não descobre sozinho a URL do próprio worker — e é o
+ *   worker que busca e decodifica os tiles vetoriais. Sem isto ele não sobe, nenhum tile é pedido e o mapa
+ *   pinta só o fundo do estilo, <i>sem erro no console</i>. O bug ficava escondido enquanto o mapa usava só
+ *   o fundo neutro (sem fonte, sem worker); apareceu ao ligar a fonte PMTiles.
+ * - <b>Protocolo.</b> O basemap é um `.pmtiles` self-host (Protomaps), lido por requisições Range direto do
+ *   arquivo, sem servidor de tiles. Registrar o protocolo duas vezes lança erro, daí a trava.
  */
-let protocoloPmtilesRegistrado = false;
-function garantirProtocoloPmtiles(): void {
-  if (!protocoloPmtilesRegistrado) {
+let infraDoMapaPronta = false;
+function garantirInfraDoMapa(): void {
+  if (!infraDoMapaPronta) {
+    setWorkerUrl(maplibreWorkerUrl);
     addProtocol('pmtiles', new Protocol().tile);
-    protocoloPmtilesRegistrado = true;
+    infraDoMapaPronta = true;
   }
 }
 
@@ -119,10 +128,9 @@ export function MapaDaOperacao() {
       return;
     }
 
-    garantirProtocoloPmtiles();
+    garantirInfraDoMapa();
 
     const temEstiloConfigurado = ambiente.urlDoEstiloDoMapa !== null;
-    let caiuParaFundoNeutro = false;
 
     const instancia = new MapaGl({
       container: container.current,
@@ -134,22 +142,36 @@ export function MapaDaOperacao() {
       attributionControl: { compact: true },
     });
 
-    instancia.on('load', () => setPronto(true));
-
-    // Se o estilo configurado falhar — arquivos do mapa ausentes ou fora do ar —, cai uma única vez
-    // para o fundo neutro: os pontos e a lista continuam aparecendo, em vez de uma tela vazia. A guarda
-    // por `isStyleLoaded` evita que um erro de um tile isolado, com o basemap já carregado, derrube o fundo.
-    instancia.on('error', () => {
-      if (temEstiloConfigurado && !caiuParaFundoNeutro && !instancia.isStyleLoaded()) {
-        caiuParaFundoNeutro = true;
-        setFundoNeutro(true);
-        instancia.setStyle(estiloSemProvedor);
+    let caiu = false;
+    const cairParaFundoNeutro = () => {
+      if (caiu) {
+        return;
       }
-    });
+      caiu = true;
+      setFundoNeutro(true);
+      instancia.setStyle(estiloSemProvedor);
+    };
+
+    // Cai para o fundo neutro só se o ESTILO não chegar a carregar dentro do prazo. O sinal de sucesso é
+    // `style.load` — o estilo foi lido e é usável —, e NÃO `load`, que só dispara quando os primeiros tiles
+    // também chegaram: num servidor compartilhado a primeira leva de tiles vetoriais pode demorar, e esperar
+    // por ela neutralizaria um mapa que está perfeitamente bom. Erros isolados de tile ou glyph não derrubam
+    // o estilo; o que derruba — arquivos ausentes, estilo inválido — se manifesta como um style.load que
+    // nunca chega, e é isso que o prazo cobre.
+    const prazoDoEstilo = temEstiloConfigurado ? window.setTimeout(cairParaFundoNeutro, 12000) : undefined;
+
+    const marcarPronto = () => {
+      window.clearTimeout(prazoDoEstilo);
+      setPronto(true);
+    };
+
+    instancia.on('style.load', marcarPronto);
+    instancia.on('load', marcarPronto);
 
     mapa.current = instancia;
 
     return () => {
+      window.clearTimeout(prazoDoEstilo);
       instancia.remove();
       mapa.current = null;
       setPronto(false);

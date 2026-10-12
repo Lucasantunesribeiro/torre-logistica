@@ -21,6 +21,13 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
+
+  // O worker do MapLibre v6 é um módulo ES que importa de um chunk compartilhado. Empacotá-lo como ES
+  // (e não como o IIFE padrão) mantém esse import e casa com o `new Worker(url, { type: 'module' })` que
+  // o próprio MapLibre usa — ver apps/operacao/src/paginas/MapaDaOperacao.tsx.
+  worker: {
+    format: 'es',
+  },
   test: {
     environment: 'jsdom',
 
